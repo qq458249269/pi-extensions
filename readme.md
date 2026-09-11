@@ -24,6 +24,7 @@
 
 ```bash
 npm install -g pi-tool-search
+```
 
 ## 1. 工具增强
 
