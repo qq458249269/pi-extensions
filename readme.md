@@ -63,6 +63,15 @@ npm install -g pi-tool-search
 
 - `pi install npm:pi-tps`
 - **功能**：在每次 Agent 回合后显示模型输出速度（TPS）、首 token 延迟（TTFT）、停顿检测、token 使用量和成本等信息，方便评估 Agent 的工作效率。
+- **安装后必须配置主题**：pi-tps 刚装好时 `colorPreset` 默认为 `mono`，小部件颜色不跟随 pi 主题。需改为 `theme`（跟随 pi 主题），同时把 `settings.json` 的 `theme` 设为 `light/dark`（跟随系统亮暗），否则终端切换外观时小部件颜色错乱。
+
+  一键自动化（幂等，可重复执行，同时改 `pi-tps.json` 的 `colorPreset` 和 `settings.json` 的 `theme`）：
+
+  ```powershell
+  powershell -NoProfile -ExecutionPolicy Bypass -File fix-tps-theme.ps1
+  ```
+
+  等效手动操作：`/pi-tps` 命令选 `theme (follow terminal theme)`，`/settings` 中把主题设为 `light/dark`。修改后重启 Pi 生效。
 
 - `pi install npm:pi-cache-graph`
 - **功能**：提供 `/cache graph` 和 `/cache stats` 等命令，可视化显示缓存命中率随时间的变化，以及每条消息的 token/缓存分解，可用于调试哪些扩展影响了上下文缓存效率。
