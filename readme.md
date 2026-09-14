@@ -111,7 +111,7 @@
   - **纠错检测**：当你纠正 Agent 时立即触发保存，防止同类错误再次发生。
   - **秘密扫描**：每次写入前扫描内容，阻止 API 密钥、令牌和提示词注入被持久化。
   - **双层记忆**：全局记忆（`~/.pi/agent/pi-hermes-memory/`）与项目级记忆（`~/.pi/agent/projects-memory/<project>/`）分离，均可独立搜索。
-- **低 token 注入**：默认 `memoryMode: "policy-only"`，系统提示词仅注入记忆使用策略，具体内容由工具按需搜索，避免将全部历史塞入上下文。
+- **低 token 注入**：默认 `memoryMode: "policy-only"`，系统提示词仅注入记忆使用策略，具体内容由工具按需搜索，避免将全部历史塞入上下文。**建议维持默认值**；若改为 `full` 会将所有记忆常驻注入，每轮额外消耗数千 token，得不偿失。
 - **首次配置（推荐）** ：安装后运行以下命令完成初始化：
   - `/memory-index-sessions` — 索引过往会话，使其可被搜索。
   - `/memory-sync-markdown` — 将旧的 Markdown 记忆回填到 SQLite 搜索库（可选）。
@@ -134,7 +134,7 @@
 ```json
 {
   "toolSearch": {
-    "alwaysEnabled": ["lsp", "grep", "find"],
+    "alwaysEnabled": ["grep", "find"],
     "showToolSearchFooterStatus": true
   }
 }
