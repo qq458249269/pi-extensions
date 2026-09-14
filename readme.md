@@ -127,6 +127,11 @@
 - **功能**：集成 SCIP（Sourcegraph 代码智能协议）索引器，为 Python 和 TypeScript/JavaScript 项目提供编译器级精确的代码导航。支持 `scip_find_definition`（定位符号定义）、`scip_find_references`（查找所有引用）、`scip_list_symbols`（列出文件中的符号）等工具。
 - **注意**：不要手动 `npm install -g` 后创建符号链接（symlink 的相对导入会相对 symlink 所在目录解析，导致启动报 `Cannot find module './extension.js'`），直接 `pi install npm:@qualisero/pi-agent-scip` 即可。
 
+- `pi install npm:@ian-pascoe/pi-lsp`
+- **功能**：为 Pi 提供语言服务器协议（LSP）集成，暴露诊断、跳转定义、悬停、引用、符号等工具，并在 `edit`/`write` 后自动运行诊断反馈给 Agent。与 `toolSearch.alwaysEnabled` 中的 `"lsp"` 对应。
+- **配置**：不捆绑任何语言服务器二进制，需在 `settings.json`（全局）或项目 `.pi/settings.json`（受信任）的 `lsp` 键下手动配置各语言 server，例如 TypeScript 用 `pnpm exec tsc --lsp --stdio`、Python 用 `pyright` 等，并指定 `languages.extensions` 与超时参数。
+- **注意**：仅读取 `lsp` 键；未配置的快捷键静默失效。安装后重启 Pi 生效。
+
 ## 8. 电脑操作
 
 - `pi install npm:@injaneity/pi-computer-use`
