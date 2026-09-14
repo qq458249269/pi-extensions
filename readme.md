@@ -47,7 +47,21 @@
 ## 4. 效率与监控
 
 - `pi install npm:pi-tps`
-- **功能**：在每次 Agent 回合后显示模型输出速度（TPS）、首 token 延迟（TTFT）、停顿检测、token 使用量和成本等信息，方便评估 Agent 的工作效率。
+- **功能**：在每次 Agent 回合后显示模型输出速度（TPS）、首 token 延迟（TTFT）、停顿检测、token 使用量和成本等信息，方便评估 Agent 的工作效率。同时承担**运行状态指示**职责：回合运行中在 TUI 底部状态栏实时显示旋转 spinner（等待 LLM 响应）、实时 TPS、Waterfall 瀑布图（每个工具调用的起止时刻、耗时、状态，一眼看出当前卡在哪个工具）。回合结束（`agent_end`）时弹出整回合统计摘要。
+- **命令**：`/pi-tps` — 配置显示项（`showTraces` 瀑布图、`showStats` 统计、`showTtft` 首 token 延迟）与颜色主题。
+- **配置文件**：`~/.pi/agent/pi-tps.json`
+
+  ```json
+  {
+    "showTraces": true,
+    "showStats": true,
+    "showTtft": false,
+    "colorPreset": "mono",
+    "maxTraces": 100,
+    "maxDetailed": 6
+  }
+  ```
+
 - **安装后必须配置主题**：pi-tps 刚装好时 `colorPreset` 默认为 `mono`，小部件颜色不跟随 pi 主题。需改为 `theme`（跟随 pi 主题），同时把 `settings.json` 的 `theme` 设为 `light/dark`（跟随系统亮暗），否则终端切换外观时小部件颜色错乱。
 
   一键自动化（幂等，可重复执行，同时改 `pi-tps.json` 的 `colorPreset` 和 `settings.json` 的 `theme`）：
@@ -57,6 +71,7 @@
   ```
 
   等效手动操作：`/pi-tps` 命令选 `theme (follow terminal theme)`，`/settings` 中把主题设为 `light/dark`。修改后重启 Pi 生效。
+- **注意**：指示仅在任务回合中显示，回合结束即收起。如需持续常驻的运行状态，可选 `@reykjavik-labs/pi-extensions`（状态栏 footer：模型、token、git、TPS、上下文占用）或 `@epiphanye/pi-hud`（桌面桌宠，需装 PySide6）。
 
 ## 5. 任务管理
 
