@@ -32,24 +32,13 @@
 
 ## 2. 网络与 MCP
 
-- `pi install npm:pi-web-access`
-- **功能**：为 Pi 提供全面的网络访问能力，包括网页搜索、URL 抓取、GitHub 仓库克隆、PDF 提取和 YouTube 视频理解。支持 OpenAI、Brave、Exa、Tavily 等多种搜索源。
-
 - `pi install npm:pi-mcp-adapter`
 - **功能**：以极低 token 消耗接入 MCP（模型上下文协议）服务器。用一个约 200 token 的代理工具替代数百个工具定义，仅在需要时按需加载 MCP 服务器。
 - **按需加载**：该适配器的 `lifecycle` 字段默认值即为 `"lazy"`，服务器在首次工具调用前不会连接，无需额外配置。如需针对特定服务器调整，可在 `mcp.json` 中设置 `"lifecycle": "lazy"`。
 
 ## 3. 安全与质量
 
-> **说明**：以下前三个扩展为社区维护的本地 `.ts` 扩展文件，而非 npm 包。需要手动将文件复制到 `~/.pi/agent/extensions/` 目录下，Pi 启动时会自动加载。
-
-- **`react-lint-hook.ts`** / **`python-lint-hook.ts`** / **`rust-lint-hook.ts`**
-- **功能**：在 `edit` 或 `write` 工具操作相关文件后自动运行 Lint 和类型检查。React/TS 文件执行 `lint && typecheck`，Python 文件执行 `ruff check && pyright`，Rust 文件执行 `cargo clippy`，并将错误反馈给 Agent 自动修复。
-- **来源**：`https://github.com/kksimons/pi-config`
-
-- **`filter-output.ts`**
-- **功能**：在工具结果发送给模型前进行过滤和脱敏，可移除源代码注释、编译噪音和测试冗余信息，在保留关键信息的同时大幅减少 token 消耗，并自动脱敏 API 密钥、令牌等敏感信息。
-- **来源**：`https://github.com/michalvavra/agents/blob/main/agents/pi/extensions/filter-output.ts`
+> **说明**：该扩展为社区维护的本地 `.ts` 扩展文件，而非 npm 包。需要手动将文件复制到 `~/.pi/agent/extensions/` 目录下，Pi 启动时会自动加载。
 
 - **`security.ts`**（即 `bash-guard` 类扩展）
 - **功能**：拦截 `bash` 工具调用，执行确定性的安全策略检查，阻止危险的 bash 命令（如 `rm -rf`、`chmod 777` 等），保护系统安全。
@@ -69,18 +58,11 @@
 
   等效手动操作：`/pi-tps` 命令选 `theme (follow terminal theme)`，`/settings` 中把主题设为 `light/dark`。修改后重启 Pi 生效。
 
-- `pi install npm:pi-cache-graph`
-- **功能**：提供 `/cache graph` 和 `/cache stats` 等命令，可视化显示缓存命中率随时间的变化，以及每条消息的 token/缓存分解，可用于调试哪些扩展影响了上下文缓存效率。
-
 ## 5. 任务管理
 
 - `pi install npm:@xzzpig/pi-goal-x`
 - **功能**：为 Pi 增加持久化的长期目标模式。支持 `/goal-set` 起草目标、结构化任务列表与子任务、Sisyphus 步骤门控、`autoContinue` 自动继续，以及编辑器上方的状态覆盖层。
 - **注意**：`pi-goal-x` 有多个社区分支（`@aalalice233/pi-goal-x`、`@fractaal/pi-goal-x` 等），`@xzzpig/pi-goal-x` 是维护较活跃且包含 TUI 覆盖层保护的版本，建议优先使用。
-
-- `pi install npm:@juicesharp/rpiv-todo`
-- **功能**：为模型提供可见的任务列表。新增 `todo` 工具和 `/todos` 命令，并在编辑器上方渲染实时面板，显示当前正在执行、已完成和排队中的任务，支持 `blockedBy` 依赖跟踪。
-- **注意**：该包已从 monorepo 迁移，npm 包名保持不变，安装方式无需调整。
 
 - `pi install npm:@cr1ms0n/pi-subagent`
 - **功能**：独立子代理（subagent）扩展（Luke Parke 原版 `@parke.dev/pi-subagent` 的社区 fork，新增显式模型策略与 TUI 显示真实模型）。将调研、并行探索、审查等任务委派给隔离的 Pi 子进程，主上下文不被打扰。核心能力包括：
@@ -123,22 +105,12 @@
 
 ## 7. 代码智能
 
-- `pi install npm:@qualisero/pi-agent-scip`
-- **功能**：集成 SCIP（Sourcegraph 代码智能协议）索引器，为 Python 和 TypeScript/JavaScript 项目提供编译器级精确的代码导航。支持 `scip_find_definition`（定位符号定义）、`scip_find_references`（查找所有引用）、`scip_list_symbols`（列出文件中的符号）等工具。
-- **注意**：不要手动 `npm install -g` 后创建符号链接（symlink 的相对导入会相对 symlink 所在目录解析，导致启动报 `Cannot find module './extension.js'`），直接 `pi install npm:@qualisero/pi-agent-scip` 即可。
-
 - `pi install npm:@ian-pascoe/pi-lsp`
 - **功能**：为 Pi 提供语言服务器协议（LSP）集成，暴露诊断、跳转定义、悬停、引用、符号等工具，并在 `edit`/`write` 后自动运行诊断反馈给 Agent。与 `toolSearch.alwaysEnabled` 中的 `"lsp"` 对应。
 - **配置**：不捆绑任何语言服务器二进制，需在 `settings.json`（全局）或项目 `.pi/settings.json`（受信任）的 `lsp` 键下手动配置各语言 server，例如 TypeScript 用 `pnpm exec tsc --lsp --stdio`、Python 用 `pyright` 等，并指定 `languages.extensions` 与超时参数。
 - **注意**：仅读取 `lsp` 键；未配置的快捷键静默失效。安装后重启 Pi 生效。
 
-## 8. 电脑操作
-
-- `pi install npm:@injaneity/pi-computer-use`
-- **功能**：让 Agent 拥有“眼睛和手”，可以观察屏幕、查找 UI 元素，并通过原生鼠标/键盘事件与任何应用交互。适用于从 Pi 启动、测试和调试 GUI 应用程序。
-- **安装后配置**：安装后需启动 Pi 并完成平台设置流程。在 macOS 上，需要手动授予**辅助功能（Accessibility）** 和**屏幕录制（Screen Recording）** 权限。默认的辅助应用位于 `~/Applications/pi-computer-use.app`。
-
-## 9. 按需工具加载
+## 8. 按需工具加载
 
 - `pi install npm:pi-tool-search`
 - **功能**：将所有工具隐藏在 `tool_search` 工具背后。Agent 在需要时按名称启用工具，避免为很少使用的工具加载完整的工具 schema，从而减少 prompt 上下文和 token 消耗。核心工具（`read`、`write`、`edit`、`bash`、`grep`、`find`）默认启用。
@@ -160,6 +132,5 @@
 ## 安装后操作
 
 1. 完成上述所有安装和配置后，**重启 Pi** 以使所有更改生效。
-2. 对于 `pi-computer-use`，首次启动时需完成平台权限授予流程。
-3. 对于 `pi-hermes-memory`，首次使用建议依次运行 `/memory-index-sessions` 和 `/memory-interview`，前者索引历史会话，后者预填用户画像。
+2. 对于 `pi-hermes-memory`，首次使用建议依次运行 `/memory-index-sessions` 和 `/memory-interview`，前者索引历史会话，后者预填用户画像。
 4. 本地 `.ts` 扩展文件放入 `~/.pi/agent/extensions/` 后，Pi 启动时会自动加载；如需热重载，可使用 `/reload` 命令。
