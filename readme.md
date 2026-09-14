@@ -2,7 +2,7 @@
 
 本仓库提供 Pi 的扩展集合。当前推荐并维护的扩展为 `pi-tool-search`，用于按需搜索和激活工具，减少初始工具列表对上下文的占用。
 
-> 注意：本仓库已移除 `lazy` 相关扩展。`lazy` 与 `pi-tool-search` 在工具生命周期管理和激活时序上存在功能冲突，不建议同时使用。
+> 注意：本仓库不包含 `lazy` 相关扩展。`lazy` 与 `pi-tool-search`（及 `pi-mcp-adapter` 的按需加载）在工具生命周期管理和激活时序上存在功能冲突，不建议同时使用。
 
 ## 扩展列表
 
@@ -20,11 +20,7 @@
 
 ## 安装
 
-### 通过 npm 安装
-
-```bash
-npm install -g pi-tool-search
-```
+所有扩展统一通过 `pi install npm:<包名>` 安装，Pi 会安装到 `~/.pi/agent/npm/` 并注册到 `settings.json`。**不要**使用 `npm install -g`（不会注册到 Pi，启动时不会加载）。
 
 ## 1. 工具增强
 
@@ -86,6 +82,26 @@ npm install -g pi-tool-search
 - **功能**：为模型提供可见的任务列表。新增 `todo` 工具和 `/todos` 命令，并在编辑器上方渲染实时面板，显示当前正在执行、已完成和排队中的任务，支持 `blockedBy` 依赖跟踪。
 - **注意**：该包已从 monorepo 迁移，npm 包名保持不变，安装方式无需调整。
 
+- `pi install npm:@cr1ms0n/pi-subagent`
+- **功能**：独立子代理（subagent）扩展（Luke Parke 原版 `@parke.dev/pi-subagent` 的社区 fork，新增显式模型策略与 TUI 显示真实模型）。将调研、并行探索、审查等任务委派给隔离的 Pi 子进程，主上下文不被打扰。核心能力包括：
+  - **工具**：`subagent`（单任务/并行任务、后台运行、`max_turns`/`max_cost` 预算、`output_schema` 结构化输出、`resume` 会话续跑、`context: "fork"` 上下文分支、`steer` 中途引导、`max_retries` 模型回退重试）。
+  - **命令**：`/subagents`（TUI 检视器）、`/subagent-cost`（父子代理成本账本）、`/btw`（旁路提问，答案不进入 LLM 上下文）。
+  - **Profile**：`explore`（只读，并行调研默认）、`review`（只读审查）、`general`（可写）；`isolation: "worktree"` 支持并行写任务 + diff/apply/discard 循环。
+  - **配置**：spawn 路由仅由用户拥有 `~/.pi/subagent.json` 的 `modelPolicy` 决定，无该文件时新建任务会被拒绝。最小模板：
+  ```json
+  {
+    "modelPolicy": {
+      "default": {
+        "model": "<provider/model-id>",
+        "fallbackModels": [],
+        "thinking": "medium"
+      }
+    }
+  }
+  ```
+  每次任务必须显式传与策略严格匹配的 `model` 字段。
+- **注意**：安装后需重启 Pi 加载新工具；`~/.pi/subagent.json` 在每次派发时重新读取。可选使用 `codex`/`claude` CLI 作为子代理后端（需在 PATH 中）。
+
 ## 6. 持久记忆
 
 - `pi install npm:pi-hermes-memory`
@@ -103,13 +119,13 @@ npm install -g pi-tool-search
   - `/memory-index-sessions` — 索引过往会话，使其可被搜索。
   - `/memory-sync-markdown` — 将旧的 Markdown 记忆回填到 SQLite 搜索库（可选）。
   - `/learn-memory-tool` — 了解记忆工具的使用方式。
-- **注意**：该扩展在 `session_start` 时自动激活，无需额外的手动 Lazy Load 配置。通过 `pi-lazy` 管理时，其扩展工厂会在首次调用记忆相关工具或命令时加载，符合本清单的按需加载策略。
+- **注意**：该扩展在 `session_start` 时自动激活，无需额外的手动 Lazy Load 配置。
 
 ## 7. 代码智能
 
 - `pi install npm:@qualisero/pi-agent-scip`
 - **功能**：集成 SCIP（Sourcegraph 代码智能协议）索引器，为 Python 和 TypeScript/JavaScript 项目提供编译器级精确的代码导航。支持 `scip_find_definition`（定位符号定义）、`scip_find_references`（查找所有引用）、`scip_list_symbols`（列出文件中的符号）等工具。
-- **注意**：推荐使用全局安装方式 `npm install -g @qualisero/pi-agent-scip`，然后创建符号链接使 Pi 能够发现该扩展。
+- **注意**：不要手动 `npm install -g` 后创建符号链接（symlink 的相对导入会相对 symlink 所在目录解析，导致启动报 `Cannot find module './extension.js'`），直接 `pi install npm:@qualisero/pi-agent-scip` 即可。
 
 ## 8. 电脑操作
 
@@ -139,7 +155,6 @@ npm install -g pi-tool-search
 ## 安装后操作
 
 1. 完成上述所有安装和配置后，**重启 Pi** 以使所有更改生效。
-2. 如果使用了 `pi-lazy`，请确认 `/lazy` 命令显示的状态中，托管包处于 `pending` 而非 `eager`。
-3. 对于 `pi-computer-use`，首次启动时需完成平台权限授予流程。
-4. 对于 `pi-hermes-memory`，首次使用建议依次运行 `/memory-index-sessions` 和 `/memory-interview`，前者索引历史会话，后者预填用户画像。
-5. 本地 `.ts` 扩展文件放入 `~/.pi/agent/extensions/` 后，Pi 启动时会自动加载；如需热重载，可使用 `/reload` 命令。
+2. 对于 `pi-computer-use`，首次启动时需完成平台权限授予流程。
+3. 对于 `pi-hermes-memory`，首次使用建议依次运行 `/memory-index-sessions` 和 `/memory-interview`，前者索引历史会话，后者预填用户画像。
+4. 本地 `.ts` 扩展文件放入 `~/.pi/agent/extensions/` 后，Pi 启动时会自动加载；如需热重载，可使用 `/reload` 命令。
