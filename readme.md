@@ -81,11 +81,10 @@ pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp
 2. 新会话里用 `tool_search` 按需解锁新扩展的工具（如 `readSeek_*`、`signal_grep`、`mcp`、`bg_*`、`plannotator_*`）。
 3. `/cache graph` 观察各扩展对缓存命中率的影响；若某扩展导致持续 cache miss，从清单中剔除。
 4. `/cache-guardian` 查看每轮缓存统计，需要守护警告时设 `PI_CACHE_GUARD=1`；`/cachepoint-status` 查看自动 checkpoint 状态（依赖 provider 缓存策略，OpenAI 直连建议 `PI_CACHE_RETENTION=long`）。
-5. 需自配置：`@cr1ms0n/pi-subagent` → `~/.pi/subagent.json` 的 `modelPolicy`；`@ian-pascoe/pi-lsp` → `settings.json` 的 `lsp` 键配语言 server；`@injaneity/pi-computer-use` → 首次运行时授予平台权限。
+5. 需自配置：`@cr1ms0n/pi-subagent` → `~/.pi/subagent.json` 的 `modelPolicy`，并将用户环境变量 `PI_SUBAGENT_BIN` 固定为 pi 可执行文件路径（原生二进制无法从 `argv[1]` 解析 CLI 入口，不设会走 PATH 兜底并显式告警）。**按平台设置，勿硬编码路径**，换机后重跑一遍即可：Windows PowerShell 执行 `[Environment]::SetEnvironmentVariable("PI_SUBAGENT_BIN", (Get-Command pi).Source, "User")`（本机即 `D:\Agent\pi\pi.exe`）；macOS/Linux 在 shell 配置加 `export PI_SUBAGENT_BIN="$(command -v pi)"`；改后从新 shell 重启 Pi 生效。仅单实例 pi 时也可直接设 `pi`（走 PATH，逻辑等同兜底，仅消告警）；`@ian-pascoe/pi-lsp` → `settings.json` 的 `lsp` 键配语言 server；`@injaneity/pi-computer-use` → 首次运行时授予平台权限。
 
 ## 变更记录
 
-- 2025-09-15（同日五次）：**卸载 `@ff-labs/pi-fff`**（与 `@tian.zuo/pi-find` 搜索职责重叠，保留后者）。
 - 2025-09-15（同日四次）：**安装 `@tian.zuo/pi-find`**（ripgrep/fd 后端的有界 grep/find，复用内置工具名，归入功能层）。
 - 2025-09-15：全部卸载（原 12 npm 包 + 5 个 ts 扩展），备份至 `.backup-20250915/`；按「缓存/节省 → 编程增强」重装 11 npm 包 + 5 个本地 ts。移除：`pi-tps`（转可选）、`pi-goal-x`、`rpiv-todo`、`pi-web-access`、`pi-computer-use`、`pi-hermes-memory`（其扩展曾启用，数据残留未清）、`pi-simplify`、`pi-rewind`。
 - 2025-09-15（同日二次）：**安装 `pi-tps`**（含 `fix-tps-theme.ps1` 主题配置），从可选转为已装；移除可选清单中的 `@qualisero/pi-agent-scip`；同步远端 readme 中 `@cr1ms0n/pi-subagent`、`@ian-pascoe/pi-lsp` 等内容进可选清单。
