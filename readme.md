@@ -28,6 +28,7 @@
 | `pi-code-review` | `npm:pi-code-review` | Agent 写完/改完文件后自动做语言感知的代码审查 |
 | `@plannotator/pi-extension` | `npm:@plannotator/pi-extension` | 计划审查、代码/PR 审查、消息注解（plannotator CLI） |
 | `@ff-labs/pi-fff` | `npm:@ff-labs/pi-fff` | Rust SIMD 模糊文件/内容搜索，替换内置 `find`/`grep`，带频率排名与 Git 感知 |
+| `@tian.zuo/pi-find` | `npm:@tian.zuo/pi-find` | ripgrep/fd 后端的有界 `grep`/`find`（复用内置工具名，单搜索面）：尊重 `.gitignore`、跳过隐藏文件、grep ≤100 匹配 / find ≤200 文件、>4MiB 文件跳过、结果可取消，行为与 `pi-tool-search` 不冲突 |
 | `@khanhicetea/pi-better-tool` | `npm:@khanhicetea/pi-better-tool` | 替换内置 `edit`：失败时返回最近匹配与消歧建议，减少重读文件的上下文浪费 |
 | `pi-background-tasks` | `npm:pi-background-tasks` | 持久后台 shell 任务、只读委托子 agent、本地 attest Pi 运行、Fusion 多模型工作流 |
 | `react-lint-hook.ts` / `python-lint-hook.ts` / `rust-lint-hook.ts` | 本地 extensions/ | edit/write 后自动 lint+typecheck：React/TS → `lint && typecheck`，Python → `ruff check && pyright`，Rust → `cargo clippy`，错误回馈 Agent 自修（来源：github.com/kksimons/pi-config） |
@@ -51,7 +52,7 @@
 pi install npm:pi-tool-search npm:pi-mcp-adapter npm:pi-observational-memory \
   npm:pi-cache-graph npm:pi-plugin-signal-grep
 pi install npm:pi-readseek npm:pi-code-review npm:@plannotator/pi-extension \
-  npm:@ff-labs/pi-fff npm:@khanhicetea/pi-better-tool npm:pi-background-tasks npm:pi-tps
+  npm:@ff-labs/pi-fff npm:@tian.zuo/pi-find npm:@khanhicetea/pi-better-tool npm:pi-background-tasks npm:pi-tps
 # 2025-09-15（同日三次）：缓存层追加 + 原可选全部转正
 pi install npm:pi-cache-guardian npm:pi-cachepoint npm:pi-hermes-memory
 pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp \
@@ -85,6 +86,7 @@ pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp
 
 ## 变更记录
 
+- 2025-09-15（同日四次）：**安装 `@tian.zuo/pi-find`**（ripgrep/fd 后端的有界 grep/find，复用内置工具名，归入功能层）。
 - 2025-09-15：全部卸载（原 12 npm 包 + 5 个 ts 扩展），备份至 `.backup-20250915/`；按「缓存/节省 → 编程增强」重装 11 npm 包 + 5 个本地 ts。移除：`pi-tps`（转可选）、`pi-goal-x`、`rpiv-todo`、`pi-web-access`、`pi-computer-use`、`pi-hermes-memory`（其扩展曾启用，数据残留未清）、`pi-simplify`、`pi-rewind`。
 - 2025-09-15（同日二次）：**安装 `pi-tps`**（含 `fix-tps-theme.ps1` 主题配置），从可选转为已装；移除可选清单中的 `@qualisero/pi-agent-scip`；同步远端 readme 中 `@cr1ms0n/pi-subagent`、`@ian-pascoe/pi-lsp` 等内容进可选清单。
 - 2025-09-15（同日三次）：**安装 `pi-cache-guardian`、`pi-cachepoint`**（缓存层：golden system prompt 冻结 + 缓存到期前 shadow-summary 自动 checkpoint），可选清单 9 项**全部转正安装**（`pi-hermes-memory` 归入缓存层；`goal-x`/`subagent`/`lsp`/`rpiv-todo`/`web-access`/`computer-use`/`rewind`/`simplify` 归入功能增强），**删除「可选」小节**；readme 同步更新安装命令与配置清单。
