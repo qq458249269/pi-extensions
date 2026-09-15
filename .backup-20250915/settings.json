@@ -1,0 +1,71 @@
+{
+  "defaultModel": "1",
+  "defaultProvider": "1",
+  "defaultThinkingLevel": "high",
+  "lastChangelogVersion": "0.85.1",
+  "theme": "light/dark",
+  "quietStartup": true,
+  "tuiMode": "fullscreen",
+  "defaultProjectTrust": "always",
+  "collapseChangelog": true,
+  "showCacheMissNotices": false,
+  "markdown": {
+    "mermaid": "streaming"
+  },
+  "httpIdleTimeoutMs": 0,
+  "showHardwareCursor": true,
+  "images": {
+    "blockImages": true
+  },
+  "compaction": {
+    "enabled": true
+  },
+  "terminal": {
+    "showTerminalProgress": true,
+    "clearOnShrink": true
+  },
+  "hideThinkingBlock": true,
+  "doubleEscapeAction": "tree",
+  "treeFilterMode": "default",
+  "packages": [
+    "npm:@ff-labs/pi-fff",
+    "npm:pi-mcp-adapter",
+    "npm:pi-cache-graph",
+    "npm:pi-tool-search",
+    "npm:pi-simplify",
+    "npm:pi-observational-memory",
+    "npm:pi-plugin-signal-grep",
+    "npm:@plannotator/pi-extension",
+    "npm:pi-code-review",
+    "npm:pi-background-tasks",
+    "npm:pi-readseek",
+    "npm:pi-rewind"
+  ],
+  "whimsical": {
+    "enabled": true,
+    "weights": {
+      "A": 15,
+      "B": 10,
+      "C": 10,
+      "D": 15,
+      "E": 0,
+      "F": 25,
+      "G": 25
+    },
+    "spinnerPreset": "sleekOrbit"
+  },
+  "toolSearch": {
+    "alwaysEnabled": [
+      "grep"
+    ],
+    "showToolSearchFooterStatus": true
+  },
+  "defaultTools": [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "grep",
+    "ls"
+  ]
+}
