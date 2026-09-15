@@ -29,14 +29,16 @@
 | `pi-background-tasks` | `npm:pi-background-tasks` | 持久后台 shell 任务、只读委托子 agent、本地 attest Pi 运行、Fusion 多模型工作流 |
 | `react-lint-hook.ts` / `python-lint-hook.ts` / `rust-lint-hook.ts` | 本地 extensions/ | edit/write 后自动 lint+typecheck：React/TS → `lint && typecheck`，Python → `ruff check && pyright`，Rust → `cargo clippy`，错误回馈 Agent 自修（来源：github.com/kksimons/pi-config） |
 | `security.ts` | 本地 extensions/ | 拦截 `bash`，确定性校验危险命令（如 `rm -rf`、`chmod 777`），来源：github.com/michalvavra/agents |
-| `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget。需配主题：运行 `fix-tps-theme.ps1` 或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
+| `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色），配置文件 `~/.pi/agent/pi-tps.json`。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
 
 ## 可选（未安装，按需再装）
 
 | 扩展 | 说明 |
 |---|---|
-| `pi-hermes-memory` | 持久记忆 + SQLite FTS5 会话搜索 + 秘密扫描。注意：`~/.pi/agent/pi-hermes-memory/` 仍有旧数据残留，装前可清理 |
+| `pi-hermes-memory` | 持久记忆 + SQLite FTS5 会话搜索 + 秘密扫描。注意：`~/.pi/agent/pi-hermes-memory/` 仍有旧数据残留，装前可清理；默认 `memoryMode: "policy-only"` 低 token 注入，建议维持默认 |
 | `@xzzpig/pi-goal-x` | 长期目标模式（`/goal-set`、任务列表、autoContinue、状态覆盖层）；社区分支中维护较活跃 |
+| `@cr1ms0n/pi-subagent` | 独立子代理（`subagent` 工具：并行任务、预算、`output_schema`、`resume`、worktree 隔离、`/subagents` 检视器）；需自建 `~/.pi/subagent.json` 的 `modelPolicy` |
+| `@ian-pascoe/pi-lsp` | LSP 集成（诊断、跳转定义、悬停、引用），需在 `settings.json`/项目 `.pi/settings.json` 的 `lsp` 键下自配语言 server；与 `toolSearch.alwaysEnabled` 的 `"lsp"` 对应 |
 | `@juicesharp/rpiv-todo` | 模型可见 todo 列表 + `/todos` + 实时面板 |
 | `pi-web-access` | 网页搜索、URL 抓取、GitHub 克隆、PDF/YouTube 理解 |
 | `@injaneity/pi-computer-use` | 观察并控制 macOS/Windows/Linux 桌面应用，需平台权限授予 |
@@ -77,4 +79,4 @@ pi install npm:pi-readseek npm:pi-code-review npm:@plannotator/pi-extension \
 ## 变更记录
 
 - 2025-09-15：全部卸载（原 12 npm 包 + 5 个 ts 扩展），备份至 `.backup-20250915/`；按「缓存/节省 → 编程增强」重装 11 npm 包 + 5 个本地 ts。移除：`pi-tps`（转可选）、`pi-goal-x`、`rpiv-todo`、`pi-web-access`、`pi-computer-use`、`pi-hermes-memory`（其扩展曾启用，数据残留未清）、`pi-simplify`、`pi-rewind`。
-- 2025-09-15（同日二次）：**安装 `pi-tps`**（含 `fix-tps-theme.ps1` 主题配置），从可选转为已装；移除可选清单中的 `@qualisero/pi-agent-scip`。
+- 2025-09-15（同日二次）：**安装 `pi-tps`**（含 `fix-tps-theme.ps1` 主题配置），从可选转为已装；移除可选清单中的 `@qualisero/pi-agent-scip`；同步远端 readme 中 `@cr1ms0n/pi-subagent`、`@ian-pascoe/pi-lsp` 等内容进可选清单。
