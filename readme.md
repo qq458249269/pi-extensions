@@ -16,7 +16,6 @@
 | `pi-cache-graph` | `npm:pi-cache-graph` | `/cache graph`、`/cache stats` 可视化缓存命中率与每条消息的 token/缓存分解，用于验证上述扩展是否真的利于缓存 |
 | `pi-cache-guardian` | `npm:pi-cache-guardian` | 多扩展注入导致的 system prompt 字节漂移会让前缀缓存失效（实测 75% → 0%）。Golden 冻结首轮 system prompt 副本、后续无条件恢复字节级一致；prompt reorder 把稳定内容排前；skills 压缩（4 技能 → 一行索引，31 技能 13.3KB → ~1KB）；剥离 session-overview 每轮变化字段；OpenAI `prompt_cache_retention`/Anthropic TTL 被 400 拒绝时自动降级。`/cache-guardian` 查看每轮 `cacheRead`/`cacheWrite` 统计。env：`PI_CACHE_GUARD=1` 开守护警告（默认阈值 90%）、`PI_CACHE_GUARD_VERBOSE=1` 每轮打印统计 |
 | `pi-cachepoint` | `npm:pi-cachepoint` | 在 provider 缓存到期前用**同前缀 shadow summary 请求**让当前模型自生成紧凑 checkpoint（前缀复用缓存，非普通 compaction，保留 recent tail），可经 `/tree` 跳回原上下文。支持 `openai`/`openai-codex`/`anthropic`/`kimi-coding`（后两者各按 5 分钟/1 小时 TTL 调度，Codex/Kimi 始终保守短调度）。`/cachepoint-status` 查看支持状态与定时器。flags：`--cachepoint-min-tokens`（默认 50000）、`--cachepoint-max-summary-tokens`（默认 8192）、`--cachepoint-debug` |
-| `pi-hermes-memory` | `npm:pi-hermes-memory` | 持久记忆 + SQLite FTS5 会话搜索 + 秘密扫描；默认 `memoryMode: "policy-only"` 低 token 注入，建议维持默认（旧版 `legacy-inject` 注入模式会使 system prompt 每轮漂移，击穿下方 `pi-cache-guardian` 的字节冻结） |
 | `filter-output.ts` | 本地 `~/.pi/agent/extensions/` | 工具结果送往模型前过滤噪音代码与测试冗余、脱敏 API 密钥等敏感信息，省 token |
 
 ### B. 功能与编程增强（其次）
@@ -52,7 +51,7 @@ pi install npm:pi-tool-search npm:pi-mcp-adapter \
 pi install npm:pi-readseek npm:pi-code-review npm:@plannotator/pi-extension \
   npm:@tian.zuo/pi-find npm:@khanhicetea/pi-better-tool npm:pi-background-tasks npm:pi-tps
 # 缓存层追加 + 其余扩展
-pi install npm:pi-cache-guardian npm:pi-cachepoint npm:pi-hermes-memory
+pi install npm:pi-cache-guardian npm:pi-cachepoint
 # 其余扩展（功能增强批次）
 pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp \
   npm:@juicesharp/rpiv-todo npm:pi-web-access npm:@injaneity/pi-computer-use \
@@ -86,3 +85,4 @@ pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp
 ## 维护记录
 
 - 本清单即最新推荐集：扩展被卸载或替换时，同步更新上方表格与安装命令，并在此追加一行说明（示例：*卸载 X（与 Y 职责重叠，保留后者）*）。
+- 卸载 `pi-hermes-memory`（background review 每 10 轮额外触发一次 API 请求，长 session 累积成本高；记忆功能非必需）。
