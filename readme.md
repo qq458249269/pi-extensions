@@ -12,7 +12,6 @@
 |---|---|---|
 | `pi-tool-search` | `npm:pi-tool-search` | **核心**。把非核心工具全部隐藏到 `tool_search` 后面，按需解锁，避免注入上百个工具 schema，直接改善前缀缓存命中与 token 消耗。核心工具 `read/write/edit/bash/grep/find` 默认启用 |
 | `pi-mcp-adapter` | `npm:pi-mcp-adapter` | 用单个约 200 token 的代理工具替代成百上千个 MCP 工具定义，按需（lazy）加载 MCP 服务器 |
-| `pi-observational-memory` | `npm:pi-observational-memory` | cache-friendly 的分层压缩：压缩时保留观察与反思，避免压缩后上下文前缀全变导致缓存失效 |
 | `pi-plugin-signal-grep` | `npm:pi-plugin-signal-grep` | 有界搜索（bounded evidence），只返回可验证的上下文片段，减少搜索结果注入量 |
 | `pi-cache-graph` | `npm:pi-cache-graph` | `/cache graph`、`/cache stats` 可视化缓存命中率与每条消息的 token/缓存分解，用于验证上述扩展是否真的利于缓存 |
 | `pi-cache-guardian` | `npm:pi-cache-guardian` | 多扩展注入导致的 system prompt 字节漂移会让前缀缓存失效（实测 75% → 0%）。Golden 冻结首轮 system prompt 副本、后续无条件恢复字节级一致；prompt reorder 把稳定内容排前；skills 压缩（4 技能 → 一行索引，31 技能 13.3KB → ~1KB）；剥离 session-overview 每轮变化字段；OpenAI `prompt_cache_retention`/Anthropic TTL 被 400 拒绝时自动降级。`/cache-guardian` 查看每轮 `cacheRead`/`cacheWrite` 统计。env：`PI_CACHE_GUARD=1` 开守护警告（默认阈值 90%）、`PI_CACHE_GUARD_VERBOSE=1` 每轮打印统计 |
@@ -48,7 +47,7 @@
 
 ```bash
 # 全部推荐项 = 阶段 A（缓存/节省）+ 阶段 B（编程增强）
-pi install npm:pi-tool-search npm:pi-mcp-adapter npm:pi-observational-memory \
+pi install npm:pi-tool-search npm:pi-mcp-adapter \
   npm:pi-cache-graph npm:pi-plugin-signal-grep
 pi install npm:pi-readseek npm:pi-code-review npm:@plannotator/pi-extension \
   npm:@tian.zuo/pi-find npm:@khanhicetea/pi-better-tool npm:pi-background-tasks npm:pi-tps
