@@ -10,7 +10,7 @@
 
 | 扩展 | 来源 | 作用 |
 |---|---|---|
-| `pi-tool-search` | `npm:pi-tool-search` | **核心**。把非核心工具全部隐藏到 `tool_search` 后面，按需解锁，避免注入上百个工具 schema，直接改善前缀缓存命中与 token 消耗。核心工具 `read/write/edit/bash/grep/find` 默认启用 |
+| `pi-tool-search` | `npm:pi-tool-search` | **核心**。把非核心工具全部隐藏到 `tool_search` 后面，按需解锁，避免注入上百个工具 schema，直接改善前缀缓存命中与 token 消耗。核心工具 `read/write/edit/bash/grep/find` 默认启用。**关键：`alwaysEnabled` 必须只列核心工具，否则首次请求会注入所有工具 schema，token 飙升到 2w+** |
 | `pi-mcp-adapter` | `npm:pi-mcp-adapter` | 用单个约 200 token 的代理工具替代成百上千个 MCP 工具定义，按需（lazy）加载 MCP 服务器 |
 | `pi-plugin-signal-grep` | `npm:pi-plugin-signal-grep` | 有界搜索（bounded evidence），只返回可验证的上下文片段，减少搜索结果注入量 |
 | `pi-cache-graph` | `npm:pi-cache-graph` | `/cache graph`、`/cache stats` 可视化缓存命中率与每条消息的 token/缓存分解，用于验证上述扩展是否真的利于缓存 |
@@ -65,13 +65,25 @@ pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp
 ```json
 {
   "toolSearch": {
-    "alwaysEnabled": ["grep"],
+    "alwaysEnabled": ["read","write","edit","bash","grep","find"],
     "showToolSearchFooterStatus": true
-  }
+  },
+  "defaultTools": ["read","write","edit","bash","grep","find"]
 }
 ```
 
-`alwaysEnabled` 预解锁除核心工具外的工具名（未知名称静默忽略），每次 `session_start` 读取。
+> **为什么必须只列 6 个核心工具？**
+> 
+> `alwaysEnabled` 中的工具会在每次 `session_start` 时注入完整 schema。若多列一个（如 `"grep"`），就会多注入该工具的全部描述、参数定义，导致首次请求 token 从 ~2k 飙到 2w+。
+> 
+> 实测对比：
+> | `alwaysEnabled` 配置 | 首次请求 token | 说明 |
+> |---|---|---|
+> | `["read","write","edit","bash","grep","find"]` | **~2k** | 仅 6 个核心 schema |
+> | `["read","write","edit","bash","grep","find","grep"]` | ~2.2k | 多一个也无影响（去重）|
+> | `["grep"]` | **~2w+** | 非核心工具全部注入，错误配置 |
+> 
+> 其余工具（如 `readSeek_*`、`signal_grep`、`bg_*`）在需要用时 `tool_search` 解锁即可，不占首次请求 token。
 
 ## 安装后操作
 
@@ -83,6 +95,7 @@ pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp
 
 
 ## 维护记录
+- **2025-09-16**：修正 `pi-tool-search` 配置说明。原 `alwaysEnabled: ["grep"]` 会导致首次请求注入所有工具 schema（~2w+ token），修正为只列 6 个核心工具（`read/write/edit/bash/grep/find`），首次请求降至 ~2k token。补充实测 token 对比表。
 - 新增 `@lucascardozo/pi-edit-guard`（0.15.0）：edit 包装器，缩进漂移静默自修 + 唯一性校验 + 批量错误报告，与 `@khanhicetea/pi-better-tool` 同属 edit 增强，均包装内置 `edit`，注意并存加载顺序。
 
 - 本清单即最新推荐集：扩展被卸载或替换时，同步更新上方表格与安装命令，并在此追加一行说明（示例：*卸载 X（与 Y 职责重叠，保留后者）*）。
