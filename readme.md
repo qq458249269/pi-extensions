@@ -10,7 +10,7 @@
 
 | 扩展 | 来源 | 作用 |
 |---|---|---|
-| `pi-tool-search` | `npm:pi-tool-search` | **核心**。把非核心工具全部隐藏到 `tool_search` 后面，按需解锁，避免注入上百个工具 schema，直接改善前缀缓存命中与 token 消耗。核心工具 `read/write/edit/bash/grep/find` 默认启用（其中 `find` 由 `@tian.zuo/pi-find` 以 fd 后端接管，见「安装后操作」第 6 条） |
+| `pi-tool-search` | `npm:pi-tool-search` | **核心**。把非核心工具全部隐藏到 `tool_search` 后面，按需解锁，避免注入上百个工具 schema，直接改善前缀缓存命中与 token 消耗。核心工具 `read/write/edit/bash/grep/find` 默认启用 |
 | `pi-mcp-adapter` | `npm:pi-mcp-adapter` | 用单个约 200 token 的代理工具替代成百上千个 MCP 工具定义，按需（lazy）加载 MCP 服务器 |
 | `pi-plugin-signal-grep` | `npm:pi-plugin-signal-grep` | 有界搜索（bounded evidence），只返回可验证的上下文片段，减少搜索结果注入量 |
 | `pi-cache-graph` | `npm:pi-cache-graph` | `/cache graph`、`/cache stats` 可视化缓存命中率与每条消息的 token/缓存分解，用于验证上述扩展是否真的利于缓存 |
@@ -25,7 +25,6 @@
 | `pi-readseek` | `npm:pi-readseek` | LINE:HASH 锚定文件操作 + AST 结构搜索、符号定义/引用导航，编辑可校验 |
 | `pi-code-review` | `npm:pi-code-review` | Agent 写完/改完文件后自动做语言感知的代码审查 |
 | `@plannotator/pi-extension` | `npm:@plannotator/pi-extension` | 计划审查、代码/PR 审查、消息注解（plannotator CLI） |
-| `@tian.zuo/pi-find` | `npm:@tian.zuo/pi-find` | ripgrep/fd 后端的有界 `grep`/`find`（复用内置工具名，单搜索面）：尊重 `.gitignore`、跳过隐藏文件、grep ≤100 匹配 / find ≤200 文件、>4MiB 文件跳过、结果可取消，行为与 `pi-tool-search` 不冲突 |
 | `@khanhicetea/pi-better-tool` | `npm:@khanhicetea/pi-better-tool` | 替换内置 `edit`：失败时返回最近匹配与消歧建议，减少重读文件的上下文浪费 |
 | `@lucascardozo/pi-edit-guard` | `npm:@lucascardozo/pi-edit-guard` | 包装内置 `edit`：缩进漂移静默自修、`oldText` 唯一性校验、批量感知错误报告（一次给全 N 个失败的消歧信息）。零配置即生效；调试 `PI_EDIT_GUARD_DEBUG=1`；可选 formatter 配置 `.pi/extensions/pi-edit-guard/config.json` |
 | `pi-background-tasks` | `npm:pi-background-tasks` | 持久后台 shell 任务、只读委托子 agent、本地 attest Pi 运行、Fusion 多模型工作流 |
@@ -49,7 +48,7 @@
 pi install npm:pi-tool-search npm:pi-mcp-adapter \
   npm:pi-cache-graph npm:pi-plugin-signal-grep
 pi install npm:pi-readseek npm:pi-code-review npm:@plannotator/pi-extension \
-  npm:@tian.zuo/pi-find npm:@khanhicetea/pi-better-tool npm:@lucascardozo/pi-edit-guard npm:pi-background-tasks npm:pi-tps
+  npm:@khanhicetea/pi-better-tool npm:@lucascardozo/pi-edit-guard npm:pi-background-tasks npm:pi-tps
 # 缓存层追加 + 其余扩展
 pi install npm:pi-cache-guardian npm:pi-cachepoint
 # 其余扩展（功能增强批次）
@@ -81,15 +80,9 @@ pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp
 3. `/cache graph` 观察各扩展对缓存命中率的影响；若某扩展导致持续 cache miss，从清单中剔除。
 4. `/cache-guardian` 查看每轮缓存统计，需要守护警告时设 `PI_CACHE_GUARD=1`；`/cachepoint-status` 查看自动 checkpoint 状态（依赖 provider 缓存策略，OpenAI 直连建议 `PI_CACHE_RETENTION=long`）。
 5. 需自配置：`@cr1ms0n/pi-subagent` → `~/.pi/subagent.json` 的 `modelPolicy`，并将用户环境变量 `PI_SUBAGENT_BIN` 固定为 pi 可执行文件路径（原生二进制无法从 `argv[1]` 解析 CLI 入口，不设会走 PATH 兜底并显式告警）。**按平台设置，勿硬编码路径**：Windows PowerShell 执行 `[Environment]::SetEnvironmentVariable("PI_SUBAGENT_BIN", (Get-Command pi).Source, "User")`；macOS/Linux 在 shell 配置加 `export PI_SUBAGENT_BIN="$(command -v pi)"`；改后从新 shell 重启 Pi 生效。仅单实例 pi 时也可直接设 `pi`（走 PATH，逻辑等同兜底，仅消告警）；`@ian-pascoe/pi-lsp` → `settings.json` 的 `lsp` 键配语言 server；`@injaneity/pi-computer-use` → 首次运行时授予平台权限。
-6. **全局禁用内置 `find`，搜索统一走 fd**（纯配置，无需 AGENTS.md）：
-   - `settings.json` 的 `defaultTools` 不含 `find`（当前为 `["read","bash","edit","write","grep","ls"]`），内置 find 在所有会话默认不启用；项目级 `.pi/settings.json` 的 `defaultTools` 会替换全局数组，勿在项目配置里加回 `find`。
-   - 模型侧的 `find` 即 `@tian.zuo/pi-find` 的 fd 后端同名工具（扩展工具不受 `defaultTools` 限制、始终启用）：优先 `~/.pi/agent/bin/fd`（Windows `fd.exe`），其次 PATH，Debian/Ubuntu 接受 `fdfind`；尊重 `.gitignore`、跳过隐藏目录、≤200 条结果、可取消。fd 缺失时只提示安装、不降级：`winget install sharkdp.fd`，或从 GitHub releases 下载解压到 `~/.pi/agent/bin/`（本机已就位 `fd.exe`）。
-   - 若想连工具名一起隐藏（模型只能用 shell 的 `fd`）：启动时加 `--exclude-tools find`（按名过滤内置/扩展/自定义工具，会连 pi-find 的 find 一并禁掉），固定进启动命令或快捷方式即可。
-   - 交互 shell 层（可选）把 `find` 指到 `fd`：bash 加 `alias find='fd'`，PowerShell 在 `$PROFILE` 加 `function find { fd @args }`。
+
 
 ## 维护记录
-- 安装后操作新增：全局禁用内置 `find`、搜索统一走 fd（纯配置：`defaultTools` 不含 find + `@tian.zuo/pi-find` fd 后端；可选 `--exclude-tools find` 彻底隐藏工具名）。
-
 - 新增 `@lucascardozo/pi-edit-guard`（0.15.0）：edit 包装器，缩进漂移静默自修 + 唯一性校验 + 批量错误报告，与 `@khanhicetea/pi-better-tool` 同属 edit 增强，均包装内置 `edit`，注意并存加载顺序。
 
 - 本清单即最新推荐集：扩展被卸载或替换时，同步更新上方表格与安装命令，并在此追加一行说明（示例：*卸载 X（与 Y 职责重叠，保留后者）*）。
