@@ -27,6 +27,7 @@
 | `@plannotator/pi-extension` | `npm:@plannotator/pi-extension` | 计划审查、代码/PR 审查、消息注解（plannotator CLI） |
 | `@tian.zuo/pi-find` | `npm:@tian.zuo/pi-find` | ripgrep/fd 后端的有界 `grep`/`find`（复用内置工具名，单搜索面）：尊重 `.gitignore`、跳过隐藏文件、grep ≤100 匹配 / find ≤200 文件、>4MiB 文件跳过、结果可取消，行为与 `pi-tool-search` 不冲突 |
 | `@khanhicetea/pi-better-tool` | `npm:@khanhicetea/pi-better-tool` | 替换内置 `edit`：失败时返回最近匹配与消歧建议，减少重读文件的上下文浪费 |
+| `@lucascardozo/pi-edit-guard` | `npm:@lucascardozo/pi-edit-guard` | 包装内置 `edit`：缩进漂移静默自修、`oldText` 唯一性校验、批量感知错误报告（一次给全 N 个失败的消歧信息）。零配置即生效；调试 `PI_EDIT_GUARD_DEBUG=1`；可选 formatter 配置 `.pi/extensions/pi-edit-guard/config.json` |
 | `pi-background-tasks` | `npm:pi-background-tasks` | 持久后台 shell 任务、只读委托子 agent、本地 attest Pi 运行、Fusion 多模型工作流 |
 | `react-lint-hook.ts` / `python-lint-hook.ts` / `rust-lint-hook.ts` | 本地 extensions/ | edit/write 后自动 lint+typecheck：React/TS → `lint && typecheck`，Python → `ruff check && pyright`，Rust → `cargo clippy`，错误回馈 Agent 自修（来源：github.com/kksimons/pi-config） |
 | `security.ts` | 本地 extensions/ | 拦截 `bash`，确定性校验危险命令（如 `rm -rf`、`chmod 777`），来源：github.com/michalvavra/agents |
@@ -49,7 +50,7 @@
 pi install npm:pi-tool-search npm:pi-mcp-adapter \
   npm:pi-cache-graph npm:pi-plugin-signal-grep
 pi install npm:pi-readseek npm:pi-code-review npm:@plannotator/pi-extension \
-  npm:@tian.zuo/pi-find npm:@khanhicetea/pi-better-tool npm:pi-background-tasks npm:pi-tps
+  npm:@tian.zuo/pi-find npm:@khanhicetea/pi-better-tool npm:@lucascardozo/pi-edit-guard npm:pi-background-tasks npm:pi-tps
 # 缓存层追加 + 其余扩展
 pi install npm:pi-cache-guardian npm:pi-cachepoint
 # 其余扩展（功能增强批次）
@@ -83,6 +84,8 @@ pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp
 5. 需自配置：`@cr1ms0n/pi-subagent` → `~/.pi/subagent.json` 的 `modelPolicy`，并将用户环境变量 `PI_SUBAGENT_BIN` 固定为 pi 可执行文件路径（原生二进制无法从 `argv[1]` 解析 CLI 入口，不设会走 PATH 兜底并显式告警）。**按平台设置，勿硬编码路径**：Windows PowerShell 执行 `[Environment]::SetEnvironmentVariable("PI_SUBAGENT_BIN", (Get-Command pi).Source, "User")`；macOS/Linux 在 shell 配置加 `export PI_SUBAGENT_BIN="$(command -v pi)"`；改后从新 shell 重启 Pi 生效。仅单实例 pi 时也可直接设 `pi`（走 PATH，逻辑等同兜底，仅消告警）；`@ian-pascoe/pi-lsp` → `settings.json` 的 `lsp` 键配语言 server；`@injaneity/pi-computer-use` → 首次运行时授予平台权限。
 
 ## 维护记录
+
+- 新增 `@lucascardozo/pi-edit-guard`（0.15.0）：edit 包装器，缩进漂移静默自修 + 唯一性校验 + 批量错误报告，与 `@khanhicetea/pi-better-tool` 同属 edit 增强，均包装内置 `edit`，注意并存加载顺序。
 
 - 本清单即最新推荐集：扩展被卸载或替换时，同步更新上方表格与安装命令，并在此追加一行说明（示例：*卸载 X（与 Y 职责重叠，保留后者）*）。
 - 卸载 `pi-hermes-memory`（background review 每 10 轮额外触发一次 API 请求，长 session 累积成本高；记忆功能非必需）。
