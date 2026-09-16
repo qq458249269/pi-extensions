@@ -12,11 +12,7 @@
 |---|---|---|
 | `pi-tool-search` | `npm:pi-tool-search` | **核心**。把非核心工具全部隐藏到 `tool_search` 后面，按需解锁，避免注入上百个工具 schema，直接改善前缀缓存命中与 token 消耗。核心工具 `read/write/edit/bash/grep/find` 默认启用。**关键：`alwaysEnabled` 必须只列核心工具，否则首次请求会注入所有工具 schema，token 飙升到 2w+** |
 | `pi-mcp-adapter` | `npm:pi-mcp-adapter` | 用单个约 200 token 的代理工具替代成百上千个 MCP 工具定义，按需（lazy）加载 MCP 服务器 |
-| `pi-plugin-signal-grep` | `npm:pi-plugin-signal-grep` | 有界搜索（bounded evidence），只返回可验证的上下文片段，减少搜索结果注入量 |
-| `pi-cache-graph` | `npm:pi-cache-graph` | `/cache graph`、`/cache stats` 可视化缓存命中率与每条消息的 token/缓存分解，用于验证上述扩展是否真的利于缓存 |
-| `pi-cache-guardian` | `npm:pi-cache-guardian` | 多扩展注入导致的 system prompt 字节漂移会让前缀缓存失效（实测 75% → 0%）。Golden 冻结首轮 system prompt 副本、后续无条件恢复字节级一致；prompt reorder 把稳定内容排前；skills 压缩（4 技能 → 一行索引，31 技能 13.3KB → ~1KB）；剥离 session-overview 每轮变化字段；OpenAI `prompt_cache_retention`/Anthropic TTL 被 400 拒绝时自动降级。`/cache-guardian` 查看每轮 `cacheRead`/`cacheWrite` 统计。env：`PI_CACHE_GUARD=1` 开守护警告（默认阈值 90%）、`PI_CACHE_GUARD_VERBOSE=1` 每轮打印统计 |
-| `pi-cachepoint` | `npm:pi-cachepoint` | 在 provider 缓存到期前用**同前缀 shadow summary 请求**让当前模型自生成紧凑 checkpoint（前缀复用缓存，非普通 compaction，保留 recent tail），可经 `/tree` 跳回原上下文。支持 `openai`/`openai-codex`/`anthropic`/`kimi-coding`（后两者各按 5 分钟/1 小时 TTL 调度，Codex/Kimi 始终保守短调度）。`/cachepoint-status` 查看支持状态与定时器。flags：`--cachepoint-min-tokens`（默认 50000）、`--cachepoint-max-summary-tokens`（默认 8192）、`--cachepoint-debug` |
-| `filter-output.ts` | 本地 `~/.pi/agent/extensions/` | 工具结果送往模型前过滤噪音代码与测试冗余、脱敏 API 密钥等敏感信息，省 token |
+
 
 ### B. 功能与编程增强（其次）
 
@@ -44,14 +40,12 @@
 ## 安装与配置
 
 ```bash
-# 全部推荐项 = 阶段 A（缓存/节省）+ 阶段 B（编程增强）
-pi install npm:pi-tool-search npm:pi-mcp-adapter \
-  npm:pi-cache-graph npm:pi-plugin-signal-grep
+# 阶段 A（缓存/节省）
+pi install npm:pi-tool-search npm:pi-mcp-adapter
+# 阶段 B（编程增强）
 pi install npm:pi-readseek npm:pi-code-review npm:@plannotator/pi-extension \
   npm:@khanhicetea/pi-better-tool npm:@lucascardozo/pi-edit-guard npm:pi-background-tasks npm:pi-tps
-# 缓存层追加 + 其余扩展
-pi install npm:pi-cache-guardian npm:pi-cachepoint
-# 其余扩展（功能增强批次）
+# 功能增强批次
 pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp \
   npm:@juicesharp/rpiv-todo npm:pi-web-access npm:@injaneity/pi-computer-use \
   npm:pi-rewind npm:pi-simplify
@@ -88,13 +82,12 @@ pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp
 ## 安装后操作
 
 1. **重启 Pi** 使扩展生效。
-2. 新会话里用 `tool_search` 按需解锁新扩展的工具（如 `readSeek_*`、`signal_grep`、`mcp`、`bg_*`、`plannotator_*`）。
-3. `/cache graph` 观察各扩展对缓存命中率的影响；若某扩展导致持续 cache miss，从清单中剔除。
-4. `/cache-guardian` 查看每轮缓存统计，需要守护警告时设 `PI_CACHE_GUARD=1`；`/cachepoint-status` 查看自动 checkpoint 状态（依赖 provider 缓存策略，OpenAI 直连建议 `PI_CACHE_RETENTION=long`）。
-5. 需自配置：`@cr1ms0n/pi-subagent` → `~/.pi/subagent.json` 的 `modelPolicy`，并将用户环境变量 `PI_SUBAGENT_BIN` 固定为 pi 可执行文件路径（原生二进制无法从 `argv[1]` 解析 CLI 入口，不设会走 PATH 兜底并显式告警）。**按平台设置，勿硬编码路径**：Windows PowerShell 执行 `[Environment]::SetEnvironmentVariable("PI_SUBAGENT_BIN", (Get-Command pi).Source, "User")`；macOS/Linux 在 shell 配置加 `export PI_SUBAGENT_BIN="$(command -v pi)"`；改后从新 shell 重启 Pi 生效。仅单实例 pi 时也可直接设 `pi`（走 PATH，逻辑等同兜底，仅消告警）；`@ian-pascoe/pi-lsp` → `settings.json` 的 `lsp` 键配语言 server；`@injaneity/pi-computer-use` → 首次运行时授予平台权限。
+2. 新会话里用 `tool_search` 按需解锁新扩展的工具（如 `readSeek_*`、`mcp`、`bg_*`、`plannotator_*`）。
+3. 需自配置：`@cr1ms0n/pi-subagent` → `~/.pi/subagent.json` 的 `modelPolicy`，并将用户环境变量 `PI_SUBAGENT_BIN` 固定为 pi 可执行文件路径（原生二进制无法从 `argv[1]` 解析 CLI 入口，不设会走 PATH 兜底并显式告警）。**按平台设置，勿硬编码路径**：Windows PowerShell 执行 `[Environment]::SetEnvironmentVariable("PI_SUBAGENT_BIN", (Get-Command pi).Source, "User")`；macOS/Linux 在 shell 配置加 `export PI_SUBAGENT_BIN="$(command -v pi)"`；改后从新 shell 重启 Pi 生效。仅单实例 pi 时也可直接设 `pi`（走 PATH，逻辑等同兜底，仅消告警）；`@ian-pascoe/pi-lsp` → `settings.json` 的 `lsp` 键配语言 server；`@injaneity/pi-computer-use` → 首次运行时授予平台权限。
 
 
 ## 维护记录
+- **2025-09-16**：卸载 `pi-cachepoint`/`pi-cache-guardian`/`pi-cache-graph`/`pi-plugin-signal-grep`/`filter-output.ts`（缓存层收益不足，精简扩展列表）。
 - **2025-09-16**：修正 `pi-tool-search` 配置说明。原 `alwaysEnabled: ["grep"]` 会导致首次请求注入所有工具 schema（~2w+ token），修正为只列 6 个核心工具（`read/write/edit/bash/grep/find`），首次请求降至 ~2k token。补充实测 token 对比表。
 - 新增 `@lucascardozo/pi-edit-guard`（0.15.0）：edit 包装器，缩进漂移静默自修 + 唯一性校验 + 批量错误报告，与 `@khanhicetea/pi-better-tool` 同属 edit 增强，均包装内置 `edit`，注意并存加载顺序。
 

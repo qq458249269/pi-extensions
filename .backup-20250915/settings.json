@@ -30,11 +30,9 @@
   "packages": [
     "npm:@ff-labs/pi-fff",
     "npm:pi-mcp-adapter",
-    "npm:pi-cache-graph",
     "npm:pi-tool-search",
     "npm:pi-simplify",
     "npm:pi-observational-memory",
-    "npm:pi-plugin-signal-grep",
     "npm:@plannotator/pi-extension",
     "npm:pi-code-review",
     "npm:pi-background-tasks",
