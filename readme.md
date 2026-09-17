@@ -39,20 +39,27 @@
 
 ## 安装与配置
 
+> **警：逐条串行安装，勿并行。** 多进程 `pi install` 会竞写 `~/.pi/agent/settings.json` 丢注册（实测 17 项仅 5 项留存），且并发操作同一 `~/.pi/agent/npm` 目录会触发 `ENOENT: Cannot cd into .../node_modules/<pkg>`（实测 `typebox`）。
+>
+> `pi install` 一次只接受单个 source，故直接串行跑循环：
+
 ```bash
-# 阶段 A（缓存/节省）
-pi install npm:pi-tool-search npm:pi-mcp-adapter
-# 阶段 B（编程增强）
-pi install npm:pi-readseek npm:pi-code-review npm:@plannotator/pi-extension \
-  npm:@khanhicetea/pi-better-tool npm:@lucascardozo/pi-edit-guard npm:pi-background-tasks npm:pi-tps
-# 功能增强批次
-pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp \
-  npm:@juicesharp/rpiv-todo npm:pi-web-access npm:@injaneity/pi-computer-use \
-  npm:pi-rewind npm:pi-simplify
-# 本地 ts 扩展：手动放入 ~/.pi/agent/extensions/（本仓库 .backup-*/extensions-ts/ 提供副本）
+for p in pi-tool-search pi-mcp-adapter pi-readseek pi-code-review \
+         @plannotator/pi-extension @khanhicetea/pi-better-tool \
+         @lucascardozo/pi-edit-guard pi-background-tasks pi-tps \
+         @xzzpig/pi-goal-x @cr1ms0n/pi-subagent @ian-pascoe/pi-lsp \
+         @juicesharp/rpiv-todo pi-web-access @injaneity/pi-computer-use \
+         pi-rewind pi-simplify; do
+  pi install "npm:$p" || echo "[失败] $p"
+ done
 ```
 
-> 注：`pi install` 一次只接受单个 source，上面按阶段分组是逻辑示意，实际逐条执行。
+```bash
+# 本地 ts 扩展：放入 ~/.pi/agent/extensions/（本仓库 .backup-20250915/extensions-ts/ 提供副本）
+cp .backup-20250915/extensions-ts/{react-lint-hook.ts,python-lint-hook.ts,rust-lint-hook.ts} ~/.pi/agent/extensions/
+```
+
+装完自查：`pi extensions list` 应见 17 个 npm 扩展 + 3 个 lint hook；若少于 17（仅剩 5 个为典型并行竞写伤痕），重跑上述循环补漏。
 
 `pi-tool-search` 配置（写入 `~/.pi/agent/settings.json`）：
 
@@ -87,6 +94,8 @@ pi install npm:@xzzpig/pi-goal-x npm:@cr1ms0n/pi-subagent npm:@ian-pascoe/pi-lsp
 
 
 ## 维护记录
+- **2026-09-17**：修正安装方式。原 `\` 续行一次传多 source 的写法错误（`pi install` 仅收单 source），并行逐条安装更会竞写 `~/.pi/agent/settings.json` 丢注册（实测 17 项仅剩 5 项）并因并发共用 `~/.pi/agent/npm` 触发 `ENOENT: Cannot cd into .../node_modules/typebox`。改为单循环逐条串行安装。
+- **2026-09-17**：`@cr1ms0n/pi-subagent` 的 `modelPolicy` 格式实测：`~/.pi/subagent.json` 填 `{ "modelPolicy": { "default": { "model": "<provider>/<model-id>" } } }`（仅 `default` 必填，`fallbackModels`/`thinking`/`agents` 可省）。
 - **2025-09-16**：卸载 `pi-cachepoint`/`pi-cache-guardian`/`pi-cache-graph`/`pi-plugin-signal-grep`/`filter-output.ts`（缓存层收益不足，精简扩展列表）。
 - **2025-09-16**：修正 `pi-tool-search` 配置说明。原 `alwaysEnabled: ["grep"]` 会导致首次请求注入所有工具 schema（~2w+ token），修正为只列 6 个核心工具（`read/write/edit/bash/grep/find`），首次请求降至 ~2k token。补充实测 token 对比表。
 - 新增 `@lucascardozo/pi-edit-guard`（0.15.0）：edit 包装器，缩进漂移静默自修 + 唯一性校验 + 批量错误报告，与 `@khanhicetea/pi-better-tool` 同属 edit 增强，均包装内置 `edit`，注意并存加载顺序。
