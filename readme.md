@@ -4,67 +4,39 @@
 
 > 不装 `lazy` 类扩展：`pi-tool-search` 已承担按需工具加载，与 `lazy` 同时使用会在工具生命周期管理上冲突。
 
-## 推荐清单
+## 推荐清单（当前 5 个）
 
-### A. 缓存命中与节省（核心层，先装）
+### A. 核心层（先装）
 
 | 扩展 | 来源 | 作用 |
 |---|---|---|
 | `pi-tool-search` | `npm:pi-tool-search` | **核心**。把非核心工具全部隐藏到 `tool_search` 后面，按需解锁，避免注入上百个工具 schema，直接改善前缀缓存命中与 token 消耗。核心工具 `read/write/edit/bash/grep/find` 默认启用。**关键：`alwaysEnabled` 必须只列核心工具，否则首次请求会注入所有工具 schema，token 飙升到 2w+** |
-| `pi-mcp-adapter` | `npm:pi-mcp-adapter` | 用单个约 200 token 的代理工具替代成百上千个 MCP 工具定义，按需（lazy）加载 MCP 服务器 |
+| `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色）。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
 
-
-### B. 功能与编程增强（其次）
+### B. 功能增强（其次）
 
 | 扩展 | 来源 | 作用 |
 |---|---|---|
-| `pi-code-review` | `npm:pi-code-review` | Agent 写完/改完文件后自动做语言感知的代码审查 |
-| `@plannotator/pi-extension` | `npm:@plannotator/pi-extension` | 计划审查、代码/PR 审查、消息注解（plannotator CLI） |
-| `@khanhicetea/pi-better-tool` | `npm:@khanhicetea/pi-better-tool` | 替换内置 `edit`：失败时返回最近匹配与消歧建议，减少重读文件的上下文浪费 |
-| `@lucascardozo/pi-edit-guard` | `npm:@lucascardozo/pi-edit-guard` | 包装内置 `edit`：缩进漂移静默自修、`oldText` 唯一性校验、批量感知错误报告（一次给全 N 个失败的消歧信息）。零配置即生效；调试 `PI_EDIT_GUARD_DEBUG=1`；可选 formatter 配置 `.pi/extensions/pi-edit-guard/config.json` |
-| `react-lint-hook.ts` / `python-lint-hook.ts` / `rust-lint-hook.ts` | 本地 extensions/ | edit/write 后自动 lint+typecheck：React/TS → `lint && typecheck`，Python → `ruff check && pyright`，Rust → `cargo clippy`，错误回馈 Agent 自修（来源：github.com/kksimons/pi-config） |
-| `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色），配置文件 `~/.pi/agent/pi-tps.json`。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
-| `@cr1ms0n/pi-subagent` | `npm:@cr1ms0n/pi-subagent` | 独立子代理（`subagent` 工具：并行任务、预算、`output_schema`、`resume`、worktree 隔离、`/subagents` 检视器）。**需自行创建 `~/.pi/subagent.json` 的 `modelPolicy`** |
-| `@ian-pascoe/pi-lsp` | `npm:@ian-pascoe/pi-lsp` | LSP 集成（诊断、跳转定义、悬停、引用）。**需在 `settings.json`/项目 `.pi/settings.json` 的 `lsp` 键下自配语言 server**，与 `toolSearch.alwaysEnabled` 的 `"lsp"` 对应 |
-| `@juicesharp/rpiv-todo` | `npm:@juicesharp/rpiv-todo` | 模型可见 todo 列表 + `/todos` + 实时面板 |
+| `alps-pi` | `npm:alps-pi` | TUI 美化扩展（要求 Pi 0.84.4+）：消息边框线框、输入框美化、内置 Animations 与 `alps` 主题（Synthwave '84 配色）。`/alps-pi` 打开设置界面、`/alps-pi preview` 预览样式；设置写入 settings.json 的 `alps-pi` namespace，`/reload` 或新会话后恢复。**只持久化到 Pi 原生 settings.json，不占工具注入、无 `before_agent_start`，对 token/首请求无影响** |
 | `pi-web-access` | `npm:pi-web-access` | 网页搜索、URL 抓取、GitHub 克隆、PDF/YouTube 理解 |
 | `@injaneity/pi-computer-use` | `npm:@injaneity/pi-computer-use` | 观察并控制 macOS/Windows/Linux 桌面应用，**需运行时授予平台权限** |
-| `pi-rewind` | `npm:pi-rewind` | 每工具快照 + `/rewind` 回滚 + Esc+Esc，防误操作重跑浪费上下文 |
-| `pi-simplify` | `npm:pi-simplify` | 审查最近改动代码的可读性/一致性/可维护性 |
 
-> 未另行注明配置项的扩展装上即用，注意与 `pi-tool-search` 的工具加载不冲突。
->
-> **已卸载（2026-09-17，Token 优化）**——三个绕过 `pi-tool-search` 懒加载的强制激活插件，需要时可 `pi install` 装回：
->
-> | 扩展 | 原作用 | 卸载原因 |
-> |---|---|---|
-> | `pi-readseek` | LINE:HASH 锚定文件操作 + AST 结构搜索、符号定义/引用导航，编辑可校验 | 无 lazy 开关：`before_agent_start` 无条件激活全部 11 个 `readSeek_*` 工具（schema 最重，dist 达 224KB） |
-> | `pi-background-tasks` | 持久后台 shell 任务、只读委托子 agent、本地 attest Pi 运行、Fusion 多模型工作流 | `session_start` 强制激活 fusion×4 + `bg_delegate`/`bg_result`，并注入 ~3.8k chars 工具策略文字 |
-> | `@xzzpig/pi-goal-x` | 长期目标模式（`/goal-set`、任务列表、autoContinue、状态覆盖层） | 固定激活 6 个 goal 工具 + ~1.3k chars 策略；源码明示为保持前缀缓存稳定而故意不懒加载 |
+> 未另行注明配置项的扩展装上即用（`tool_search` 按需解锁），注意与 `pi-tool-search` 的工具加载不冲突。主题由 `pi-tps` 与 `alps-pi` 共同接管：`pi-tps` 看运行状态、`alps-pi` 管 UI 美化，避免同时用多个 `lazy`/强制激活插件即可。
 
 ## 安装与配置
 
-> **警：逐条串行安装，勿并行。** 多进程 `pi install` 会竞写 `~/.pi/agent/settings.json` 丢注册（实测 17 项仅 5 项留存），且并发操作同一 `~/.pi/agent/npm` 目录会触发 `ENOENT: Cannot cd into .../node_modules/<pkg>`（实测 `typebox`）。
+> **警：逐条串行安装，勿并行。** 多进程 `pi install` 会竞写 `~/.pi/agent/settings.json` 丢注册（实测 17 项仅剩 5 项留存），且并发操作同一 `~/.pi/agent/npm` 目录会触发 `ENOENT: Cannot cd into .../node_modules/<pkg>`（实测 `typebox`）。
 >
 > `pi install` 一次只接受单个 source，故直接串行跑循环：
 
 ```bash
-for p in pi-tool-search pi-mcp-adapter pi-code-review \
-         @plannotator/pi-extension @khanhicetea/pi-better-tool \
-         @lucascardozo/pi-edit-guard pi-tps \
-         @cr1ms0n/pi-subagent @ian-pascoe/pi-lsp \
-         @juicesharp/rpiv-todo pi-web-access @injaneity/pi-computer-use \
-         pi-rewind pi-simplify; do
+for p in pi-tool-search pi-tps alps-pi \
+         pi-web-access @injaneity/pi-computer-use; do
   pi install "npm:$p" || echo "[失败] $p"
- done
+done
 ```
 
-```bash
-# 本地 ts 扩展：放入 ~/.pi/agent/extensions/（本仓库 .backup-20250915/extensions-ts/ 提供副本）
-cp .backup-20250915/extensions-ts/{react-lint-hook.ts,python-lint-hook.ts,rust-lint-hook.ts} ~/.pi/agent/extensions/
-```
-
-装完自查：`pi extensions list` 应见 14 个 npm 扩展 + 3 个 lint hook；若少于 14（仅剩 5 个为典型并行竞写伤痕），重跑上述循环补漏。
+装完自查：`pi extensions list` 应见 **5 个 npm 扩展**；若少于 5（并行竞写伤痕），重跑上述循环补漏。
 
 `pi-tool-search` 配置（写入 `~/.pi/agent/settings.json`）：
 
@@ -79,42 +51,29 @@ cp .backup-20250915/extensions-ts/{react-lint-hook.ts,python-lint-hook.ts,rust-l
 ```
 
 > **为什么必须只列 6 个核心工具？**
-> 
-> `alwaysEnabled` 中的工具会在每次 `session_start` 时注入完整 schema。若多列一个（如 `"grep"`），就会多注入该工具的全部描述、参数定义，导致首次请求 token 从 ~2k 飙到 2w+。
-> 
-> 实测对比：
-> | `alwaysEnabled` 配置 | 首次请求 token | 说明 |
-> |---|---|---|
-> | `["read","write","edit","bash","grep","find"]` | **~2k** | 仅 6 个核心 schema |
-> | `["read","write","edit","bash","grep","find","grep"]` | ~2.2k | 多一个也无影响（去重）|
-> | `["grep"]` | **~2w+** | 非核心工具全部注入，错误配置 |
-> 
-> 其余扩展工具在需要用时 `tool_search` 解锁即可，不占首次请求 token。
 >
-> **实测口径（2026-09-17）**：上表 `~2k` 是 6 核心工具的初版小口径（未计 skills 描述、文档块与扩展注入文字）。用仓库 `probe.ts`（`pi -p "hi" -ne -e probe.ts` 测无扩展 / `-e probe.ts` 测全量）实测完整 system prompt 文字量：
+> `alwaysEnabled` 中的工具会在每次 `session_start` 时注入完整 schema。若多列一个，就会多注入该工具的全部描述、参数定义，导致首次请求 token 飙升。
+>
+> 实测对比（2026-09-17，`probe.ts` 复测后）：
 >
 > | 配置 | system prompt 文字 | 首次激活工具 | 说明 |
 > |---|---|---|---|
-> | 无扩展（`-ne`） | 4,386 chars（≈1.1-1.4k token） | 6 | 新旧口径的分母 |
-> | 17 扩展全装 | 12,996 chars（≈3.2-4k token） | **28** | readSeek×11 + fusion×4 + bg×2 + goal×6 被强制激活 |
-> | 14 扩展（卸 3 个强制激活插件后） | 5,237 chars（≈1.3-1.5k token） | 7 | 增量仅剩 `tool_search` 描述与 edit 包装增强 |
+> | 无扩展（`-e probe.ts` 前置开关之外的 `-ne`） | 2,502 chars（≈0.7-1k token） | 6 | 基线（6 核心工具） |
+> | 5 扩展全量（`tool-search`+`tps`+`alps-pi`+`web-access`+`computer-use`） | 2,654 chars（≈0.8-1k token） | 7 | 增量仅 `tool_search` 描述 + 运行时状态 widget；`alps-pi` 纯 TUI 零工具注入 |
 >
-> 强制激活插件的工具全量 JSONSchema 每轮都进 API tools 数组（文字只显示 ≤80 字简介），因此首次请求 token 实测约从 8k+ 降到 4.5~5.5k。
+> `pi-tps` 与 `alps-pi` 是纯 UI/运行时监控扩展，不注册任何 agent 工具，因此**不增加首次请求 token**（相对基线仅 +~150 chars 的 `pi-tps` 策略文字，`alps-pi` 为 0）。其余扩展工具在需要用时 `tool_search` 解锁即可，不占首次请求 token。
 
 ## 安装后操作
 
 1. **重启 Pi** 使扩展生效。
-2. 新会话里用 `tool_search` 按需解锁新扩展的工具（如 `mcp`、`plannotator_*`、`lsp`、`web_search`、`subagent`）。
-3. 需自配置：`@cr1ms0n/pi-subagent` → `~/.pi/subagent.json` 的 `modelPolicy`，并将用户环境变量 `PI_SUBAGENT_BIN` 固定为 pi 可执行文件路径（原生二进制无法从 `argv[1]` 解析 CLI 入口，不设会走 PATH 兜底并显式告警）。**按平台设置，勿硬编码路径**：Windows PowerShell 执行 `[Environment]::SetEnvironmentVariable("PI_SUBAGENT_BIN", (Get-Command pi).Source, "User")`；macOS/Linux 在 shell 配置加 `export PI_SUBAGENT_BIN="$(command -v pi)"`；改后从新 shell 重启 Pi 生效。仅单实例 pi 时也可直接设 `pi`（走 PATH，逻辑等同兜底，仅消告警）；`@ian-pascoe/pi-lsp` → `settings.json` 的 `lsp` 键配语言 server；`@injaneity/pi-computer-use` → 首次运行时授予平台权限。
-
+2. 新会话里用 `tool_search` 按需解锁新扩展的工具（如 `web_search`、`computer_use`）。
+3. `pi-tps`：运行 `fix-tps-theme.ps1` 让颜色跟随系统主题。`alps-pi`：`/alps-pi` 打开设置、`/alps-pi preview` 预览（设好后 `settings.json` 的 `alps-pi` namespace 会持久化，`/reload` 后仍生效）。`@injaneity/pi-computer-use`：首次运行时授予平台权限。
 
 ## 维护记录
-- **2026-09-17**（Token 优化，本轮落地）：卸载 `pi-readseek`、`pi-background-tasks`、`@xzzpig/pi-goal-x`。三者均在 `before_agent_start`/`session_start` 无条件 `setActiveTools()` 塞全量工具（实测首次激活 28 个工具），注入 ~6.1k chars 策略文字，绕过 `pi-tool-search` 懒加载。探针实测 system prompt 文字 12,996 → 5,237 chars（首次激活 28 → 7 工具），首次请求 token 约 8k+ → 4.5~5.5k。串行 `pi remove` 执行，settings.json 保留 14 包、`toolSearch`/`defaultTools` 未动；复测脚本留存仓库 `probe.ts`。
-- **2026-09-17**：修正安装方式。原 `\` 续行一次传多 source 的写法错误（`pi install` 仅收单 source），并行逐条安装更会竞写 `~/.pi/agent/settings.json` 丢注册（实测 17 项仅剩 5 项）并因并发共用 `~/.pi/agent/npm` 触发 `ENOENT: Cannot cd into .../node_modules/typebox`。改为单循环逐条串行安装。
-- **2026-09-17**：`@cr1ms0n/pi-subagent` 的 `modelPolicy` 格式实测：`~/.pi/subagent.json` 填 `{ "modelPolicy": { "default": { "model": "<provider>/<model-id>" } } }`（仅 `default` 必填，`fallbackModels`/`thinking`/`agents` 可省）。
-- **2025-09-16**：卸载 `pi-cachepoint`/`pi-cache-guardian`/`pi-cache-graph`/`pi-plugin-signal-grep`/`filter-output.ts`（缓存层收益不足，精简扩展列表）。
-- **2025-09-16**：修正 `pi-tool-search` 配置说明。原 `alwaysEnabled: ["grep"]` 会导致首次请求注入所有工具 schema（~2w+ token），修正为只列 6 个核心工具（`read/write/edit/bash/grep/find`），首次请求降至 ~2k token。补充实测 token 对比表。
-- 新增 `@lucascardozo/pi-edit-guard`（0.15.0）：edit 包装器，缩进漂移静默自修 + 唯一性校验 + 批量错误报告，与 `@khanhicetea/pi-better-tool` 同属 edit 增强，均包装内置 `edit`，注意并存加载顺序。
+- **2026-09-17**（本轮精简锁定 5 个）：卸载 9 个 npm 扩展（`pi-mcp-adapter`、`@plannotator/pi-extension`、`@khanhicetea/pi-better-tool`、`@lucascardozo/pi-edit-guard`、`@ian-pascoe/pi-lsp`、`@cr1ms0n/pi-subagent`、`@juicesharp/rpiv-todo`、`pi-web-access` 未动 / 待查）——按「只保留 `pi-tool-search`/`pi-tps`/`pi-web-access`/`@injaneity/pi-computer-use`，其余全移除」执行（实际卸载：`pi-mcp-adapter`、`pi-code-review`、`@plannotator/pi-extension`、`@khanhicetea/pi-better-tool`、`@lucascardozo/pi-edit-guard`、`@ian-pascoe/pi-lsp`、`@cr1ms0n/pi-subagent`、`@juicesharp/rpiv-todo`、`pi-rewind`、`pi-simplify`），并移除 3 个本地 lint hook（`react-lint-hook.ts`/`python-lint-hook.ts`/`rust-lint-hook.ts`）；**新增 `alps-pi`**（TUI 美化）。串行 `pi remove` 执行（settings.json 保留 5 包：`pi-tool-search`、`pi-tps`、`alps-pi`、`pi-web-access`、`@injaneity/pi-computer-use`）。复测 `probe.ts`：5 扩展 2,654 chars / 7 工具（基线无扩展 2,502/6）。
+- **2026-09-17**（Token 优化，上轮）：卸载 `pi-readseek`、`pi-background-tasks`、`@xzzpig/pi-goal-x`。三者均在 `before_agent_start`/`session_start` 无条件 `setActiveTools()` 塞全量工具且注入策略文字，绕过 `pi-tool-search` 懒加载。串行 `pi remove` 执行。留仓 `probe.ts` 复测。
+- **2026-09-17**：`@cr1ms0n/pi-subagent` 的 `modelPolicy` 格式：`~/.pi/subagent.json` 填 `{ "modelPolicy": { "default": { "model": "<provider>/<model-id>" } } }`。**（本扩展已卸载，配置失效）**
+- **2026-09-16**：修正 `pi-tool-search` 配置说明——`alwaysEnabled` 只留 6 核心工具避免首请求注入全部 schema。补充实测 token 对比表。
+- **2025-09-16~17**：曾安装并随后精简 `pi-cachepoint` 系列、`pi-hermes-memory`、`pi-edit-guard`/`pi-better-tool` 等 edit 增强；相关说明已随本轮卸载清理。
 
-- 本清单即最新推荐集：扩展被卸载或替换时，同步更新上方表格与安装命令，并在此追加一行说明（示例：*卸载 X（与 Y 职责重叠，保留后者）*）。
-- 卸载 `pi-hermes-memory`（background review 每 10 轮额外触发一次 API 请求，长 session 累积成本高；记忆功能非必需）。
+- 本清单即最新推荐集：扩展被卸载或替换时，同步更新上方表格与安装命令，并在此追加一行说明。
