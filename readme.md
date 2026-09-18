@@ -6,7 +6,7 @@
 >
 > 本轮（2026-09-17）新增 4 个扩展，全部**零工具注入**（无 `registerTool`/`setActiveTools`），只挂事件钩子，不增加首请求 token、不与 `pi-tool-search` 懒加载冲突。
 
-## 推荐清单（当前 10 个）
+## 推荐清单（当前 12 个）
 
 ### A. 核心层（先装）
 
@@ -15,7 +15,6 @@
 | `pi-tool-search` | `npm:pi-tool-search` | **核心**。把非核心工具全部隐藏到 `tool_search` 后面，按需解锁，避免注入上百个工具 schema，直接改善前缀缓存命中与 token 消耗。核心工具 `read/write/edit/bash/grep/find` 默认启用。**关键：`alwaysEnabled` 必须只列核心工具，否则首次请求会注入所有工具 schema，token 飙升到 2w+** |
 | `pi-cache-guardian` | `npm:pi-cache-guardian` | **缓存守护（防 autocompact 后命中率归零）**。首轮完整链处理后将 system prompt 捕获为 **golden 副本**，之后每轮无条件恢复——字节级一致保证前缀缓存不因 autocompact 重建 system prompt 而整体失效；叠加 prompt reorder（稳定内容前置）、skill 压缩（>4 个 skill 时 4 行 XML 压缩为单行索引）、`<session-overview>` 变化字段剥离（RECENT COMMITS/目录状态/行数），并自动设 `PI_CACHE_RETENTION=long`。自动兼容检测：OpenAI 400 时剥离 `prompt_cache_retention`、Anthropic 400 时降级 `cache_control` TTL、OpenAI 兼容端点注入 `prompt_cache_key`。**不注入任何工具**（无 `setActiveTools`），与 `pi-tool-search` 懒加载不冲突。命令：`/cache-guardimizer`（v1.0.7 实际命令名；npm README 里的 `/cache-guardian` 为旧名）查看每轮 `cacheRead`/`cacheWrite` 统计。可选：`PI_CACHE_GUARD=1` 时会话结束命中率 < `PI_CACHE_GUARD_THRESHOLD`（默认 90）报警 |
 | `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色）。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
-| `pi-compaction-control` | `npm:pi-compaction-control` | **压缩控制（v0.4.5）**。粒度到模型：`contextCap` 给每个模型设 `contextWindow` 硬上限，让 autocompact 在 `cap − reserveTokens` 处提前触发（需早于模型原生窗口才有效，本机模型 100k）；`compactionModel` 可选更便宜/更快的模型跑压缩摘要。全从 settings.json 读，**零 token 开销**（纯内存改 `model.contextWindow`，不额外发请求）。与 `pi-cache-guardian` 协同：autocompact 后是新 session，guardian 自动重新捕获 golden，无冲突。**无隐式默认值**：不配置 `contextCap` 就不生效。不含工具开关，与 `pi-tool-search` 不冲突 |
 
 ### B. 功能增强（其次）
 
@@ -24,6 +23,9 @@
 | `alps-pi` | `npm:alps-pi` | TUI 美化扩展（要求 Pi 0.84.4+）：消息边框线框、输入框美化、内置 Animations 与 `alps` 主题（Synthwave '84 配色）。`/alps-pi` 打开设置界面、`/alps-pi preview` 预览样式；设置写入 settings.json 的 `alps-pi` namespace，`/reload` 或新会话后恢复。**只持久化到 Pi 原生 settings.json，不占工具注入、无 `before_agent_start`，对 token/首请求无影响** |
 | `pi-web-access` | `npm:pi-web-access` | 网页搜索、URL 抓取、GitHub 克隆、PDF/YouTube 理解 |
 | `@injaneity/pi-computer-use` | `npm:@injaneity/pi-computer-use` | 观察并控制 macOS/Windows/Linux 桌面应用，**需运行时授予平台权限** |
+| `@tian.zuo/pi-find` | `npm:@tian.zuo/pi-find` | **搜索增强（v0.5.0）**：用 ripgrep/fd 实现 `grep`/`find`，**复用内建工具名**（替换内建而非并列，模型只看到一套搜索面）。有界输出（grep ≤100 命中、find ≤200 文件、行长裁剪、硬字节上限、大文件/超长记录跳过），尊重 `.gitignore` 并跳过 `.git`，支持 `glob`/`!` 排除/`@`与`~` 路径展开。**只注册 `grep`/`find` 两个工具名，正好落在 `pi-tool-search` 的 `alwaysEnabled` 6 核心内，不新增工具、不增加注入量** |
+| `pi-edit-guard` | `npm:pi-edit-guard` | **编辑强化（v0.1.4）**：覆盖内建 `edit`（**同名替换**），多层容错匹配（simple → line/whitespace/indentation/escape/unicode 归一化 → block-anchor → fuzzy 等 12+ passes）、匹配唯一性校验、缩进漂移修复、批量感知错误报告。另注册 `undo` 工具（可撤销编辑）。**`edit` 在核心 6 内即生效；`undo` 不在核心，由 `pi-tool-search` 隐藏、按需解锁，不增首请求注入**。⚠ 声明 `engines.node >=24.18.0`（本机 24.16.0 仅 npm 告警，仍可安装运行） |
+| `@trycedar/pi-mdiff` | `npm:@trycedar/pi-mdiff` | **Markdown 编辑（v0.2.0）**：面向 `.md` 的规范化 SEARCH 匹配 + 块级锚定编辑，注册 `md_inspect`/`md_diff`/`md_edit` 三个工具。**旧包名 `pi-mdiff` 已弃用并迁移到带 scope 的 `@trycedar/pi-mdiff`**。三个工具名均不在核心 6，默认被 `pi-tool-search` 隐藏、按需解锁，**不增首请求注入** |
 
 ### C. 对话健壮性（防断/防丢/防跑飞，新加）
 
@@ -45,14 +47,15 @@
 
 ```bash
 for p in pi-tool-search pi-cache-guardian pi-tps alps-pi \
-         pi-web-access @injaneity/pi-computer-use \
-         pi-auto-resume pi-response-guard pi-compaction-control \
+         pi-web-access @injaneity/pi-computer-use @tian.zuo/pi-find \
+         pi-edit-guard @trycedar/pi-mdiff \
+         pi-auto-resume pi-response-guard \
          @vanillagreen/pi-output-policy; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 ```
 
-装完自查（`pi extensions list`，不并行）：应见 **10 个 npm 扩展**——`pi-web-access`、`pi-tool-search`、`pi-tps`、`@injaneity/pi-computer-use`、`alps-pi`、`pi-cache-guardian`、`pi-auto-resume`、`pi-response-guard`、`pi-compaction-control`、`@vanillagreen/pi-output-policy`。若少于 10（并行竞写伤痕），重跑上述循环补漏。
+装完自查（`pi extensions list`，不并行）：应见 **12 个 npm 扩展**——`pi-web-access`、`pi-tool-search`、`pi-tps`、`@injaneity/pi-computer-use`、`alps-pi`、`pi-cache-guardian`、`pi-auto-resume`、`pi-response-guard`、`@vanillagreen/pi-output-policy`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`。若少于 12（并行竞写伤痕），重跑上述循环补漏。
 
 `pi-tool-search` 配置（写入 `~/.pi/agent/settings.json`）：
 
@@ -79,9 +82,11 @@ done
 
 > 该表为首轮 `session_start` 实测基线（安装 `pi-cache-guardian` 前）。`pi-cache-guardian` 不注入工具，`activeTools` 数不变；system prompt 内容受其 reorder/压缩影响（长度基本持平，压缩仅在 skill>4 时生效），属 `before_agent_start` 阶段内部改写，不影响首请求注入量与基线对比结论。
 >
-> **2026-09-17 追加 4 个扩展后基线结论不变**：`pi-auto-resume`/`pi-response-guard`/`pi-compaction-control`/`@vanillagreen/pi-output-policy` 均经源码核查**无任何 `registerTool`/`setActiveTools` 调用**，纯事件钩子（`tool_result`/`message_end`/`session_before_compact` 等），不改变 `activeTools` 数（仍 7），不增加首请求注入量。
+> **2026-09-17 追加 4 个扩展后基线结论不变**：`pi-auto-resume`/`pi-response-guard`/`@vanillagreen/pi-output-policy` 均经源码核查**无任何 `registerTool`/`setActiveTools` 调用**，纯事件钩子（`tool_result`/`message_end`/`session_before_compact` 等），不改变 `activeTools` 数（仍 7），不增加首请求注入量。
 >
 > `pi-tps` 与 `alps-pi` 是纯 UI/运行时监控扩展，不注册任何 agent 工具，因此**不增加首次请求 token**（相对基线仅 +~150 chars 的 `pi-tps` 策略文字，`alps-pi` 为 0）。其余扩展工具在需要用时 `tool_search` 解锁即可，不占首次请求 token。
+>
+> **2026-09-18 追加 `pi-edit-guard`/`@trycedar/pi-mdiff` 后基线亦不变**：`pi-edit-guard` **同名覆盖** `edit`（属核心 6，不新增激活项），额外 `undo` 为非核心（被隐藏）；`pi-mdiff` 的 `md_inspect`/`md_diff`/`md_edit` 均为非核心（被隐藏）。`activeTools` 仍 7，不增首请求注入量。
 
 ## 安装后操作
 
@@ -90,7 +95,7 @@ done
 | 脚本 | 用途 |
 |---|---|
 | `fix-tps-theme.ps1` | `pi-tps` 颜色跟随系统主题（`theme` -> `light/dark`，`colorPreset` -> `theme`） |
-| `setup-robustness.ps1` | **对话健壮性一键配置**：① `pi-response-guard` 免交互生成 `~/.pi/agent/extensions/pi-response-guard/config.json`（等价于 `/response-guard:install-config`）；② `pi-compaction-control` 自动写入 `contextCap`（cap 100000，对应本机模型原生窗口，autocompact 在 100k − reserveTokens 处触发） |
+| `setup-robustness.ps1` | **对话健壮性一键配置**：① `pi-response-guard` 免交互生成 `~/.pi/agent/extensions/pi-response-guard/config.json`（等价于 `/response-guard:install-config`） |
 
 ```bash
 powershell -ExecutionPolicy Bypass -File setup-robustness.ps1
@@ -104,18 +109,6 @@ powershell -ExecutionPolicy Bypass -File setup-robustness.ps1
 4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预。
 5. **`pi-auto-resume`**：装上即用（截断自动续写、429/额度指数退避重试）。需要收紧时配 settings.json `autoResume`（见 C 表）。
 6. **`pi-response-guard`**：**跑一次 `setup-robustness.ps1` 即完成**（自动把包内默认 `config.json` 复制到 `~/.pi/agent/extensions/pi-response-guard/config.json`，等价 `/response-guard:install-config`）。之后按需改 `retryMessage`/`maxConsecutiveAutoRetries`/`errorPatterns`；不改则用默认值（同样生效）。
-7. **`pi-compaction-control`**：**必须显式配置才生效**（无隐式默认）——`setup-robustness.ps1` 已自动写入 `contextCap`（cap 100000 = 本机模型原生窗口，即 `{ "cap": 100000, "matchPatterns": ["*"] }`），无启动告警；想改：settings.json 的 `contextCap` 调 `cap`/`matchPatterns` 或 `models`（按 model id 单独设）。**注意：`cap` 超过模型原生窗口时插件会告警并自动钳制到原生值**（如 `configured cap 256,000 > native 100,000 — effective cap clamped down to 100,000`），属配置问题而非插件问题。可选 `compactionModel`（如 `{ "model": "google/gemini-2.5-flash", "thinkingLevel": "low" }`）让更便宜的模型跑压缩摘要；`reserveTokens`/`keepRecentTokens` 仍由 Pi 原生 `compaction` 配置控制，扩展改不了。
-8. **`@vanillagreen/pi-output-policy`**：默认 `balanced` 模式装上即生效（读工具输出截断、写工具输出截断、溢出落盘）。想更激进/保守：`/extensions:settings` 的 Output Policy 页改 `policyMode`（compact 更省 / compat 尽量保真）与截断阈值，写回 settings.json 的 `kendex.extensionManager.config` namespace，`/reload` 后生效。
-
-## 维护记录
-- **2026-09-18**（修正）：**修复 compaction-control 启动告警**（`configured cap 256,000 > native 100,000`）。根因：`setup-robustness.ps1` 按 1M 原生窗口假设写入 cap 256000，但本机模型（`models.json` 的 `contextWindow: 100000`）原生仅 100k，插件自动钳制并告警——插件**能正常自动读取本机配置**，问题在配置值。处理：settings.json 清除被误注入到 15 个嵌套位置的 `contextCap`（markdown/images/compaction/terminal/whimsical/toolSearch/alps-pi 内），只保留顶层 `contextCap` 并改为 `cap: 100000`；`setup-robustness.ps1` 同步改为 100000，重跑不再引入 256k。
-- **2026-09-17**（追加）：**新增一键配置脚本 `setup-robustness.ps1`**（UTF-8 BOM，幂等）：① response-guard 自动复制包内 `config.json` 到 `~/.pi/agent/extensions/pi-response-guard/config.json`（免 `/response-guard:install-config` 交互）；② compaction-control 自动写入 settings.json `contextCap`（cap 256000 / matchPatterns `["*"]` / notify true）。本机已执行完成：response-guard config 已生成、settings.json 已含 `contextCap`（`packages` 仍 10 项，JSON 校验通过），重跑显示 `[skip]` 幂等。
-- **2026-09-17**（追加）：**安装 4 个对话健壮性/上下文控制扩展**，清单 6→10 个。串行 `pi install`：`pi-auto-resume`（npm 1.0.0，token 截断/429/额度耗尽自动续跑）、`pi-response-guard`（npm 0.1.0，空/错/中断响应自动恢复，配置走包内 `config.json`）、`pi-compaction-control`（npm 0.4.5，分模型 contextWindow 硬上限 + 可选压缩模型，settings.json 的 `contextCap`/`compactionModel`）、`@vanillagreen/pi-output-policy`（npm 2.0.1，大输出拦截 + 工具结果有界截断/完整落盘，`policyMode` balanced/compact/compat）。**坑：`pi-output-policy` bare 名 404，真实包名 `@vanillagreen/pi-output-policy`。**源码核查 4 个均零工具注入（无 `registerTool`/`setActiveTools`），不增加首请求 token 基线、不与 `pi-tool-search` 懒加载冲突；`pi-compaction-control` 与 `pi-cache-guardian` 协同（提前压缩→新会话→golden 重捕获）。settings.json `packages` 现为 10 项。
-- **2026-09-17**（追加）：**安装 `pi-cache-guardian`（npm v1.0.7）**，清单 5→6 个。串行 `pi install npm:pi-cache-guardian`，settings.json `packages` 增 `npm:pi-cache-guardian`。防护目标：autocompact 重建 system prompt 后前缀缓存命中率归零——该扩展首轮捕获 golden 副本、每轮强制恢复，保证字节一致；并剥离 `<session-overview>` 每轮变化字段、压缩 >4 skills 的 XML 块。纯 `before_agent_start`/`before_provider_request`/`after_provider_response` 改写，**无 `setActiveTools`**，与 `pi-tool-search` 懒加载无冲突；自动设 `PI_CACHE_RETENTION=long`。注意命令名：实际注册 `/cache-guardimizer`（README 的 `/cache-guardian` 为旧名）。未复测 `probe.ts`（该扩展不注入工具，只改 system prompt 内容，基线对比结论不变）。
-- **2026-09-17**（本轮精简锁定 5 个）：卸载 9 个 npm 扩展（`pi-mcp-adapter`、`@plannotator/pi-extension`、`@khanhicetea/pi-better-tool`、`@lucascardozo/pi-edit-guard`、`@ian-pascoe/pi-lsp`、`@cr1ms0n/pi-subagent`、`@juicesharp/rpiv-todo`、`pi-web-access` 未动 / 待查）——按「只保留 `pi-tool-search`/`pi-tps`/`pi-web-access`/`@injaneity/pi-computer-use`，其余全移除」执行（实际卸载：`pi-mcp-adapter`、`pi-code-review`、`@plannotator/pi-extension`、`@khanhicetea/pi-better-tool`、`@lucascardozo/pi-edit-guard`、`@ian-pascoe/pi-lsp`、`@cr1ms0n/pi-subagent`、`@juicesharp/rpiv-todo`、`pi-rewind`、`pi-simplify`），并移除 3 个本地 lint hook（`react-lint-hook.ts`/`python-lint-hook.ts`/`rust-lint-hook.ts`）；**新增 `alps-pi`**（TUI 美化）。串行 `pi remove` 执行（settings.json 保留 5 包：`pi-tool-search`、`pi-tps`、`alps-pi`、`pi-web-access`、`@injaneity/pi-computer-use`）。复测 `probe.ts`：5 扩展 2,654 chars / 7 工具（基线无扩展 2,502/6）。
-- **2026-09-17**（Token 优化，上轮）：卸载 `pi-readseek`、`pi-background-tasks`、`@xzzpig/pi-goal-x`。三者均在 `before_agent_start`/`session_start` 无条件 `setActiveTools()` 塞全量工具且注入策略文字，绕过 `pi-tool-search` 懒加载。串行 `pi remove` 执行。留仓 `probe.ts` 复测。
-- **2026-09-17**：`@cr1ms0n/pi-subagent` 的 `modelPolicy` 格式：`~/.pi/subagent.json` 填 `{ "modelPolicy": { "default": { "model": "<provider>/<model-id>" } } }`。**（本扩展已卸载，配置失效）**
-- **2026-09-16**：修正 `pi-tool-search` 配置说明——`alwaysEnabled` 只留 6 核心工具避免首请求注入全部 schema。补充实测 token 对比表。
-- **2025-09-16~17**：曾安装并随后精简 `pi-cachepoint` 系列、`pi-hermes-memory`、`pi-edit-guard`/`pi-better-tool` 等 edit 增强；相关说明已随本轮卸载清理。
-
-- 本清单即最新推荐集（当前 10 个）：扩展被卸载或替换时，同步更新上方表格与安装命令，并在此追加一行说明。
+7. **`@vanillagreen/pi-output-policy`**：默认 `balanced` 模式装上即生效（读工具输出截断、写工具输出截断、溢出落盘）。想更激进/保守：`/extensions:settings` 的 Output Policy 页改 `policyMode`（compact 更省 / compat 尽量保真）与截断阈值，写回 settings.json 的 `kendex.extensionManager.config` namespace，`/reload` 后生效。
+8. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**（无需改 `alwaysEnabled`）。需要解锁 `undo` 时用 `tool_search`。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
+9. **`@trycedar/pi-mdiff`**：装上即用，编辑 `.md` 时用 `tool_search` 解锁 `md_inspect`/`md_diff`/`md_edit`。**旧包名 `pi-mdiff` 已弃用，务必用 `npm:@trycedar/pi-mdiff`**（bare 名会触发弃用告警甚至 ECONNRESET 失败）。
