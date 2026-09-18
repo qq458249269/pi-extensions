@@ -85,16 +85,30 @@ done
 
 ## 安装后操作
 
+### 一键配置脚本（幂等，可重复执行）
+
+| 脚本 | 用途 |
+|---|---|
+| `fix-tps-theme.ps1` | `pi-tps` 颜色跟随系统主题（`theme` -> `light/dark`，`colorPreset` -> `theme`） |
+| `setup-robustness.ps1` | **对话健壮性一键配置**：① `pi-response-guard` 免交互生成 `~/.pi/agent/extensions/pi-response-guard/config.json`（等价于 `/response-guard:install-config`）；② `pi-compaction-control` 自动写入 `contextCap`（全模型 256k 硬上限，autocompact 提前触发） |
+
+```bash
+powershell -ExecutionPolicy Bypass -File setup-robustness.ps1
+```
+
+脚本为 UTF-8 BOM 保存，PowerShell 5.1 / 7 均可正确解析中文；已存在配置时自动 `[skip]`，不会覆盖你改过的值。
+
 1. **重启 Pi** 使扩展生效。
 2. 新会话里用 `tool_search` 按需解锁新扩展的工具（如 `web_search`、`computer_use`）。
 3. `pi-tps`：运行 `fix-tps-theme.ps1` 让颜色跟随系统主题。`alps-pi`：`/alps-pi` 打开设置、`/alps-pi preview` 预览（设好后 `settings.json` 的 `alps-pi` namespace 会持久化，`/reload` 后仍生效）。`@injaneity/pi-computer-use`：首次运行时授予平台权限。
 4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预。
 5. **`pi-auto-resume`**：装上即用（截断自动续写、429/额度指数退避重试）。需要收紧时配 settings.json `autoResume`（见 C 表）。
-6. **`pi-response-guard`**：装完先跑 `/response-guard:install-config` 生成 `~/.pi/agent/extensions/pi-response-guard/config.json`，再按需改 `retryMessage`/`maxConsecutiveAutoRetries`/`errorPatterns`；不改则用包内默认（同样生效）。
-7. **`pi-compaction-control`**：**必须显式配置才生效**（无隐式默认）——settings.json 加 `contextCap`（如 `{ "cap": 256000, "matchPatterns": ["*"] }` 全部封顶 256k，或 `models` 按 model id 单独设）；可选 `compactionModel`（如 `{ "model": "google/gemini-2.5-flash", "thinkingLevel": "low" }`）让更便宜的模型跑压缩摘要；`reserveTokens`/`keepRecentTokens` 仍由 Pi 原生 `compaction` 配置控制，扩展改不了。
+6. **`pi-response-guard`**：**跑一次 `setup-robustness.ps1` 即完成**（自动把包内默认 `config.json` 复制到 `~/.pi/agent/extensions/pi-response-guard/config.json`，等价 `/response-guard:install-config`）。之后按需改 `retryMessage`/`maxConsecutiveAutoRetries`/`errorPatterns`；不改则用默认值（同样生效）。
+7. **`pi-compaction-control`**：**必须显式配置才生效**（无隐式默认）——`setup-robustness.ps1` 已自动写入 `contextCap`（全模型封顶 256k，即 `{ "cap": 256000, "matchPatterns": ["*"] }`），本机已配置无需再动；想改：settings.json 的 `contextCap` 调 `cap`/`matchPatterns` 或 `models`（按 model id 单独设）。可选 `compactionModel`（如 `{ "model": "google/gemini-2.5-flash", "thinkingLevel": "low" }`）让更便宜的模型跑压缩摘要；`reserveTokens`/`keepRecentTokens` 仍由 Pi 原生 `compaction` 配置控制，扩展改不了。
 8. **`@vanillagreen/pi-output-policy`**：默认 `balanced` 模式装上即生效（读工具输出截断、写工具输出截断、溢出落盘）。想更激进/保守：`/extensions:settings` 的 Output Policy 页改 `policyMode`（compact 更省 / compat 尽量保真）与截断阈值，写回 settings.json 的 `kendex.extensionManager.config` namespace，`/reload` 后生效。
 
 ## 维护记录
+- **2026-09-17**（追加）：**新增一键配置脚本 `setup-robustness.ps1`**（UTF-8 BOM，幂等）：① response-guard 自动复制包内 `config.json` 到 `~/.pi/agent/extensions/pi-response-guard/config.json`（免 `/response-guard:install-config` 交互）；② compaction-control 自动写入 settings.json `contextCap`（cap 256000 / matchPatterns `["*"]` / notify true）。本机已执行完成：response-guard config 已生成、settings.json 已含 `contextCap`（`packages` 仍 10 项，JSON 校验通过），重跑显示 `[skip]` 幂等。
 - **2026-09-17**（追加）：**安装 4 个对话健壮性/上下文控制扩展**，清单 6→10 个。串行 `pi install`：`pi-auto-resume`（npm 1.0.0，token 截断/429/额度耗尽自动续跑）、`pi-response-guard`（npm 0.1.0，空/错/中断响应自动恢复，配置走包内 `config.json`）、`pi-compaction-control`（npm 0.4.5，分模型 contextWindow 硬上限 + 可选压缩模型，settings.json 的 `contextCap`/`compactionModel`）、`@vanillagreen/pi-output-policy`（npm 2.0.1，大输出拦截 + 工具结果有界截断/完整落盘，`policyMode` balanced/compact/compat）。**坑：`pi-output-policy` bare 名 404，真实包名 `@vanillagreen/pi-output-policy`。**源码核查 4 个均零工具注入（无 `registerTool`/`setActiveTools`），不增加首请求 token 基线、不与 `pi-tool-search` 懒加载冲突；`pi-compaction-control` 与 `pi-cache-guardian` 协同（提前压缩→新会话→golden 重捕获）。settings.json `packages` 现为 10 项。
 - **2026-09-17**（追加）：**安装 `pi-cache-guardian`（npm v1.0.7）**，清单 5→6 个。串行 `pi install npm:pi-cache-guardian`，settings.json `packages` 增 `npm:pi-cache-guardian`。防护目标：autocompact 重建 system prompt 后前缀缓存命中率归零——该扩展首轮捕获 golden 副本、每轮强制恢复，保证字节一致；并剥离 `<session-overview>` 每轮变化字段、压缩 >4 skills 的 XML 块。纯 `before_agent_start`/`before_provider_request`/`after_provider_response` 改写，**无 `setActiveTools`**，与 `pi-tool-search` 懒加载无冲突；自动设 `PI_CACHE_RETENTION=long`。注意命令名：实际注册 `/cache-guardimizer`（README 的 `/cache-guardian` 为旧名）。未复测 `probe.ts`（该扩展不注入工具，只改 system prompt 内容，基线对比结论不变）。
 - **2026-09-17**（本轮精简锁定 5 个）：卸载 9 个 npm 扩展（`pi-mcp-adapter`、`@plannotator/pi-extension`、`@khanhicetea/pi-better-tool`、`@lucascardozo/pi-edit-guard`、`@ian-pascoe/pi-lsp`、`@cr1ms0n/pi-subagent`、`@juicesharp/rpiv-todo`、`pi-web-access` 未动 / 待查）——按「只保留 `pi-tool-search`/`pi-tps`/`pi-web-access`/`@injaneity/pi-computer-use`，其余全移除」执行（实际卸载：`pi-mcp-adapter`、`pi-code-review`、`@plannotator/pi-extension`、`@khanhicetea/pi-better-tool`、`@lucascardozo/pi-edit-guard`、`@ian-pascoe/pi-lsp`、`@cr1ms0n/pi-subagent`、`@juicesharp/rpiv-todo`、`pi-rewind`、`pi-simplify`），并移除 3 个本地 lint hook（`react-lint-hook.ts`/`python-lint-hook.ts`/`rust-lint-hook.ts`）；**新增 `alps-pi`**（TUI 美化）。串行 `pi remove` 执行（settings.json 保留 5 包：`pi-tool-search`、`pi-tps`、`alps-pi`、`pi-web-access`、`@injaneity/pi-computer-use`）。复测 `probe.ts`：5 扩展 2,654 chars / 7 工具（基线无扩展 2,502/6）。
@@ -103,4 +117,4 @@ done
 - **2026-09-16**：修正 `pi-tool-search` 配置说明——`alwaysEnabled` 只留 6 核心工具避免首请求注入全部 schema。补充实测 token 对比表。
 - **2025-09-16~17**：曾安装并随后精简 `pi-cachepoint` 系列、`pi-hermes-memory`、`pi-edit-guard`/`pi-better-tool` 等 edit 增强；相关说明已随本轮卸载清理。
 
-- 本清单即最新推荐集（当前 6 个）：扩展被卸载或替换时，同步更新上方表格与安装命令，并在此追加一行说明。
+- 本清单即最新推荐集（当前 10 个）：扩展被卸载或替换时，同步更新上方表格与安装命令，并在此追加一行说明。
