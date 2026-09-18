@@ -2,8 +2,9 @@
 # 1) pi-response-guard：把包内默认 config.json 复制到
 #    ~/.pi/agent/extensions/pi-response-guard/config.json
 #    （等价于 /response-guard:install-config 命令，免交互）
-# 2) pi-compaction-control：settings.json 写入 contextCap（全模型 256k 硬上限），
-#    让 autocompact 在 256k - reserveTokens 处提前触发（不再等原生 1M 窗口）
+# 2) pi-compaction-control：settings.json 写入 contextCap（全模型硬上限），
+#    让 autocompact 在 cap - reserveTokens 处提前触发（cap 需 ≤ 模型原生窗口，
+#    见 ~/.pi/agent/models.json 的 contextWindow；本机模型为 100k，故用 100000）
 $ErrorActionPreference = 'Stop'
 # 统一输出编码：避免 Git Bash / 不同代码页下中文乱码
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -31,11 +32,11 @@ if ($t -match '"contextCap"') {
     Write-Host '[skip] contextCap already present in settings.json'
     Write-Host '       (edit cap / matchPatterns / models there to customize)'
 } else {
-    $cap = "{`n  `"contextCap`": {`n    `"cap`": 256000,`n    `"matchPatterns`": [`"*`"],`n    `"notify`": true`n  },"
+    $cap = "{`n  `"contextCap`": {`n    `"cap`": 100000,`n    `"matchPatterns`": [`"*`"],`n    `"notify`": true`n  },"
     $t2 = [regex]::Replace($t, '\{', $cap, 1)
     [System.IO.File]::WriteAllText($s, $t2, (New-Object System.Text.UTF8Encoding($false)))
-    Write-Host '[done] contextCap -> cap 256000, matchPatterns ["*"] (all models)'
-    Write-Host '       autocompact 将在 256k - reserveTokens 处提前触发'
+    Write-Host '[done] contextCap -> cap 100000, matchPatterns ["*"] (all models)'
+    Write-Host '       autocompact 将在 100k - reserveTokens 处提前触发（本机模型原生窗口 100k）'
 }
 
 Write-Host ''
