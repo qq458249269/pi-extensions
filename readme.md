@@ -41,7 +41,20 @@ for p in @wolido/pi-lazy-tools pi-cache-guardian pi-tps alps-pi \
 done
 ```
 
-装完自查（`pi extensions list`，不并行）：应见 **9 个 npm 扩展**——`pi-web-access`、`@wolido/pi-lazy-tools`、`pi-tps`、`@injaneity/pi-computer-use`、`alps-pi`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`。若少于 9（并行竞写伤痕），重跑上述循环补漏。
+> ⚠ `@injaneity/pi-computer-use` 的 postinstall（`node scripts/setup-helper.mjs --postinstall`，生成平台桥接 helper）会被 npm `allowScripts` 默认拦截。装完后再批：
+>
+> ```bash
+> cd "%USERPROFILE%\.pi\agent\npm" && npm install-scripts approve @injaneity/pi-computer-use
+> ```
+>
+> 批准后 helper 需重跑一次（`npm install-scripts` 无 run 子命令，直接手动执行）：
+>
+> ```bash
+> cd "%USERPROFILE%\.pi\agent\npm\node_modules\@injaneity\pi-computer-use" \
+>   && node scripts/setup-helper.mjs --postinstall   # 输出 [pi-computer-use] ...helper already up to date 即就位
+> ```
+
+装完自查（`pi list`，不并行）：应见 **9 个 npm 扩展**——`pi-web-access`、`@wolido/pi-lazy-tools`、`pi-tps`、`@injaneity/pi-computer-use`、`alps-pi`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`。若少于 9（并行竞写伤痕），重跑上述循环补漏。
 
 `@wolido/pi-lazy-tools` 配置（写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）：
 
@@ -82,7 +95,7 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 
 1. **重启 Pi** 使扩展生效。
 2. 新会话里对主智能体说「激活 X」：`load_tools` 先返回挑战文本（`confirm:false` 零副作用），用户点名确认后 `confirm:true` 激活、`call_tool` 调用。启动时 `ctx.ui.notify` 打印当前 lazy 名单与配置文件路径。
-3. `pi-tps`：运行 `fix-tps-theme.ps1` 让颜色跟随系统主题。`alps-pi`：`/alps-pi` 打开设置、`/alps-pi preview` 预览（设好后 `settings.json` 的 `alps-pi` namespace 会持久化，`/reload` 后仍生效）。`@injaneity/pi-computer-use`：首次运行时授予平台权限。
+3. `pi-tps`：运行 `fix-tps-theme.ps1` 让颜色跟随系统主题。`alps-pi`：`/alps-pi` 打开设置、`/alps-pi preview` 预览（设好后 `settings.json` 的 `alps-pi` namespace 会持久化，`/reload` 后仍生效）。`@injaneity/pi-computer-use`：先完成上面的 postinstall 批准与 helper 重跑，首次运行时再授予平台权限。
 4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预。
 5. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**（无需改 lazy 名单）。需要 `undo` 时将其列入 `lazy-tools.json` 的 `lazy` 数组即可按需加载。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
 6. **`@trycedar/pi-mdiff`**：装上即用，编辑 `.md` 时把 `md_inspect`/`md_diff`/`md_edit` 列入 lazy 名单后按需加载。**旧包名 `pi-mdiff` 已弃用，务必用 `npm:@trycedar/pi-mdiff`**（bare 名会触发弃用告警甚至 ECONNRESET 失败）。
