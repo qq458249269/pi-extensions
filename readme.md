@@ -126,3 +126,13 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 - 得：首请求主动集最小化、注入量与 token 最低，工具说明书不常驻上下文。
 - 失：每次使用多一轮 `load_tools` 往返（含用户确认），写代码/搜索/网页/UI 操作都要先激活对应工具。
 - 全懒后 `edit`/`grep`/`find` 默认不可见，但注册不变（同名替换内建行为保留），激活后即恢复原能力。
+
+### 缓存纪律（web_search 等大输出工具）
+
+**实测（2026-09-21 会话）**：web_search 默认把原始 HTML/CSS/热榜 JSON 全文（21KB+）写入会话历史，该轮前缀命中率从 96%+ 骤降至 **50.5%**；load_tools 注入大 schema 文本同理（55.7%）。前缀缓存从请求开头匹配，命中只到上一请求末尾——**一次性注入大文本的轮次命中率必然崩，看累计命中率（~90%）而非单轮**。
+
+执行约定：
+
+1. **web_search 一律用 `workflow:"auto-summary"`**（返回精简摘要 + sources，实测无原始 HTML 入历史）或 `includeContent:false`；确需全文时才显式开 `includeContent:true`。
+2. 大工具输出轮命中率低是结构性必然，评估看 `/cache-guardimizer` 累计值，`PI_CACHE_GUARD_THRESHOLD` 报警阈值勿按单轮瞬间判定。
+3. cacheWrite 全程为 0 时（OpenAI 兼容端点不报写侧缓存），长输出对前缀缓存是净负债，能不进历史就不进。
