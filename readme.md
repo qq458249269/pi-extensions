@@ -56,20 +56,18 @@ done
 
 装完自查（`pi list`，不并行）：应见 **9 个 npm 扩展**——`pi-web-access`、`@wolido/pi-lazy-tools`、`pi-tps`、`@injaneity/pi-computer-use`、`alps-pi`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`。若少于 9（并行竞写伤痕），重跑上述循环补漏。
 
-`@wolido/pi-lazy-tools` 配置（写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）：
+@wolido/pi-lazy-tools 配置（写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-21 起执行全量懒加载策略**：除 `load_tools`/`call_tool` 两个常驻承载工具外，其余全部工具列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
+
 
 ```json
-{ "lazy": ["deploy_tool"] }
+{ "lazy": ["deploy_tool", "edit", "undo", "md_inspect", "md_diff", "md_edit", "grep", "find", "web_search", "source_check", "fetch_content", "get_search_content", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "find_roots", "launch_browser", "navigate_browser", "evaluate_browser"] }
 ```
 
-> **挑选 lazy 化标准：低频（几天才用一次）＋参数简单（每次一两个字段）。** 高频工具别 lazy 化，每次使用多一轮 `load_tools` 往返反而亏。名单工具会话启动即从 LLM 可见 active 集剔除；激活是会话级记忆，会话开始清空。**`--tools` 白名单必须保留 lazy 工具**（否则 `load_tools` 返回「未找到工具元数据」）。
+
+> **全量懒加载策略（2026-09-21 拍板，长期执行）**：所有扩展工具一律列入 lazy 名单，低频不设门槛、默认全懒。理由：首请求上下文只保留 `load_tools`/`call_tool` 承载工具，主动集最小化，注入量与首请求 token 降到最低；各扩展 description/schema 不再常驻上下文，按需 `load_tools` 注入。代价：每次使用多一轮 `load_tools` 往返（含用户点名确认），写入/搜索/网页/UI 类操作均需先激活对应工具。**安装任何新扩展后，把其注册的工具名补进下方 lazy 名单，保证新扩展工具同样默认全懒。** 需查当前已注册工具：`pi list` 或新会话启动 `ctx.ui.notify` 打印的 lazy 名单。
 >
-> 实测对比（2026-09-17，`probe.ts` 复测后）：
->
-> | 配置 | system prompt 文字 | 首次激活工具 | 说明 |
-> |---|---|---|---|
-> | 无扩展（`-e probe.ts` 前置开关之外的 `-ne`） | 2,502 chars（≈0.7-1k token） | 6 | 基线（6 核心工具） |
-> | 5 扩展全量（`tool-search`+`tps`+`alps-pi`+`web-access`+`computer-use`） | 2,654 chars（≈0.8-1k token） | 7 | 增量仅 `tool_search` 描述 + 运行时状态 widget；`alps-pi` 纯 TUI 零工具注入 |
+> ⚠ 全懒后 `edit`/`grep`/`find` 不再常驻 active 集，写代码前必须先 `load_tools` 激活（两步确认门），确认门只在用户点名要求时通过。`--tools` 白名单必须保留 lazy 工具（注册与隐藏是两件事），当前无 `--tools` 字段、默认全注册，安全。
+
 
 > 该表为首轮 `session_start` 实测基线（安装 `pi-cache-guardian` 前）。`pi-cache-guardian` 不注入工具，`activeTools` 数不变；system prompt 内容受其 reorder/压缩影响（长度基本持平，压缩仅在 skill>4 时生效），属 `before_agent_start` 阶段内部改写，不影响首请求注入量与基线对比结论。
 >
@@ -99,3 +97,32 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预。
 5. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**（无需改 lazy 名单）。需要 `undo` 时将其列入 `lazy-tools.json` 的 `lazy` 数组即可按需加载。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
 6. **`@trycedar/pi-mdiff`**：装上即用，编辑 `.md` 时把 `md_inspect`/`md_diff`/`md_edit` 列入 lazy 名单后按需加载。**旧包名 `pi-mdiff` 已弃用，务必用 `npm:@trycedar/pi-mdiff`**（bare 名会触发弃用告警甚至 ECONNRESET 失败）。
+
+## 全量懒加载策略
+
+**2026-09-21 起长期执行：所有扩展工具一律 lazy，低频不设门槛。** 首请求上下文仅保留 `load_tools`/`call_tool` 两个承载工具，其余全部从 LLM 可见 active 集剔除；需要时由 `load_tools` 纯文本注入用法、`call_tool` 代理执行（两步确认门：`confirm:false` 零副作用挑战文本 → 用户点名后 `confirm:true` 激活，会话级记忆、会话开始清空）。
+
+### 工具归属
+
+| 扩展 | 工具 | lazy 名单位 |
+|---|---|---|
+| pi-edit-guard | `edit`、`undo` | ✓ |
+| @trycedar/pi-mdiff | `md_inspect`、`md_diff`、`md_edit` | ✓ |
+| @tian.zuo/pi-find | `grep`、`find` | ✓ |
+| pi-web-access | `web_search`、`source_check`、`fetch_content`、`get_search_content` | ✓ |
+| @injaneity/pi-computer-use | `observe_ui`、`search_ui`、`expand_ui`、`inspect_ui`、`act_ui`、`read_text`、`wait_for`、`find_roots`、`launch_browser`、`navigate_browser`、`evaluate_browser` | ✓ |
+| @wolido/pi-lazy-tools | `load_tools`、`call_tool` | ✗ 承载者，常驻 |
+| 用户自定义 | `deploy_tool` | ✓ |
+
+### 执行纪律
+
+1. **安装任何新扩展 → 其注册工具名补进 `~/.pi/lazy-tools.json` 的 `lazy` 数组**（同扩展工具可部分 lazy，此处全量）。
+2. **`--tools` 白名单必须保留 lazy 工具**：注册与隐藏是两件事，只加 lazy 名单不进 `--tools`，`load_tools` 会报「未找到工具元数据」。
+3. 激活是会话级记忆，会话开始清空；`load_tools` 只在用户主动点名时才 `confirm:true`，不自行加载。
+4. 开新会话生效（扩展在会话启动时加载）。
+
+### 权衡
+
+- 得：首请求主动集最小化、注入量与 token 最低，工具说明书不常驻上下文。
+- 失：每次使用多一轮 `load_tools` 往返（含用户确认），写代码/搜索/网页/UI 操作都要先激活对应工具。
+- 全懒后 `edit`/`grep`/`find` 默认不可见，但注册不变（同名替换内建行为保留），激活后即恢复原能力。
