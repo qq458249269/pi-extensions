@@ -5,8 +5,10 @@
 > 按需工具加载由 `@wolido/pi-lazy-tools` 承担：低频工具列入 lazy 名单后从 LLM 可见 active 集剔除，需要时 `load_tools` 纯文本注入用法、`call_tool` 代理执行，与其它扩展不冲突。
 >
 > 本轮（2026-09-17）新增 4 个扩展，全部**零工具注入**（无 `registerTool`/`setActiveTools`），只挂事件钩子，不增加首请求 token、不与 `@wolido/pi-lazy-tools` 懒加载冲突。
+>
+> 本轮（2026-09-21）再增 5 个扩展：`pi-undo-redo`（会话/文件撤销重做）、`pi-hermes-memory`（持久记忆 + 会话检索 + 密钥扫描）、`pi-subagents`（子智能体委托）、`pi-mcp-adapter`（MCP 适配）、`pi-agent-browser-native`（原生浏览器工具）。注册的 10 个工具一律列入 lazy 名单（见[工具归属](#工具归属)），不增首请求注入量。
 
-## 推荐清单（9 个，始终最新）
+## 推荐清单（14 个，始终最新）
 
 ### A. 核心层（先装）
 
@@ -26,6 +28,11 @@
 | `@tian.zuo/pi-find` | `npm:@tian.zuo/pi-find` | **搜索增强**：用 ripgrep/fd 实现 `grep`/`find`，**复用内建工具名**（替换内建而非并列，模型只看到一套搜索面）。有界输出（grep ≤100 命中、find ≤200 文件、行长裁剪、硬字节上限、大文件/超长记录跳过），尊重 `.gitignore` 并跳过 `.git`，支持 `glob`/`!` 排除/`@`与`~` 路径展开。**只注册 `grep`/`find` 两个工具名，不在 lazy 名单即保持常驻 active，不新增工具、不增加注入量** |
 | `pi-edit-guard` | `npm:pi-edit-guard` | **编辑强化**：覆盖内建 `edit`（**同名替换**），多层容错匹配（simple → line/whitespace/indentation/escape/unicode 归一化 → block-anchor → fuzzy 等 12+ passes）、匹配唯一性校验、缩进漂移修复、批量感知错误报告。另注册 `undo` 工具（可撤销编辑）。**同名接管内建 `edit` 即生效；`undo` 是否列入 lazy 名单由你定，列入了才被剔除、按需加载，不增首请求注入**。⚠ 声明 `engines.node >=24.18.0`（本机 24.16.0 仅 npm 告警，仍可安装运行） |
 | `@trycedar/pi-mdiff` | `npm:@trycedar/pi-mdiff` | **Markdown 编辑**：面向 `.md` 的规范化 SEARCH 匹配 + 块级锚定编辑，注册 `md_inspect`/`md_diff`/`md_edit` 三个工具。**旧包名 `pi-mdiff` 已弃用并迁移到带 scope 的 `@trycedar/pi-mdiff`**。三个工具名可列入 lazy 名单按需加载，**不增首请求注入** |
+| `pi-undo-redo` | `npm:pi-undo-redo` | **会话/文件撤销重做**：git 仓库用影子 git 快照、非 git 目录只快照 Pi 文件工具显式触碰的路径（`write`/`edit`），按消息记录补丁元数据。命令 `/undo` 回到上一用户消息并还原其改动的文件、`/redo` 恢复、`/undo-cleanup` 保守清理旧快照；`/tree` 也可还原工作区快照。脏保护：有未快照工作区改动时拦截 `/undo`/`/redo`/`/tree`。**不注册任何 agent 工具**，纯命令扩展，零注入。配置写入 settings.json 的 `undoRedo` namespace（`storageDir`/大文件上限 `largeFileLimitBytes` 默认 2MiB/`gitTimeoutMs`） |
+| `pi-hermes-memory` | `npm:pi-hermes-memory` | **持久记忆 + 会话检索 + 密钥扫描**：事实/偏好/教训写入 markdown 并镜像进 SQLite FTS5 供检索；失败记忆、分类记忆（failures/corrections/insights/conventions/tool quirks）、程序性技能（过程而非结论）、每 10 轮后台学习、条目满时自动合并。注册 `memory_search`/`session_search`/`memory_add`/`memory_replace`/`memory_remove`/`skill_manage` 六工具（全部列入 lazy 名单）。命令：`/memory-index-sessions`（一次性索引历史会话）、`/memory-sync-markdown`、`/learn-memory-tool` 等 `/memory-*`。密钥/API token 拦截不进记忆。⚠ 依赖原生 `better-sqlite3`，需批准 install-scripts（见下） |
+| `pi-subagents` | `npm:pi-subagents` | **子智能体委托**：Pi 作为父会话派发聚焦子会话（前台子会话在父进程内流式返回，后台子会话跑在分离 Node runner 里可稍后取结果），内置 agent：`scout`（代码侦察）、`reviewer`（评审）、`oracle`（第二意见）、`researcher`（需子会话有 `pi-web-access`）等，可并行评审、保存工作流、后台作业。注册 `subagent`（主委托工具，`bg_wait` 为参数非独立工具）与 `contact_supervisor`（子会话联络父会话）。⚠ 依赖 `better-sqlite3`（同上，装一次批准即可） |
+| `pi-mcp-adapter` | `npm:pi-mcp-adapter` | **MCP 适配（免上下文爆炸）**：一个 `mcp` 代理工具（~200 token）替代数百个 MCP 工具定义，按需发现、服务器首次使用时才启动。自动读 `.mcp.json`/`~/.config/mcp/mcp.json`（及 `~/.agents/mcp.json` 等兼容路径）；`/mcp setup` 从 Cursor/Claude Code/Codex 等宿主配置导入、`/mcp disable|enable` 开关服务器。Pi 专用覆盖写 `~/.pi/agent/mcp.json`/.pi 项目层，不改写源文件、不复制凭证。⚠ 依赖 `better-sqlite3`（同上） |
+| `pi-agent-browser-native` | `npm:pi-agent-browser-native` | **原生浏览器自动化**：agent-browser CLI 封装为原生 `agent_browser` 工具（替代脆弱的 shell 命令拼装）：打开页面、交互式快照（`@eN` 引用可继续点击/填表）、截图与下载文件以 Pi artifact 呈现、持久 profile 支持登录态、溢出大输出写 spill 文件防爆上下文、结构化 details（标题/URL/已存文件/会话/错误）。⚠ 依赖 `better-sqlite3`（同上） |
 
 ## 安装与配置
 
@@ -36,7 +43,8 @@
 ```bash
 for p in @wolido/pi-lazy-tools pi-cache-guardian pi-tps alps-pi \
          pi-web-access @injaneity/pi-computer-use @tian.zuo/pi-find \
-         pi-edit-guard @trycedar/pi-mdiff; do
+         pi-edit-guard @trycedar/pi-mdiff pi-undo-redo pi-hermes-memory \
+         pi-subagents pi-mcp-adapter pi-agent-browser-native; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 ```
@@ -54,13 +62,19 @@ done
 >   && node scripts/setup-helper.mjs --postinstall   # 输出 [pi-computer-use] ...helper already up to date 即就位
 > ```
 
-装完自查（`pi list`，不并行）：应见 **9 个 npm 扩展**——`pi-web-access`、`@wolido/pi-lazy-tools`、`pi-tps`、`@injaneity/pi-computer-use`、`alps-pi`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`。若少于 9（并行竞写伤痕），重跑上述循环补漏。
+> ⚠ `pi-hermes-memory`/`pi-subagents`/`pi-mcp-adapter`/`pi-agent-browser-native` 共享原生依赖 `better-sqlite3`（`install: node-gyp rebuild`），会被 allowScripts 默认拦截。装完一次性批准（多扩展共用同一包，批一次即可；有 prebuilt 二进制时无需 rebuild 也能用）：
+>
+> ```bash
+> cd "%USERPROFILE%\.pi\agent\npm" && npm install-scripts approve better-sqlite3
+> ```
+
+装完自查（`pi list`，不并行）：应见 **14 个 npm 扩展**——`pi-web-access`、`@wolido/pi-lazy-tools`、`pi-tps`、`@injaneity/pi-computer-use`、`alps-pi`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-hermes-memory`、`pi-subagents`、`pi-mcp-adapter`、`pi-agent-browser-native`。若少于 14（并行竞写伤痕），重跑上述循环补漏。
 
 @wolido/pi-lazy-tools 配置（写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-21 起执行全量懒加载策略**：除 `load_tools`/`call_tool` 两个常驻承载工具外，其余全部工具列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
 
 
 ```json
-{ "lazy": ["deploy_tool", "edit", "undo", "md_inspect", "md_diff", "md_edit", "grep", "find", "web_search", "source_check", "fetch_content", "get_search_content", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "find_roots", "launch_browser", "navigate_browser", "evaluate_browser"] }
+{ "lazy": ["deploy_tool", "edit", "undo", "md_inspect", "md_diff", "md_edit", "grep", "find", "web_search", "source_check", "fetch_content", "get_search_content", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "find_roots", "launch_browser", "navigate_browser", "evaluate_browser", "memory_search", "session_search", "memory_add", "memory_replace", "memory_remove", "skill_manage", "subagent", "contact_supervisor", "mcp", "agent_browser"] }
 ```
 
 
@@ -76,6 +90,8 @@ done
 > `pi-tps` 与 `alps-pi` 是纯 UI/运行时监控扩展，不注册任何 agent 工具，因此**不增加首次请求 token**（相对基线仅 +~150 chars 的 `pi-tps` 策略文字，`alps-pi` 为 0）。其余扩展工具列入 lazy 名单的，需要时 `load_tools` 注入用法，不占首次请求 token。
 >
 > **2026-09-18 追加 `pi-edit-guard`/`@trycedar/pi-mdiff` 后基线亦不变**：`pi-edit-guard` **同名覆盖** `edit`（属核心 6，不新增激活项），额外 `undo` 为非核心（被隐藏）；`pi-mdiff` 的 `md_inspect`/`md_diff`/`md_edit` 均为非核心（被隐藏）。`activeTools` 仍 7，不增首请求注入量。
+>
+> **2026-09-21 追加 5 个扩展后基线仍不变**：`pi-undo-redo` 零工具注入；`pi-hermes-memory`（6 工具）/`pi-subagents`（`subagent`、`contact_supervisor`）/`pi-mcp-adapter`（`mcp`）/`pi-agent-browser-native`（`agent_browser`）共 10 个工具**全部列入 lazy 名单**，从 active 集剔除，`activeTools` 仍 7，不增首请求注入量。
 
 ## 安装后操作
 
@@ -97,6 +113,11 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预。
 5. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**（无需改 lazy 名单）。需要 `undo` 时将其列入 `lazy-tools.json` 的 `lazy` 数组即可按需加载。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
 6. **`@trycedar/pi-mdiff`**：装上即用，编辑 `.md` 时把 `md_inspect`/`md_diff`/`md_edit` 列入 lazy 名单后按需加载。**旧包名 `pi-mdiff` 已弃用，务必用 `npm:@trycedar/pi-mdiff`**（bare 名会触发弃用告警甚至 ECONNRESET 失败）。
+7. **`pi-undo-redo`**：装上即用，纯命令扩展（`/undo`、`/redo`、`/undo-cleanup`），默认存储 `~/.pi/agent/state/pi-undo-redo`，无需配置。可选调整 settings.json 的 `undoRedo`（`storageDir`/`largeFileLimitBytes`）。git 仓库自动走影子 git 快照，非 git 目录只覆盖 `write`/`edit` 显式路径。
+8. **`pi-hermes-memory`**：装上后用 `/memory-index-sessions` 一次性索引历史会话（SQLite FTS5），`/learn-memory-tool` 教智能体使用记忆工具。记忆工具（`memory_search`/`memory_add` 等 6 个）已入 lazy 名单，与新会话中 `load_tools` 激活后可用。期间会话结束自动后台学习/合并，无需干预。
+9. **`pi-subagents`**：装上即用。主智能体直接说「用 reviewer 评审这段 diff」「问 oracle 第二意见」即可触发 `subagent` 工具；无需预建 agent 配置。后台子会话跑在分离 runner，可用 `contact_supervisor` 联络。
+10. **`pi-mcp-adapter`**：装上重启后自动读 `.mcp.json`/`~/.config/mcp/mcp.json`；无配置时 `/mcp setup` 导入宿主配置或脚手架。`mcp` 工具已入 lazy 名单，激活后按需代理调用 MCP 服务器，服务器首次使用时才启动。
+11. **`pi-agent-browser-native`**：装上即用，`agent_browser` 工具已入 lazy 名单，激活后可直接驱动真实浏览器（需本机有 `agent-browser` CLI，首次运行时自动按需启动）。
 
 ## 全量懒加载策略
 
@@ -111,6 +132,11 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 | @tian.zuo/pi-find | `grep`、`find` | ✓ |
 | pi-web-access | `web_search`、`source_check`、`fetch_content`、`get_search_content` | ✓ |
 | @injaneity/pi-computer-use | `observe_ui`、`search_ui`、`expand_ui`、`inspect_ui`、`act_ui`、`read_text`、`wait_for`、`find_roots`、`launch_browser`、`navigate_browser`、`evaluate_browser` | ✓ |
+| pi-hermes-memory | `memory_search`、`session_search`、`memory_add`、`memory_replace`、`memory_remove`、`skill_manage` | ✓ |
+| pi-subagents | `subagent`、`contact_supervisor` | ✓ |
+| pi-mcp-adapter | `mcp` | ✓ |
+| pi-agent-browser-native | `agent_browser` | ✓ |
+| pi-undo-redo | （无工具，仅 `/undo` `/redo` `/undo-cleanup` 命令） | — |
 | @wolido/pi-lazy-tools | `load_tools`、`call_tool` | ✗ 承载者，常驻 |
 | 用户自定义 | `deploy_tool` | ✓ |
 
