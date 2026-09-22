@@ -12,7 +12,7 @@
 >
 > 本轮（2026-09-22 二轮，策略回调）：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`）恢复**默认常驻 active 集**（项目 `.pi/settings.json` 显式 `defaultTools`，Windows 下同含 bash/powershell 双 shell）；`edit` 从 lazy 名单移除（归核心五工具，同名覆盖内建行为保留）；`grep`/`find`（@tian.zuo/pi-find）等其余扩展工具**仍全量懒加载**。active 集回到 7（五工具 + `load_tools`/`call_tool`），写代码主链路零 `load_tools` 往返。
 
-> 本轮（2026-09-22 三轮）：新增 **SoL-Pi**（`git:github.com/NVlabs/SoL-Pi`，NVIDIA 开源上下文/token 效率扩展，arXiv 2609.20519），清单 **13 → 14**（13 npm + 1 git）。四机制全 opt-in 默认关（`sol-pi.json` 配置，见[清单 A](#a-核心层先装)）：**Action Fusion** 同名覆盖内建 `edit`/`write` 追加 `then_run` 参数（同一次工具调用完成编辑 + 校验命令，省一轮往返）；**ObservationPack** 大文本结果转稳定句柄 + 分页回放（注册 `obs_recall`）；**Evidence-Preserving Reducer** 长诊断日志转紧凑收据（无工具）；**Online Context Compact** 完成的计划步骤成原生压缩候选点（注册 `update_plan`）。`obs_recall`/`update_plan` 补入 lazy 名单；`edit`/`write` 同名覆盖归核心常驻（与 pi-edit-guard 之于 `edit`、pi-one-ui 之于 `write` 同类）。
+> 本轮（2026-09-22 三轮）：新增 **SoL-Pi**（`git:github.com/NVlabs/SoL-Pi`，NVIDIA 开源上下文/token 效率扩展，arXiv 2609.20519），清单 **13 → 14**（13 npm + 1 git）。四机制全 opt-in 默认关（`sol-pi.json` 配置，见[清单 A](#a-核心层先装)）：**Action Fusion** 同名覆盖内建 `edit`/`write` 追加 `then_run` 参数（同一次工具调用完成编辑 + 校验命令，省一轮往返）；**ObservationPack** 大文本结果转稳定句柄 + 分页回放（注册 `obs_recall`）；**Evidence-Preserving Reducer** 长诊断日志转紧凑收据（无工具）；**Online Context Compact** 完成的计划步骤成原生压缩候选点（注册 `update_plan`）。`obs_recall`/`update_plan` 补入 lazy 名单；`edit`/`write` 同名覆盖归核心常驻（与 pi-edit-guard 之于 `edit`、pi-one-ui 之于 `write` 同类）。**维护机已启用保守两机制**（actionFusion + observationPack，`~/.pi/agent/sol-pi.json`，见[安装后操作 10](#安装后操作)）。
 
 ## 推荐清单（14 个，始终最新）
 
@@ -135,7 +135,20 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 7. **`pi-subagents`**：装上即用。主智能体直接说「用 reviewer 评审这段 diff」「问 oracle 第二意见」即可触发 `subagent` 工具；无需预建 agent 配置。后台子会话跑在分离 runner，可用 `contact_supervisor` 联络。
 8. **`pi-mcp-adapter`**：装上重启后自动读 `.mcp.json`/`~/.config/mcp/mcp.json`；无配置时 `/mcp setup` 导入宿主配置或脚手架。`mcp` 工具已入 lazy 名单，激活后按需代理调用 MCP 服务器，服务器首次使用时才启动。
 9. **`pi-agent-browser-native`**：装上即用，`agent_browser` 工具已入 lazy 名单，激活后可直接驱动真实浏览器（需本机有 `agent-browser` CLI，首次运行时自动按需启动）。
-10. **`SoL-Pi`**：装好默认全关（零生效，安全）。要启用先建 `sol-pi.json`——项目级 `.pi/sol-pi.json`（需项目已信任）优先，否则 `~/.pi/agent/sol-pi.json`。保守配置（仅两个零额外模型调用的本地机制）见[清单 A](#a-核心层先装)；全开配置按 `agents-install.md` 协议 + `scripts/check-sol-pi-config.mjs --require-all-enabled` 校验。⚠ 默认全关时 `obs_recall`/`update_plan` 虽在 lazy 名单但实际不注册；开启对应机制后 `load_tools` 激活即可用。新会话生效。
+10. **`SoL-Pi`**：**维护机已启用保守配置**——`~/.pi/agent/sol-pi.json`（全局有效，项目无 `.pi/sol-pi.json` 时生效；项目级优先且不合并），内容如下（仅开两个零额外模型调用的本地机制）：
+
+    ```json
+    {
+      "version": 1,
+      "actionFusion": true,
+      "observationPack": true,
+      "evidencePreservingReducer": false,
+      "onlineContextCompact": false,
+      "cacheWriteReadRatio": 12.5
+    }
+    ```
+
+    ⚠ 全开配置按 `agents-install.md` 协议 + `scripts/check-sol-pi-config.mjs --require-all-enabled` 校验；模板见 `sol-pi.example.json`。`obs_recall` 已随 observationPack 注册（在 lazy 名单，`load_tools` 激活即用）；`update_plan` 属 onlineContextCompact，未开启不注册。**改配置后新会话生效**。
 
 ## 全量懒加载策略
 
