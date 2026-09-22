@@ -166,3 +166,31 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 1. **web_search 一律用 `workflow:"auto-summary"`**（返回精简摘要 + sources，实测无原始 HTML 入历史）或 `includeContent:false`；确需全文时才显式开 `includeContent:true`。
 2. 大工具输出轮命中率低是结构性必然，评估看 `/cache-guardimizer` 累计值，`PI_CACHE_GUARD_THRESHOLD` 报警阈值勿按单轮瞬间判定。
 3. cacheWrite 全程为 0 时（OpenAI 兼容端点不报写侧缓存），长输出对前缀缓存是净负债，能不进历史就不进。
+
+
+## lazy-tools 执行层修复（2026-09-22）
+
+**现象**：`load_tools` 激活成功（注入 description/schema），但 `call_tool` 报「无法从 ...\@tian.zuo\pi-find\index.ts 加载工具 grep 的执行定义」。实测非 pi-find 特有——所有 npm 安装的 `.ts` 扩展全中招。
+
+**根因**：lazy-tools 的 `requireFn` 用 Node 原生 `createRequire` 二次加载目标扩展。Node ≥23.6 的 type stripping **明确拒绝 node_modules 下 .ts**（实测报错 `Stripping types is currently unsupported for files under node_modules`），且原生 require 转 CJS 后 `import.meta` 不可用。lazy-tools 绕开了 pi 的官方 TS 加载管线。
+
+**修复**：换 pi 同款加载器 **jiti**（`docs/extensions.md`：Extensions are loaded via jiti；`jiti@2.7.0` 已在依赖树，未声明但可从 node_modules 根解析）。三处改动（`npm/node_modules/@wolido/pi-lazy-tools/lazy-tools.ts`，备份 `lazy-tools.ts.bak`）：
+
+```diff
+- import { createRequire } from "node:module";
++ import { createJiti } from "jiti";
+- const requireFn = typeof require !== "undefined" ? require : createRequire(import.meta.url);
++ const requireFn = createJiti(import.meta.url);
+- const mod = requireFn(sourcePath);                      // 同步原生 require
+- const factory = mod?.default ?? mod;
++ const factory = await requireFn.import(sourcePath.replaceAll("\\", "/"), { default: true });
+```
+
+要点：`jiti.import()` 按 ESM 语义转译（`import.meta` 可用），`default: true` 直接取 default 导出；`sourceInfo.path` 为 Windows 反斜杠绝对路径，转正斜杠后 jiti 才能正确 resolve。
+
+**验证**：独立 probe 用真实 `C:\Users\...\@tian.zuo\pi-find\index.ts` 反斜杠路径重放 factory → `REPLAY OK: grep,find`，execute 就位。
+
+**执行约定**：
+1. **生效需 `/reload` 或重启 pi**：扩展工厂闭包在会话启动时冻结，本会话内 `call_tool` 仍走旧加载器。
+2. **补丁位于 node_modules，`pi install`/更新包会覆盖**：`lazy-tools.ts.bak` 可回滚；建议上报上游 `@wolido/pi-lazy-tools` 或 fork 到 `~/.pi/agent/extensions/` 自定义路径防覆盖。
+3. 修复后缓存实验对齐基线：激活注入（grep schema ~180 token）对前缀命中约零影响（对照 T1 消息 14 注入 7,084 token → 单轮 44%、下轮即恢复 96%+），看累计值而非单轮。
