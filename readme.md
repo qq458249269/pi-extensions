@@ -2,11 +2,13 @@
 
 本手册汇总一套推荐的 Pi 扩展安装方案，按「缓存与节省优先，编程增强次之」的原则组织。扩展统一安装在 Pi 配置根 `~/.pi/agent`（Windows 下为 `%USERPROFILE%\.pi\agent`），以下路径均以此计。
 
-> 按需工具加载由 `@wolido/pi-tool-search` 承担：低频工具列入 lazy 名单后从 LLM 可见 active 集剔除，需要时 `load_tools` 纯文本注入用法、`call_tool` 代理执行，与其它扩展不冲突。
+> 按需工具加载由 `@wolido/pi-lazy-tools` 承担（前身 `@wolido/pi-tool-search` 已下架，2026-09-22 回归 lazy-tools 命名）：低频工具列入 lazy 名单后从 LLM 可见 active 集剔除，需要时 `load_tools` 纯文本注入用法、`call_tool` 代理执行，与其它扩展不冲突。
 >
-> 本轮（2026-09-17）新增 4 个扩展，全部**零工具注入**（无 `registerTool`/`setActiveTools`），只挂事件钩子，不增加首请求 token、不与 `@wolido/pi-tool-search` 懒加载冲突。
+> 本轮（2026-09-17）新增 4 个扩展，全部**零工具注入**（无 `registerTool`/`setActiveTools`），只挂事件钩子，不增加首请求 token、不与 `@wolido/pi-lazy-tools` 懒加载冲突。
 >
 > 本轮（2026-09-21）再增 5 个扩展：`pi-undo-redo`（会话/文件撤销重做）、`pi-hermes-memory`（持久记忆 + 会话检索 + 密钥扫描）、`pi-subagents`（子智能体委托）、`pi-mcp-adapter`（MCP 适配）、`pi-agent-browser-native`（原生浏览器工具）。注册的 10 个工具一律列入 lazy 名单（见[工具归属](#工具归属)），不增首请求注入量。
+>
+> 本轮（2026-09-22）换装：`@wolido/pi-tool-search` 已从 npm 下架 → 由**同作者的 `@wolido/pi-lazy-tools@0.3.1` 承接**（配置 `lazy-tools.json`、常驻 `load_tools`/`call_tool`、两步确认门全部同款，新增 call_tool 的 JSON Schema 预校验 + factory 重放真实 execute）；**移除 `alps-pi`**（TUI 美化）→ **加入 `pi-one-ui@0.7.1`**（统一 TUI 包，功能覆盖 alps-pi 并扩展，见下方清单 B）。清单仍 14 个。
 
 ## 推荐清单（14 个，始终最新）
 
@@ -14,8 +16,8 @@
 
 | 扩展 | 来源 | 作用 |
 |---|---|---|
-| `@wolido/pi-tool-search` | `npm:@wolido/pi-tool-search` | **核心**。低频工具懒加载：会话启动把 `lazy-tools.json` 名单工具从 LLM 可见 active 集剔除，需要时 `load_tools` 以纯文本注入描述/参数 schema（两步确认门：先挑战文本 `confirm:false` 零副作用、用户主动要求后 `confirm:true` 激活）、`call_tool` 代理执行目标扩展的 `execute`。**不触碰 `tools` 字段与系统提示词**，无缓存失效，任意模型通用。**关键：`--tools` 白名单必须保留 lazy 工具**（注册与隐藏是两件事） |
-| `pi-cache-guardian` | `npm:pi-cache-guardian` | **缓存守护（防 autocompact 后命中率归零）**。首轮完整链处理后将 system prompt 捕获为 **golden 副本**，之后每轮无条件恢复——字节级一致保证前缀缓存不因 autocompact 重建 system prompt 而整体失效；叠加 prompt reorder（稳定内容前置）、skill 压缩（>4 个 skill 时 4 行 XML 压缩为单行索引）、`<session-overview>` 变化字段剥离（RECENT COMMITS/目录状态/行数），并自动设 `PI_CACHE_RETENTION=long`。自动兼容检测：OpenAI 400 时剥离 `prompt_cache_retention`、Anthropic 400 时降级 `cache_control` TTL、OpenAI 兼容端点注入 `prompt_cache_key`。**不注入任何工具**（无 `setActiveTools`），与 `@wolido/pi-tool-search` 懒加载不冲突。命令：`/cache-guardimizer`（npm README 里的 `/cache-guardian` 为旧名）查看每轮 `cacheRead`/`cacheWrite` 统计。可选：`PI_CACHE_GUARD=1` 时会话结束命中率 < `PI_CACHE_GUARD_THRESHOLD`（默认 90）报警 |
+| `@wolido/pi-lazy-tools` | `npm:@wolido/pi-lazy-tools` | **核心**。低频工具懒加载（**2026-09-22 起替代已下架的 `@wolido/pi-tool-search`，配置/工具名/两步确认门完全同款**）：会话启动把 `lazy-tools.json` 名单工具从 LLM 可见 active 集剔除，需要时 `load_tools` 以纯文本注入描述/参数 schema（两步确认门：先挑战文本 `confirm:false` 零副作用、用户主动要求后 `confirm:true` 激活）、`call_tool` 代理执行——相对 tool-search 加强：JSON Schema 预校验（type/required/enum/pattern/properties 等子集，不合法不触碰目标 execute）+ factory 重放捕获真实 `execute`（按 `sourcePath#name` memoize，每会话只重放一次）。**不触碰 `tools` 字段与系统提示词**，无缓存失效，任意模型通用。**关键：`--tools` 白名单必须保留 lazy 工具**（注册与隐藏是两件事） |
+| `pi-cache-guardian` | `npm:pi-cache-guardian` | **缓存守护（防 autocompact 后命中率归零）**。首轮完整链处理后将 system prompt 捕获为 **golden 副本**，之后每轮无条件恢复——字节级一致保证前缀缓存不因 autocompact 重建 system prompt 而整体失效；叠加 prompt reorder（稳定内容前置）、skill 压缩（>4 个 skill 时 4 行 XML 压缩为单行索引）、`<session-overview>` 变化字段剥离（RECENT COMMITS/目录状态/行数），并自动设 `PI_CACHE_RETENTION=long`。自动兼容检测：OpenAI 400 时剥离 `prompt_cache_retention`、Anthropic 400 时降级 `cache_control` TTL、OpenAI 兼容端点注入 `prompt_cache_key`。**不注入任何工具**（无 `setActiveTools`），与 `@wolido/pi-lazy-tools` 懒加载不冲突。命令：`/cache-guardimizer`（npm README 里的 `/cache-guardian` 为旧名）查看每轮 `cacheRead`/`cacheWrite` 统计。可选：`PI_CACHE_GUARD=1` 时会话结束命中率 < `PI_CACHE_GUARD_THRESHOLD`（默认 90）报警 |
 | `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色）。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
 
 ### B. 功能增强（其次）
@@ -23,7 +25,7 @@
 | 扩展 | 来源 | 作用 |
 |---|---|---|
 | `pi-web-access` | `npm:pi-web-access` | 网页搜索、URL 抓取、GitHub 克隆、PDF/YouTube 理解 |
-| `alps-pi` | `npm:alps-pi` | TUI 美化扩展（要求 Pi 0.84.4+）：消息边框线框、输入框美化、内置 Animations 与 `alps` 主题（Synthwave '84 配色）。`/alps-pi` 打开设置界面、`/alps-pi preview` 预览样式；设置写入 settings.json 的 `alps-pi` namespace，`/reload` 或新会话后恢复。**只持久化到 Pi 原生 settings.json，不占工具注入、无 `before_agent_start`，对 token/首请求无影响** |
+| `pi-one-ui` | `npm:pi-one-ui` | **统一 TUI 包（2026-09-22 起替代 `alps-pi` 承担美化，要求 Node >=22.19、Pi >=0.84）**：Header/Context/WorkingLine/Editor/Footer 分层布局；`/oneui` 设置面板、`/context` Context Inspector、`@` 补全（会话引用 + Subagent 委派）、Tool/Diff 美化渲染、Mermaid 增强、内置 `cc-dark`/`cc-light` 主题（`/theme`）。配置 `~/.pi/agent/pi-one-ui.json`（canonical v1）。**唯一直改面是同名覆盖内建 `write`**（包内在 edit/write 时记元数据供 Diff 渲染，同名替换不新增 active 工具数，对 token/首请求无影响）；其余皆布局/渲染层。`/oneui` 设置、Preset 一跳保存 |
 | `@injaneity/pi-computer-use` | `npm:@injaneity/pi-computer-use` | 观察并控制 macOS/Windows/Linux 桌面应用，**需运行时授予平台权限** |
 | `@tian.zuo/pi-find` | `npm:@tian.zuo/pi-find` | **搜索增强**：用 ripgrep/fd 实现 `grep`/`find`，**复用内建工具名**（替换内建而非并列，模型只看到一套搜索面）。有界输出（grep ≤100 命中、find ≤200 文件、行长裁剪、硬字节上限、大文件/超长记录跳过），尊重 `.gitignore` 并跳过 `.git`，支持 `glob`/`!` 排除/`@`与`~` 路径展开。**只注册 `grep`/`find` 两个工具名，不在 lazy 名单即保持常驻 active，不新增工具、不增加注入量** |
 | `pi-edit-guard` | `npm:pi-edit-guard` | **编辑强化**：覆盖内建 `edit`（**同名替换**），多层容错匹配（simple → line/whitespace/indentation/escape/unicode 归一化 → block-anchor → fuzzy 等 12+ passes）、匹配唯一性校验、缩进漂移修复、批量感知错误报告。另注册 `undo` 工具（可撤销编辑）。**同名接管内建 `edit` 即生效；`undo` 是否列入 lazy 名单由你定，列入了才被剔除、按需加载，不增首请求注入**。⚠ 声明 `engines.node >=24.18.0`（本机 24.16.0 仅 npm 告警，仍可安装运行） |
@@ -36,12 +38,14 @@
 
 ## 安装与配置
 
+> **本轮（2026-09-22）实测环境**：Pi 0.87.0、npm 12.0.2（注意 README 中 `npm install-scripts approve` 属 npm 12 子命令；旧 `allowScripts` 字段引用了已卸载包的旧版本号，`npm install-scripts approve` 报 `Nothing to approve` 不重跑已批脚本 → 改用 `npm rebuild better-sqlite3` 重建原生依赖成功，`prebuilds/win32-x64.node` 平台 prebuilt 亦可用；computer-use 的 `setup-helper.mjs --postinstall` 手动重跑输出 `[pi-computer-use] Windows helper already up to date` 即就位）。
+
 > **警：逐条串行安装，勿并行。** 多进程 `pi install` 会竞写 `~/.pi/agent/settings.json` 丢注册（实测 17 项仅剩 5 项留存），且并发操作同一 `~/.pi/agent/npm` 目录会触发 `ENOENT: Cannot cd into .../node_modules/<pkg>`（实测 `typebox`）。
 >
 > `pi install` 一次只接受单个 source，故直接串行跑循环：
 
 ```bash
-for p in @wolido/pi-tool-search pi-cache-guardian pi-tps alps-pi \
+for p in @wolido/pi-lazy-tools pi-cache-guardian pi-tps pi-one-ui \
          pi-web-access @injaneity/pi-computer-use @tian.zuo/pi-find \
          pi-edit-guard @trycedar/pi-mdiff pi-undo-redo pi-hermes-memory \
          pi-subagents pi-mcp-adapter pi-agent-browser-native; do
@@ -68,9 +72,9 @@ done
 > cd "%USERPROFILE%\.pi\agent\npm" && npm install-scripts approve better-sqlite3
 > ```
 
-装完自查（`pi list`，不并行）：应见 **14 个 npm 扩展**——`pi-web-access`、`@wolido/pi-tool-search`、`pi-tps`、`@injaneity/pi-computer-use`、`alps-pi`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-hermes-memory`、`pi-subagents`、`pi-mcp-adapter`、`pi-agent-browser-native`。若少于 14（并行竞写伤痕），重跑上述循环补漏。
+装完自查（`pi list`，不并行）：应见 **14 个 npm 扩展**——`pi-web-access`、`@wolido/pi-lazy-tools`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-hermes-memory`、`pi-subagents`、`pi-mcp-adapter`、`pi-agent-browser-native`。若少于 14（并行竞写伤痕），重跑上述循环补漏。
 
-@wolido/pi-tool-search 配置（写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-21 起执行全量懒加载策略**：除 `load_tools`/`call_tool` 两个常驻承载工具外，其余全部工具列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
+@wolido/pi-lazy-tools 配置（写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-21 起执行全量懒加载策略**：除 `load_tools`/`call_tool` 两个常驻承载工具外，其余全部工具列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
 
 
 ```json
@@ -87,7 +91,9 @@ done
 >
 > **2026-09-17 追加 4 个扩展后基线结论不变**：`pi-cache-guardian` 不注入工具；`alps-pi` 纯 TUI 零工具注入（`activeTools` 仍 7，首请求注入量不变）。
 >
-> `pi-tps` 与 `alps-pi` 是纯 UI/运行时监控扩展，不注册任何 agent 工具，因此**不增加首次请求 token**（相对基线仅 +~150 chars 的 `pi-tps` 策略文字，`alps-pi` 为 0）。其余扩展工具列入 lazy 名单的，需要时 `load_tools` 注入用法，不占首次请求 token。
+> **2026-09-22 换装后基线结论仍不变**：`@wolido/pi-tool-search` 下架 → `@wolido/pi-lazy-tools` 承接（常驻 `load_tools`/`call_tool` 两工具不变）；`alps-pi` 移除 → `pi-one-ui` 加入。`pi-one-ui` 唯一直改面为**同名覆盖内建 `write`**（Diff 元数据，`activeTools` 仍 7），其余零工具注入、零 `before_agent_start` 干预，首请求注入量不变。本机 Node 24.16.0 满足其 `>=22.19` 要求。
+>
+> `pi-tps` 与 `pi-one-ui`（继任者，前身 `alps-pi`）是纯 UI/运行时监控扩展，不注册新的 agent 工具名（`pi-one-ui` 仅同名覆盖内建 `write`），因此**不增加首次请求 token**（相对基线仅 +~150 chars 的 `pi-tps` 策略文字，`pi-one-ui` 为 0）。其余扩展工具列入 lazy 名单的，需要时 `load_tools` 注入用法，不占首次请求 token。
 >
 > **2026-09-18 追加 `pi-edit-guard`/`@trycedar/pi-mdiff` 后基线亦不变**：`pi-edit-guard` **同名覆盖** `edit`（属核心 6，不新增激活项），额外 `undo` 为非核心（被隐藏）；`pi-mdiff` 的 `md_inspect`/`md_diff`/`md_edit` 均为非核心（被隐藏）。`activeTools` 仍 7，不增首请求注入量。
 >
@@ -109,7 +115,7 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 
 1. **重启 Pi** 使扩展生效。
 2. 新会话里对主智能体说「激活 X」：`load_tools` 先返回挑战文本（`confirm:false` 零副作用），用户点名确认后 `confirm:true` 激活、`call_tool` 调用。启动时 `ctx.ui.notify` 打印当前 lazy 名单与配置文件路径。
-3. `pi-tps`：运行 `fix-tps-theme.ps1` 让颜色跟随系统主题。`alps-pi`：`/alps-pi` 打开设置、`/alps-pi preview` 预览（设好后 `settings.json` 的 `alps-pi` namespace 会持久化，`/reload` 后仍生效）。`@injaneity/pi-computer-use`：先完成上面的 postinstall 批准与 helper 重跑，首次运行时再授予平台权限。
+3. `pi-tps`：运行 `fix-tps-theme.ps1` 让颜色跟随系统主题。`pi-one-ui`：`/oneui` 打开设置面板、`/context` 查看上下文、`/theme` 切换内置主题（`cc-dark`/`cc-light`）；配置存 `~/.pi/agent/pi-one-ui.json`，`/reload` 后 Features 生效（组件开关即时生效）。`@injaneity/pi-computer-use`：先完成上面的 postinstall 批准与 helper 重跑，首次运行时再授予平台权限。
 4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预。
 5. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**（无需改 lazy 名单）。需要 `undo` 时将其列入 `lazy-tools.json` 的 `lazy` 数组即可按需加载。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
 6. **`@trycedar/pi-mdiff`**：装上即用，编辑 `.md` 时把 `md_inspect`/`md_diff`/`md_edit` 列入 lazy 名单后按需加载。**旧包名 `pi-mdiff` 已弃用，务必用 `npm:@trycedar/pi-mdiff`**（bare 名会触发弃用告警甚至 ECONNRESET 失败）。
@@ -137,7 +143,8 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 | pi-mcp-adapter | `mcp` | ✓ |
 | pi-agent-browser-native | `agent_browser` | ✓ |
 | pi-undo-redo | （无工具，仅 `/undo` `/redo` `/undo-cleanup` 命令） | — |
-| @wolido/pi-tool-search | `load_tools`、`call_tool` | ✗ 承载者，常驻 |
+| @wolido/pi-lazy-tools | `load_tools`、`call_tool` | ✗ 承载者，常驻 |
+| pi-one-ui | （无新工具名；**同名覆盖内建 `write`**，如 edit-guard 之于 `edit`） | ✗ 同名替换，归核心 |
 | 用户自定义 | `deploy_tool` | ✓ |
 
 ### 执行纪律
