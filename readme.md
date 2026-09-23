@@ -89,6 +89,8 @@ pi install git:github.com/NVlabs/SoL-Pi
 pi install git:github.com/qq458249269/pi-lazy-tools
 ```
 
+> ⚠ 装完 SoL-Pi 立即写配置步骤：新建 `~/.pi/agent/sol-pi.json`（内容照抄[安装后操作](#一键配置脚本幂等可重复执行) 第 10 步；`onlineContextCompact` 必须 `false` **关闭在线压缩**，否则与 `pi-cache-guardian` 的 golden 恢复打架），项目级 `.pi/sol-pi.json` 会覆盖且不合并。**改配置后新会话生效**；校验用 `node scripts/check-sol-pi-config.mjs`。
+
 > ⚠ `@injaneity/pi-computer-use` 的 postinstall（`node scripts/setup-helper.mjs --postinstall`，生成平台桥接 helper）会被 npm `allowScripts` 默认拦截。装完后再批：
 >
 > ```bash
