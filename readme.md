@@ -17,8 +17,10 @@
 > 本轮（2026-09-23）skill 去注入：`before_agent_start` 剥离 Pi 默认注入的 `<skills>` 段（全部 skill 的 name + description 常驻），改写为单行说明；改为**动态发现**：常驻 `skill_search` 工具按关键词/名返回 skill 的 name、description 与 SKILL.md 路径，promptSnippet 限「仅用户明确要求使用 skill 时调用，never proactively」。实测系统提示词 0 个 skill 名/description（装前 4 个全注入），`skill_search("恋爱")` 正确返回 `goutoujunshi` 元数据与路径。`/skill:name` 显式命令不受影响。**该功能曾为独立扩展 `pi-lazy-skills`，现已并入 `pi-lazy-tools` fork（commit `358e236`），`pi-lazy-skills` 已卸载，清单现 14 个**。
 >
 > 本轮（2026-09-23）lazy-tools 换源：`npm:@wolido/pi-lazy-tools` 移除 → **`pi install git:github.com/qq458249269/pi-lazy-tools`**（fork 含 jiti 补丁 `b2a7d75` + `dependencies: jiti`；git 包独立 module root，不能蹭根 node_modules，故依赖必须声明）。实测 `load_tools`→`call_tool` 全链 OK（replay `grep` → 43 matches，`isError":false`）。配置 `~/.pi/lazy-tools.json` 不变。
+>
+> 本轮（2026-09-23 四轮）：**卸载 SoL-Pi**（`pi uninstall git:github.com/NVlabs/SoL-Pi`），三轮新增记录作废：`edit`/`write` 同名覆盖（`then_run`）撤除、恢复内建原始行为，`obs_recall`/`update_plan` 注入撤除并从 lazy 名单剔除，`~/.pi/agent/sol-pi.json` 配置已删除。清单 **14 → 13**（12 npm + 1 git，`pi list` 实测核对）。
 
-## 推荐清单（14 个，始终最新）
+## 推荐清单（13 个，始终最新）
 
 ### A. 核心层（先装）
 
@@ -27,7 +29,6 @@
 | `pi-lazy-tools`（`@wolido/pi-lazy-tools` 的 fork） | `git:github.com/qq458249269/pi-lazy-tools` | **核心**。**2026-09-23 起弃 npm 源改装本 fork**（jiti 加载器补丁随仓库版本化，`pi install` 更新不再丢修复，声明 `dependencies.jiti` 供独立 module root 解析）。低频工具懒加载（**2026-09-22 起替代已下架的 `@wolido/pi-tool-search`，配置/工具名/两步确认门完全同款**）：会话启动把 `lazy-tools.json` 名单工具从 LLM 可见 active 集剔除，需要时 `load_tools` 以纯文本注入描述/参数 schema（两步确认门：先挑战文本 `confirm:false` 零副作用、用户主动要求后 `confirm:true` 激活）、`call_tool` 代理执行——相对 tool-search 加强：JSON Schema 预校验（type/required/enum/pattern/properties 等子集，不合法不触碰目标 execute）+ factory 重放捕获真实 `execute`（按 `sourcePath#name` memoize，每会话只重放一次）。**不触碰 `tools` 字段**；系统提示词侧唯一动作是把 `<skills>` 段改写为单行说明（skill 去注入，原独立扩展 `pi-lazy-skills` 已于 commit `358e236` 并入并卸载），其余不动、轮间字节稳定。**关键：`--tools` 白名单必须保留 lazy 工具**（注册与隐藏是两件事）。三常驻工具：`load_tools`、`call_tool`、`skill_search`（skill 动态发现，promptSnippet 限仅用户明确要求使用 skill 时调用） |
 | `pi-cache-guardian` | `npm:pi-cache-guardian` | **缓存守护（防 autocompact 后命中率归零）**。首轮完整链处理后将 system prompt 捕获为 **golden 副本**，之后每轮无条件恢复——字节级一致保证前缀缓存不因 autocompact 重建 system prompt 而整体失效；叠加 prompt reorder（稳定内容前置）、skill 压缩（>4 个 skill 时 4 行 XML 压缩为单行索引）、`<session-overview>` 变化字段剥离（RECENT COMMITS/目录状态/行数），并自动设 `PI_CACHE_RETENTION=long`。自动兼容检测：OpenAI 400 时剥离 `prompt_cache_retention`、Anthropic 400 时降级 `cache_control` TTL、OpenAI 兼容端点注入 `prompt_cache_key`。**不注入任何工具**（无 `setActiveTools`），与 `@wolido/pi-lazy-tools` 懒加载不冲突。命令：`/cache-guardimizer`（npm README 里的 `/cache-guardian` 为旧名）查看每轮 `cacheRead`/`cacheWrite` 统计。可选：`PI_CACHE_GUARD=1` 时会话结束命中率 < `PI_CACHE_GUARD_THRESHOLD`（默认 90）报警 |
 | `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色）。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
-| `SoL-Pi` | `git:github.com/NVlabs/SoL-Pi` | **NVIDIA 开源的上下文/token 效率四机制**（arXiv 2609.20519，`pi-package` 关键字，import 公共 Pi API 不 patch Pi）。**全部 opt-in 默认关闭**，无配置即全禁：**Action Fusion**——同名覆盖内建 `edit`/`write` 追加 `then_run` 参数（收尾校验命令在同一工具调用里跑完，命中时省 1 轮模型往返）；**ObservationPack**——重复大文本结果转稳定句柄 + 精确分页回放（注册 `obs_recall`）；**Evidence-Preserving Reducer**——长诊断日志转紧凑收据，逐条校验引用与存档源一致、失败保留原文（无工具；可经 Pi 托管认证外发 reducer 模型，⚠ 见 SECURITY.md）；**Online Context Compact**——完成的计划步骤成候选点，经济性/窗口压力检查后触发 Pi 原生压缩并继续任务（注册 `update_plan`）。配置：`sol-pi.json`（项目 `.pi/sol-pi.json` 优先 → `~/.pi/agent/sol-pi.json`，不合并），保守示例只开两个零额外模型调用的本地机制：`{"version":1,"actionFusion":true,"observationPack":true,"evidencePreservingReducer":false,"onlineContextCompact":false,"cacheWriteReadRatio":12.5}`；模板见 `sol-pi.example.json`。存档存 `<session-directory>/sol-pi/<session-id>/`。⚠ 同名覆盖 `edit`/`write` 与 pi-edit-guard（`edit`）、pi-one-ui（`write`）叠加；要求 Node >=22.19（本机 24.16.0 ✓）、测试基线 @earendil-works/pi-coding-agent 0.85.1 |
 ### B. 功能增强（其次）
 
 | 扩展 | 来源 | 作用 |
@@ -82,14 +83,11 @@ for p in pi-cache-guardian pi-tps pi-one-ui \
 done
 ```
 
-> git 源无法并入 npm 循环，单独装（顺序：SoL-Pi、pi-lazy-tools fork）：
+> git 源无法并入 npm 循环，单独装（`pi-lazy-tools` fork）：
 
 ```bash
-pi install git:github.com/NVlabs/SoL-Pi
 pi install git:github.com/qq458249269/pi-lazy-tools
 ```
-
-> ⚠ 装完 SoL-Pi 立即写配置步骤：新建 `~/.pi/agent/sol-pi.json`（内容照抄[安装后操作](#一键配置脚本幂等可重复执行) 第 10 步；`onlineContextCompact` 必须 `false` **关闭在线压缩**，否则与 `pi-cache-guardian` 的 golden 恢复打架），项目级 `.pi/sol-pi.json` 会覆盖且不合并。**改配置后新会话生效**；校验用 `node scripts/check-sol-pi-config.mjs`。
 
 > ⚠ `@injaneity/pi-computer-use` 的 postinstall（`node scripts/setup-helper.mjs --postinstall`，生成平台桥接 helper）会被 npm `allowScripts` 默认拦截。装完后再批：
 >
@@ -110,13 +108,13 @@ pi install git:github.com/qq458249269/pi-lazy-tools
 > cd "%USERPROFILE%\.pi\agent\npm" && npm install-scripts approve better-sqlite3
 > ```
 
-装完自查（`pi list`，不并行）：应见 **14 个扩展**——12 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-subagents`、`pi-mcp-adapter`、`pi-agent-browser-native`）+ 2 个 git（`git:github.com/NVlabs/SoL-Pi`、`git:github.com/qq458249269/pi-lazy-tools`）。若少于 14（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
+装完自查（`pi list`，不并行）：应见 **13 个扩展**——12 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-subagents`、`pi-mcp-adapter`、`pi-agent-browser-native`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 13（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
 
 pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-22 起执行默认五工具常驻策略**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`，由项目 `.pi/settings.json` 的 `defaultTools` 显式声明）与 `load_tools`/`call_tool` 常驻 active 集，其余扩展工具全部列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
 
 
 ```json
-{ "lazy": ["deploy_tool", "undo", "md_inspect", "md_diff", "md_edit", "grep", "find", "web_search", "source_check", "fetch_content", "get_search_content", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "find_roots", "launch_browser", "navigate_browser", "evaluate_browser", "subagent", "contact_supervisor", "mcp", "agent_browser", "obs_recall", "update_plan"] }
+{ "lazy": ["deploy_tool", "undo", "md_inspect", "md_diff", "md_edit", "grep", "find", "web_search", "source_check", "fetch_content", "get_search_content", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "find_roots", "launch_browser", "navigate_browser", "evaluate_browser", "subagent", "contact_supervisor", "mcp", "agent_browser"] }
 ```
 
 
@@ -163,20 +161,6 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 7. **`pi-subagents`**：装上即用。主智能体直接说「用 reviewer 评审这段 diff」「问 oracle 第二意见」即可触发 `subagent` 工具；无需预建 agent 配置。后台子会话跑在分离 runner，可用 `contact_supervisor` 联络。
 8. **`pi-mcp-adapter`**：装上重启后自动读 `.mcp.json`/`~/.config/mcp/mcp.json`；无配置时 `/mcp setup` 导入宿主配置或脚手架。`mcp` 工具已入 lazy 名单，激活后按需代理调用 MCP 服务器，服务器首次使用时才启动。
 9. **`pi-agent-browser-native`**：装上即用，`agent_browser` 工具已入 lazy 名单，激活后可直接驱动真实浏览器（需本机有 `agent-browser` CLI，首次运行时自动按需启动）。
-10. **`SoL-Pi`**：**维护机已启用保守配置**——`~/.pi/agent/sol-pi.json`（全局有效，项目无 `.pi/sol-pi.json` 时生效；项目级优先且不合并），内容如下（仅开两个零额外模型调用的本地机制）：
-
-    ```json
-    {
-      "version": 1,
-      "actionFusion": true,
-      "observationPack": true,
-      "evidencePreservingReducer": false,
-      "onlineContextCompact": false,
-      "cacheWriteReadRatio": 12.5
-    }
-    ```
-
-    ⚠ 全开配置按 `agents-install.md` 协议 + `scripts/check-sol-pi-config.mjs --require-all-enabled` 校验；模板见 `sol-pi.example.json`。`obs_recall` 已随 observationPack 注册（在 lazy 名单，`load_tools` 激活即用）；`update_plan` 属 onlineContextCompact，未开启不注册。**改配置后新会话生效**。
 
 ## 全量懒加载策略
 
@@ -195,8 +179,6 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 | pi-subagents | `subagent`、`contact_supervisor` | ✓ |
 | pi-mcp-adapter | `mcp` | ✓ |
 | pi-agent-browser-native | `agent_browser` | ✓ |
-| SoL-Pi | `edit`、`write`（同名覆盖加 `then_run`） | ✗ 同名替换，归核心常驻 |
-| SoL-Pi | `obs_recall`、`update_plan` | ✓ |
 | pi-undo-redo | （无工具，仅 `/undo` `/redo` `/undo-cleanup` 命令） | — |
 | pi-lazy-tools（`git:github.com/qq458249269/pi-lazy-tools`） | `load_tools`、`call_tool`、`skill_search` | ✗ 承载者（工具懒加载 + skill 动态发现），常驻；`skill_search` promptSnippet 限仅用户明确要求使用 skill 时调用 |
 | pi-one-ui | （无新工具名；**同名覆盖内建 `write`**，如 edit-guard 之于 `edit`） | ✗ 同名替换，归核心 |
