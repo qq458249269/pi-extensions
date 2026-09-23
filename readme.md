@@ -46,15 +46,21 @@
 
 | Skill | 来源 | 作用 | 上下文开销 |
 |---|---|---|---|
+| `cangjie-skill`（仓颉） | `git clone github.com/kangarooking/cangjie-skill`（2026-09-23 安装，HEAD `3adf9e6`，v2.5.0） | 拆书元 skill：把书/长视频/播客/课程的方法论蒸馏成原子化可调用的 skill packs（RIA-TV++ 流水线，Adler 阶段 0 → 并行抽取 → 三重校验 → 编译 → 压测 → 交付；description 511 字符 < 1024 上限）。仅装 `SKILL.md + methodology/ + extractors/ + templates/ + scripts/ + schemas/`（349K），跳过 website/books/benchmarks/dist/tests/docs/registry（~2.5M，非运行必需；`docs/migrations` 一处引用为版本迁移说明，需要时回仓库看） | 常驻仅 description ≈ 0.5k token；启用时 SKILL.md 13KB ≈ 4k token + 按需 `methodology/`（64K）、`extractors/`（24K）等 |
 | `goutoujunshi`（狗头军师） | `git clone github.com/shengjidaguai-china/goutoujunshi`（2026-10-21 安装，HEAD `6db7354`） | 恋爱军师与情绪支持：心动/暧昧/追求/聊天记录或截图分析/多人选择/冲突/分手复合（Codex 社区标准 SKILL.md，pi 兼容，description 692 字符 < 1024 上限）。本地 sqlite 长期记忆（`scripts/memory_store.py`，仅标准库，按需召回压缩摘要，不存整份聊天） | 常驻仅 description ≈ 0.7k token；启用时 SKILL.md 9.4KB ≈ 5k token + 按需 1–3 份 references（每份 2–8k） |
 
 ```bash
 # 安装（示例源在 /tmp，实际自 git clone）：
 mkdir -p ~/.pi/agent/skills/goutoujunshi
+mkdir -p ~/.pi/agent/skills/goutoujunshi
 cp -r <repo>/SKILL.md <repo>/references <repo>/scripts ~/.pi/agent/skills/goutoujunshi/
+
+# cangjie-skill：
+mkdir -p ~/.pi/agent/skills/cangjie-skill
+cp -r <repo>/SKILL.md <repo>/methodology <repo>/extractors <repo>/templates <repo>/scripts <repo>/schemas ~/.pi/agent/skills/cangjie-skill/
 ```
 
-自查：目录含 `SKILL.md`（frontmatter `name` + 非空 `description`）即被发现；`pi list` 不显示 skill。使用：`/skill:goutoujunshi` 或直接描述任务让模型按 description 自动加载。
+自查：目录含 `SKILL.md`（frontmatter `name` + 非空 `description`）即被发现；`pi list` 不显示 skill。使用：`/skill:goutoujunshi`、`/skill:cangjie-skill` 或直接描述任务让模型按 description 自动加载。
 
 ## 安装与配置
 
