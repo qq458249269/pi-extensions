@@ -42,9 +42,9 @@
 | `pi-edit-guard` | `npm:pi-edit-guard` | **编辑强化**：覆盖内建 `edit`（**同名替换**），多层容错匹配（simple → line/whitespace/indentation/escape/unicode 归一化 → block-anchor → fuzzy 等 12+ passes）、匹配唯一性校验、缩进漂移修复、批量感知错误报告。另注册 `undo` 工具（可撤销编辑）。**同名接管内建 `edit` 即生效；`undo` 是否列入 lazy 名单由你定，列入了才被剔除、按需加载，不增首请求注入**。⚠ 声明 `engines.node >=24.18.0`（本机 24.16.0 仅 npm 告警，仍可安装运行） |
 | `@trycedar/pi-mdiff` | `npm:@trycedar/pi-mdiff` | **Markdown 编辑**：面向 `.md` 的规范化 SEARCH 匹配 + 块级锚定编辑，注册 `md_inspect`/`md_diff`/`md_edit` 三个工具。**旧包名 `pi-mdiff` 已弃用并迁移到带 scope 的 `@trycedar/pi-mdiff`**。三个工具名可列入 lazy 名单按需加载，**不增首请求注入** |
 | `pi-undo-redo` | `npm:pi-undo-redo` | **会话/文件撤销重做**：git 仓库用影子 git 快照、非 git 目录只快照 Pi 文件工具显式触碰的路径（`write`/`edit`），按消息记录补丁元数据。命令 `/undo` 回到上一用户消息并还原其改动的文件、`/redo` 恢复、`/undo-cleanup` 保守清理旧快照；`/tree` 也可还原工作区快照。脏保护：有未快照工作区改动时拦截 `/undo`/`/redo`/`/tree`。**不注册任何 agent 工具**，纯命令扩展，零注入。配置写入 settings.json 的 `undoRedo` namespace（`storageDir`/大文件上限 `largeFileLimitBytes` 默认 2MiB/`gitTimeoutMs`） |
-| `pi-subagents` | `npm:pi-subagents` | **子智能体委托**：Pi 作为父会话派发聚焦子会话（前台子会话在父进程内流式返回，后台子会话跑在分离 Node runner 里可稍后取结果），内置 agent：`scout`（代码侦察）、`reviewer`（评审）、`oracle`（第二意见）、`researcher`（需子会话有 `pi-web-access`）等，可并行评审、保存工作流、后台作业。注册 `subagent`（主委托工具，`bg_wait` 为参数非独立工具）与 `contact_supervisor`（子会话联络父会话）。⚠ 依赖 `better-sqlite3`（同上，装一次批准即可） |
-| `pi-mcp-adapter` | `npm:pi-mcp-adapter` | **MCP 适配（免上下文爆炸）**：一个 `mcp` 代理工具（~200 token）替代数百个 MCP 工具定义，按需发现、服务器首次使用时才启动。自动读 `.mcp.json`/`~/.config/mcp/mcp.json`（及 `~/.agents/mcp.json` 等兼容路径）；`/mcp setup` 从 Cursor/Claude Code/Codex 等宿主配置导入、`/mcp disable|enable` 开关服务器。Pi 专用覆盖写 `~/.pi/agent/mcp.json`/.pi 项目层，不改写源文件、不复制凭证。⚠ 依赖 `better-sqlite3`（同上） |
-| `pi-agent-browser-native` | `npm:pi-agent-browser-native` | **原生浏览器自动化**：agent-browser CLI 封装为原生 `agent_browser` 工具（替代脆弱的 shell 命令拼装）：打开页面、交互式快照（`@eN` 引用可继续点击/填表）、截图与下载文件以 Pi artifact 呈现、持久 profile 支持登录态、溢出大输出写 spill 文件防爆上下文、结构化 details（标题/URL/已存文件/会话/错误）。⚠ 依赖 `better-sqlite3`（同上） |
+| `pi-subagents` | `npm:pi-subagents` | **子智能体委托**：Pi 作为父会话派发聚焦子会话（前台子会话在父进程内流式返回，后台子会话跑在分离 Node runner 里可稍后取结果），内置 agent：`scout`（代码侦察）、`reviewer`（评审）、`oracle`（第二意见）、`researcher`（需子会话有 `pi-web-access`）等，可并行评审、保存工作流、后台作业。注册 `subagent`（主委托工具，`bg_wait` 为参数非独立工具）与 `contact_supervisor`（子会话联络父会话）。~~依赖 `better-sqlite3`~~（2026-09-23 起 v0.71.0 已移除该依赖，无需批准，见[全量重装实录](#全量重装实录与问题修复2026-09-23)问题 2） |
+| `pi-mcp-adapter` | `npm:pi-mcp-adapter` | **MCP 适配（免上下文爆炸）**：一个 `mcp` 代理工具（~200 token）替代数百个 MCP 工具定义，按需发现、服务器首次使用时才启动。自动读 `.mcp.json`/`~/.config/mcp/mcp.json`（及 `~/.agents/mcp.json` 等兼容路径）；`/mcp setup` 从 Cursor/Claude Code/Codex 等宿主配置导入、`/mcp disable|enable` 开关服务器。Pi 专用覆盖写 `~/.pi/agent/mcp.json`/.pi 项目层，不改写源文件、不复制凭证。~~依赖 `better-sqlite3`~~（2026-09-23 起 v2.37.0 已移除该依赖，无需批准） |
+| `pi-agent-browser-native` | `npm:pi-agent-browser-native` | **原生浏览器自动化**：agent-browser CLI 封装为原生 `agent_browser` 工具（替代脆弱的 shell 命令拼装）：打开页面、交互式快照（`@eN` 引用可继续点击/填表）、截图与下载文件以 Pi artifact 呈现、持久 profile 支持登录态、溢出大输出写 spill 文件防爆上下文、结构化 details（标题/URL/已存文件/会话/错误）。~~依赖 `better-sqlite3`~~（2026-09-23 起 v0.7.1 已移除该依赖，无需批准） |
 | `@agenticup/pi-loop` | `npm:@agenticup/pi-loop` | **递归深潜（loop engineering，2026-09-23 装，v0.1.4）**：注册 `loop` 工具，5 阶段流水线——Decompose（MAKER 式拆 8–15 个微子问题）→ DRIP 后置回检补前置条件 → Solve（信号量并发子智能体，`concurrency` 1–8，默认 4）→ Critique（自适应 MAKER 投票，1 个 critic、分歧升级 3 个）→ Iterate（ADaPT 式深分解被标记子问题，≤2 次）→ Synthesize（DRAGON 式子解冲突检测）。参数：`prompt`（必填）、`maxDepth`（1–3，默认 2，每层约 2x 成本）、`concurrency`、`model`（默认跟随会话）；子智能体 20 分钟超时优雅降级、循环继续；进度实时可见（超 40 行截断）+ 逐子问题执行摘要。代价：4 子问题约 5–8x 单答 token、2–5 分钟，简单任务过重。**只注册 `loop` 一个工具，resident 例外制下默认 lazy，不增首请求注入**。用法：「Use loop: <任务>」显式触发 |
 
 ## Skills（可选，非扩展，Agent Skills 标准）
@@ -106,11 +106,7 @@ pi install git:github.com/qq458249269/pi-lazy-tools
 >   && node scripts/setup-helper.mjs --postinstall   # 输出 [pi-computer-use] ...helper already up to date 即就位
 > ```
 
-> ⚠ `pi-subagents`/`pi-mcp-adapter`/`pi-agent-browser-native` 共享原生依赖 `better-sqlite3`（`install: node-gyp rebuild`），会被 allowScripts 默认拦截。装完一次性批准（多扩展共用同一包，批一次即可；有 prebuilt 二进制时无需 rebuild 也能用）：
->
-> ```bash
-> cd "%USERPROFILE%\.pi\agent\npm" && npm install-scripts approve better-sqlite3
-> ```
+> ~~⚠ `pi-subagents`/`pi-mcp-adapter`/`pi-agent-browser-native` 共享原生依赖 `better-sqlite3`……`npm install-scripts approve better-sqlite3`~~ **此步骤 2026-09-23 起作废**：三包新版（pi-subagents 0.71.0 / pi-mcp-adapter 2.37.0 / pi-agent-browser-native 0.7.1）均已移除 `better-sqlite3` 依赖，approve 会报 `ENOMATCH: No installed packages match`，依赖树中亦无该包（实测 `find` 无目录）。`allowScripts` 里的旧条目 `better-sqlite3@13.0.3: true` 为历史残留，无害可留。详见[全量重装实录](#全量重装实录与问题修复2026-09-23)问题 2。
 
 装完自查（`pi list`，不并行）：应见 **14 个扩展**——13 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-subagents`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 14（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
 
@@ -241,3 +237,20 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 1. **生效需 `/reload` 或重启 pi**：扩展工厂闭包在会话启动时冻结，本会话内 `call_tool` 仍走旧加载器。
 2. **补丁已版本化（2026-09-23 起）**：jiti 修复并入 fork `git:github.com/qq458249269/pi-lazy-tools`（commit `b2a7d75`）随 `pi install` 更新保留；npm 源与 `lazy-tools.ts.bak` 手工补丁流程作废。
 3. 修复后缓存实验对齐基线：激活注入（grep schema ~180 token）对前缀命中约零影响（对照 T1 消息 14 注入 7,084 token → 单轮 44%、下轮即恢复 96%+），看累计值而非单轮。
+
+## 全量重装实录与问题修复（2026-09-23）
+
+**操作**：备份（`settings.json`、`lazy-tools.json`、`skills/` 全量拷入 `.backup-20250915/`）→ 串行 `pi uninstall` 卸全部 14 项（`pi list` 归零、settings `packages: []`）→ 删 2 个 skill → 按本文清单串行重装 13 npm + 1 git → skills 按原 HEAD 重放（`cangjie-skill` `3adf9e6`、`goutoujunshi` `6db7354`，与上轮记录一致）→ `fix-tps-theme.ps1` 幂等 `[skip]` → computer-use helper 重跑 `already up to date`。
+
+**验证通过**：`pi list` 14 项齐（13 npm + 1 git）；`~/.pi/lazy-tools.json` resident 五工具原样（`pi uninstall` 不触碰该文件）；lazy-tools fork HEAD `096ffc9`（含 jiti 修复 `b2a7d75` + `dependencies.jiti` 就位）；项目 `.pi/settings.json` `defaultTools` 五工具原样；npm `allowScripts` 批准记录跨卸载保留；13 npm 首轮全部零失败（无 ENOENT 竞写——串行纪律再次有效）。
+
+**问题 1：`[pi-web-access] Dynamic tool activation requires Pi 0.86.1 or newer` 启动告警（误报，定为不修）**
+
+- 根因：pi-web-access `tool-activation.ts` 的 `supportsDynamicTools()` 用 `import.meta.resolve("@earendil-works/pi-coding-agent")` 就近读 package.json 判版本。解析链从 `~/.pi/agent/npm/node_modules/pi-web-access` 向上，跳过空的 `~/.pi/agent/npm/node_modules/@earendil-works/`（卸载残留空目录），命中**家目录遗留** `~/node_modules/@earendil-works/pi-coding-agent@0.85.1`（`~/package.json` 里旧 `@wolido/pi-lazy-tools@0.3.0` 的 peer 依赖，与 pi 安装无关）→ 判 0.85.1 < 0.86.1 → 告警并回退 web 工具 eager。pi 实为 0.87.1，纯版本探测误报。
+- 不修的三个理由：(a) eager 回退下 web 工具仍不在 `resident` 名单，照常被 pi-lazy-tools 剔除、走 `load_tools` 激活，**最终行为与本机全懒策略一致**；(b) 反而注册 `web_enable` 第二 loader，其 `selectFromSession` 会主动把 web 工具塞回 active 集，与 lazy-tools 的剔除正面打架（双激活管理器冲突）；(c) 删家目录残留无效——`import.meta.resolve` 抛错走 `catch → false`，同样告警，且 `~/package.json` 是用户自己的 npm 项目不宜动。
+- 实际损失：仅 `web_enable` loader 不注册（本机不用它，统一走 `load_tools`），告警行每次启动打印一次，无功能影响。
+
+**问题 2：`npm install-scripts approve better-sqlite3` 报 `ENOMATCH`（步骤过时，已从流程剔除）**
+
+- 根因：pi-subagents@0.71.0 / pi-mcp-adapter@2.37.0 / pi-agent-browser-native@0.7.1 新版**已移除 `better-sqlite3` 依赖**（三包 `package.json` grep 无此依赖，`node_modules` 无此目录，`npm ls better-sqlite3` 空），依赖树里没有可批准的包。上轮记录的「共享原生依赖批准」流程基于旧版本。
+- 处置：安装后操作中的 better-sqlite3 批准段已标作废（见上），清单 B 三行的 ⚠ 依赖声明同步划掉；`allowScripts` 残留条目无害不清理。`approve @injaneity/pi-computer-use` 报 `Nothing to approve` 属正常（批准记录已存在且跨卸载保留，`pi install` 不清除），此后仅需手动重跑 `node scripts/setup-helper.mjs --postinstall` 确认 helper 就位。
