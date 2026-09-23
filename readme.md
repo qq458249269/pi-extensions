@@ -14,22 +14,20 @@
 
 > 本轮（2026-09-22 三轮）：新增 **SoL-Pi**（`git:github.com/NVlabs/SoL-Pi`，NVIDIA 开源上下文/token 效率扩展，arXiv 2609.20519），清单 **13 → 14**（13 npm + 1 git）。四机制全 opt-in 默认关（`sol-pi.json` 配置，见[清单 A](#a-核心层先装)）：**Action Fusion** 同名覆盖内建 `edit`/`write` 追加 `then_run` 参数（同一次工具调用完成编辑 + 校验命令，省一轮往返）；**ObservationPack** 大文本结果转稳定句柄 + 分页回放（注册 `obs_recall`）；**Evidence-Preserving Reducer** 长诊断日志转紧凑收据（无工具）；**Online Context Compact** 完成的计划步骤成原生压缩候选点（注册 `update_plan`）。`obs_recall`/`update_plan` 补入 lazy 名单；`edit`/`write` 同名覆盖归核心常驻（与 pi-edit-guard 之于 `edit`、pi-one-ui 之于 `write` 同类）。**维护机已启用保守两机制**（actionFusion + observationPack，`~/.pi/agent/sol-pi.json`，见[安装后操作 10](#安装后操作)）。
 >
-> 本轮（2026-09-23）skill 去注入：新增 **lazy-skills**，安装：`pi install git:github.com/qq458249269/pi-lazy-skills`（git 包，源码 github.com/qq458249269/pi-lazy-skills，本地目录 `D:/AI/pi-lazy-skills`；曾为本地手写扩展 `~/.pi/agent/extensions/lazy-skills.ts`，已删文件改走包安装，清单现 15 个）。`before_agent_start` 剥离 Pi 默认注入的 `<skills>` 段（全部 skill 的 name + description 常驻），改写为单行说明；改为**动态发现**：常驻 `skill_search` 工具按关键词/名返回 skill 的 name、description 与 SKILL.md 路径，promptSnippet 限「仅用户明确要求使用 skill 时调用，never proactively」。实测系统提示词 0 个 skill 名/description（装前 4 个全注入），`skill_search("恋爱")` 正确返回 `goutoujunshi` 元数据与路径。`/skill:name` 显式命令不受影响。
+> 本轮（2026-09-23）skill 去注入：`before_agent_start` 剥离 Pi 默认注入的 `<skills>` 段（全部 skill 的 name + description 常驻），改写为单行说明；改为**动态发现**：常驻 `skill_search` 工具按关键词/名返回 skill 的 name、description 与 SKILL.md 路径，promptSnippet 限「仅用户明确要求使用 skill 时调用，never proactively」。实测系统提示词 0 个 skill 名/description（装前 4 个全注入），`skill_search("恋爱")` 正确返回 `goutoujunshi` 元数据与路径。`/skill:name` 显式命令不受影响。**该功能曾为独立扩展 `pi-lazy-skills`，现已并入 `pi-lazy-tools` fork（commit `358e236`），`pi-lazy-skills` 已卸载，清单现 14 个**。
 >
 > 本轮（2026-09-23）lazy-tools 换源：`npm:@wolido/pi-lazy-tools` 移除 → **`pi install git:github.com/qq458249269/pi-lazy-tools`**（fork 含 jiti 补丁 `b2a7d75` + `dependencies: jiti`；git 包独立 module root，不能蹭根 node_modules，故依赖必须声明）。实测 `load_tools`→`call_tool` 全链 OK（replay `grep` → 43 matches，`isError":false`）。配置 `~/.pi/lazy-tools.json` 不变。
 
-## 推荐清单（15 个，始终最新）
+## 推荐清单（14 个，始终最新）
 
 ### A. 核心层（先装）
 
 | 扩展 | 来源 | 作用 |
 |---|---|---|
-| `pi-lazy-tools`（`@wolido/pi-lazy-tools` 的 fork） | `git:github.com/qq458249269/pi-lazy-tools` | **核心**。**2026-09-23 起弃 npm 源改装本 fork**（jiti 加载器补丁随仓库版本化，`pi install` 更新不再丢修复，声明 `dependencies.jiti` 供独立 module root 解析）。低频工具懒加载（**2026-09-22 起替代已下架的 `@wolido/pi-tool-search`，配置/工具名/两步确认门完全同款**）：会话启动把 `lazy-tools.json` 名单工具从 LLM 可见 active 集剔除，需要时 `load_tools` 以纯文本注入描述/参数 schema（两步确认门：先挑战文本 `confirm:false` 零副作用、用户主动要求后 `confirm:true` 激活）、`call_tool` 代理执行——相对 tool-search 加强：JSON Schema 预校验（type/required/enum/pattern/properties 等子集，不合法不触碰目标 execute）+ factory 重放捕获真实 `execute`（按 `sourcePath#name` memoize，每会话只重放一次）。**不触碰 `tools` 字段与系统提示词**，无缓存失效，任意模型通用。**关键：`--tools` 白名单必须保留 lazy 工具**（注册与隐藏是两件事） |
+| `pi-lazy-tools`（`@wolido/pi-lazy-tools` 的 fork） | `git:github.com/qq458249269/pi-lazy-tools` | **核心**。**2026-09-23 起弃 npm 源改装本 fork**（jiti 加载器补丁随仓库版本化，`pi install` 更新不再丢修复，声明 `dependencies.jiti` 供独立 module root 解析）。低频工具懒加载（**2026-09-22 起替代已下架的 `@wolido/pi-tool-search`，配置/工具名/两步确认门完全同款**）：会话启动把 `lazy-tools.json` 名单工具从 LLM 可见 active 集剔除，需要时 `load_tools` 以纯文本注入描述/参数 schema（两步确认门：先挑战文本 `confirm:false` 零副作用、用户主动要求后 `confirm:true` 激活）、`call_tool` 代理执行——相对 tool-search 加强：JSON Schema 预校验（type/required/enum/pattern/properties 等子集，不合法不触碰目标 execute）+ factory 重放捕获真实 `execute`（按 `sourcePath#name` memoize，每会话只重放一次）。**不触碰 `tools` 字段**；系统提示词侧唯一动作是把 `<skills>` 段改写为单行说明（skill 去注入，原独立扩展 `pi-lazy-skills` 已于 commit `358e236` 并入并卸载），其余不动、轮间字节稳定。**关键：`--tools` 白名单必须保留 lazy 工具**（注册与隐藏是两件事）。三常驻工具：`load_tools`、`call_tool`、`skill_search`（skill 动态发现，promptSnippet 限仅用户明确要求使用 skill 时调用） |
 | `pi-cache-guardian` | `npm:pi-cache-guardian` | **缓存守护（防 autocompact 后命中率归零）**。首轮完整链处理后将 system prompt 捕获为 **golden 副本**，之后每轮无条件恢复——字节级一致保证前缀缓存不因 autocompact 重建 system prompt 而整体失效；叠加 prompt reorder（稳定内容前置）、skill 压缩（>4 个 skill 时 4 行 XML 压缩为单行索引）、`<session-overview>` 变化字段剥离（RECENT COMMITS/目录状态/行数），并自动设 `PI_CACHE_RETENTION=long`。自动兼容检测：OpenAI 400 时剥离 `prompt_cache_retention`、Anthropic 400 时降级 `cache_control` TTL、OpenAI 兼容端点注入 `prompt_cache_key`。**不注入任何工具**（无 `setActiveTools`），与 `@wolido/pi-lazy-tools` 懒加载不冲突。命令：`/cache-guardimizer`（npm README 里的 `/cache-guardian` 为旧名）查看每轮 `cacheRead`/`cacheWrite` 统计。可选：`PI_CACHE_GUARD=1` 时会话结束命中率 < `PI_CACHE_GUARD_THRESHOLD`（默认 90）报警 |
 | `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色）。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
 | `SoL-Pi` | `git:github.com/NVlabs/SoL-Pi` | **NVIDIA 开源的上下文/token 效率四机制**（arXiv 2609.20519，`pi-package` 关键字，import 公共 Pi API 不 patch Pi）。**全部 opt-in 默认关闭**，无配置即全禁：**Action Fusion**——同名覆盖内建 `edit`/`write` 追加 `then_run` 参数（收尾校验命令在同一工具调用里跑完，命中时省 1 轮模型往返）；**ObservationPack**——重复大文本结果转稳定句柄 + 精确分页回放（注册 `obs_recall`）；**Evidence-Preserving Reducer**——长诊断日志转紧凑收据，逐条校验引用与存档源一致、失败保留原文（无工具；可经 Pi 托管认证外发 reducer 模型，⚠ 见 SECURITY.md）；**Online Context Compact**——完成的计划步骤成候选点，经济性/窗口压力检查后触发 Pi 原生压缩并继续任务（注册 `update_plan`）。配置：`sol-pi.json`（项目 `.pi/sol-pi.json` 优先 → `~/.pi/agent/sol-pi.json`，不合并），保守示例只开两个零额外模型调用的本地机制：`{"version":1,"actionFusion":true,"observationPack":true,"evidencePreservingReducer":false,"onlineContextCompact":false,"cacheWriteReadRatio":12.5}`；模板见 `sol-pi.example.json`。存档存 `<session-directory>/sol-pi/<session-id>/`。⚠ 同名覆盖 `edit`/`write` 与 pi-edit-guard（`edit`）、pi-one-ui（`write`）叠加；要求 Node >=22.19（本机 24.16.0 ✓）、测试基线 @earendil-works/pi-coding-agent 0.85.1 |
-| `pi-lazy-skills` | `git:github.com/qq458249269/pi-lazy-skills` | **skill 去注入（动态发现）**。`before_agent_start` 剥离 Pi 注入的 `<skills>` 段（全部 skill 的 name+description 常驻）改写为单行文言说明；常驻 `skill_search` 按关键词/name 检索，返回 name、description、SKILL.md 路径，promptSnippet 限仅用户明确要求使用 skill 时调用。实测系统提示词 0 skill 注入；`/skill:name` 不受影响。本地源码 `D:/AI/pi-lazy-skills` |
-
 ### B. 功能增强（其次）
 
 | 扩展 | 来源 | 作用 |
@@ -47,12 +45,12 @@
 
 ## Skills（可选，非扩展，Agent Skills 标准）
 
-> **与扩展不同：skill 不经 `pi install`，是目录粒放到 `~/.pi/agent/skills/`**（pi 按 Agent Skills 标准递归发现含 SKILL.md 的目录）。skill **不注册任何工具**；**2026-09-23 起系统提示词注入由 pi 包 lazy-skills 剥离**（`pi install git:github.com/qq458249269/pi-lazy-skills`）——Pi 默认把全部 skill 的 name + description 常驻注入 `<skills>` 段，lazy-skills 在 `before_agent_start` 改写为单行说明，skill 元数据**零常驻**，改为按需 `skill_search` 动态发现（常驻承载工具，唯一不入 lazy 名单的例外，见[工具归属](#工具归属)）。全文与 references 按需 `read` 加载。存入即生效（新会话 / `/reload`）。
+> **与扩展不同：skill 不经 `pi install`，是目录粒放到 `~/.pi/agent/skills/`**（pi 按 Agent Skills 标准递归发现含 SKILL.md 的目录）。skill **不注册任何工具**；**系统提示词注入由 `pi-lazy-tools` fork 内置剥离（原独立包 `pi-lazy-skills` 已并入并卸载）**——Pi 默认把全部 skill 的 name + description 常驻注入 `<skills>` 段，pi-lazy-tools 在 `before_agent_start` 改写为单行说明，skill 元数据**零常驻**，改为按需 `skill_search` 动态发现（常驻承载工具，唯一不入 lazy 名单的例外，见[工具归属](#工具归属)）。全文与 references 按需 `read` 加载。存入即生效（新会话 / `/reload`）。
 
 | Skill | 来源 | 作用 | 上下文开销 |
 |---|---|---|---|
-| `cangjie-skill`（仓颉） | `git clone github.com/kangarooking/cangjie-skill`（2026-09-23 安装，HEAD `3adf9e6`，v2.5.0） | 拆书元 skill：把书/长视频/播客/课程的方法论蒸馏成原子化可调用的 skill packs（RIA-TV++ 流水线，Adler 阶段 0 → 并行抽取 → 三重校验 → 编译 → 压测 → 交付；description 511 字符 < 1024 上限）。仅装 `SKILL.md + methodology/ + extractors/ + templates/ + scripts/ + schemas/`（349K），跳过 website/books/benchmarks/dist/tests/docs/registry（~2.5M，非运行必需；`docs/migrations` 一处引用为版本迁移说明，需要时回仓库看） | 常驻 0（lazy-skills 剥离注入，description 仅在 `skill_search` 命中时按需出现在工具结果里）；启用时 SKILL.md 13KB ≈ 4k token + 按需 `methodology/`（64K）、`extractors/`（24K）等 |
-| `goutoujunshi`（狗头军师） | `git clone github.com/shengjidaguai-china/goutoujunshi`（2026-10-21 安装，HEAD `6db7354`） | 恋爱军师与情绪支持：心动/暧昧/追求/聊天记录或截图分析/多人选择/冲突/分手复合（Codex 社区标准 SKILL.md，pi 兼容，description 692 字符 < 1024 上限）。本地 sqlite 长期记忆（`scripts/memory_store.py`，仅标准库，按需召回压缩摘要，不存整份聊天） | 常驻 0（lazy-skills 剥离注入）；启用时 SKILL.md 9.4KB ≈ 5k token + 按需 1–3 份 references（每份 2–8k） |
+| `cangjie-skill`（仓颉） | `git clone github.com/kangarooking/cangjie-skill`（2026-09-23 安装，HEAD `3adf9e6`，v2.5.0） | 拆书元 skill：把书/长视频/播客/课程的方法论蒸馏成原子化可调用的 skill packs（RIA-TV++ 流水线，Adler 阶段 0 → 并行抽取 → 三重校验 → 编译 → 压测 → 交付；description 511 字符 < 1024 上限）。仅装 `SKILL.md + methodology/ + extractors/ + templates/ + scripts/ + schemas/`（349K），跳过 website/books/benchmarks/dist/tests/docs/registry（~2.5M，非运行必需；`docs/migrations` 一处引用为版本迁移说明，需要时回仓库看） | 常驻 0（pi-lazy-tools 剥离注入，description 仅在 `skill_search` 命中时按需出现在工具结果里）；启用时 SKILL.md 13KB ≈ 4k token + 按需 `methodology/`（64K）、`extractors/`（24K）等 |
+| `goutoujunshi`（狗头军师） | `git clone github.com/shengjidaguai-china/goutoujunshi`（2026-10-21 安装，HEAD `6db7354`） | 恋爱军师与情绪支持：心动/暧昧/追求/聊天记录或截图分析/多人选择/冲突/分手复合（Codex 社区标准 SKILL.md，pi 兼容，description 692 字符 < 1024 上限）。本地 sqlite 长期记忆（`scripts/memory_store.py`，仅标准库，按需召回压缩摘要，不存整份聊天） | 常驻 0（pi-lazy-tools 剥离注入）；启用时 SKILL.md 9.4KB ≈ 5k token + 按需 1–3 份 references（每份 2–8k） |
 
 ```bash
 # 安装（示例源在 /tmp，实际自 git clone）：
@@ -84,12 +82,11 @@ for p in pi-cache-guardian pi-tps pi-one-ui \
 done
 ```
 
-> git 源无法并入 npm 循环，单独装（顺序：SoL-Pi 第 14、pi-lazy-tools fork、pi-lazy-skills）：
+> git 源无法并入 npm 循环，单独装（顺序：SoL-Pi、pi-lazy-tools fork）：
 
 ```bash
 pi install git:github.com/NVlabs/SoL-Pi
 pi install git:github.com/qq458249269/pi-lazy-tools
-pi install git:github.com/qq458249269/pi-lazy-skills
 ```
 
 > ⚠ `@injaneity/pi-computer-use` 的 postinstall（`node scripts/setup-helper.mjs --postinstall`，生成平台桥接 helper）会被 npm `allowScripts` 默认拦截。装完后再批：
@@ -111,7 +108,7 @@ pi install git:github.com/qq458249269/pi-lazy-skills
 > cd "%USERPROFILE%\.pi\agent\npm" && npm install-scripts approve better-sqlite3
 > ```
 
-装完自查（`pi list`，不并行）：应见 **15 个扩展**——12 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-subagents`、`pi-mcp-adapter`、`pi-agent-browser-native`）+ 3 个 git（`git:github.com/NVlabs/SoL-Pi`、`git:github.com/qq458249269/pi-lazy-tools`、`git:github.com/qq458249269/pi-lazy-skills`）。若少于 15（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
+装完自查（`pi list`，不并行）：应见 **14 个扩展**——12 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-subagents`、`pi-mcp-adapter`、`pi-agent-browser-native`）+ 2 个 git（`git:github.com/NVlabs/SoL-Pi`、`git:github.com/qq458249269/pi-lazy-tools`）。若少于 14（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
 
 pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-22 起执行默认五工具常驻策略**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`，由项目 `.pi/settings.json` 的 `defaultTools` 显式声明）与 `load_tools`/`call_tool` 常驻 active 集，其余扩展工具全部列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
 
@@ -199,14 +196,13 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 | SoL-Pi | `edit`、`write`（同名覆盖加 `then_run`） | ✗ 同名替换，归核心常驻 |
 | SoL-Pi | `obs_recall`、`update_plan` | ✓ |
 | pi-undo-redo | （无工具，仅 `/undo` `/redo` `/undo-cleanup` 命令） | — |
-| pi-lazy-tools（`git:github.com/qq458249269/pi-lazy-tools`） | `load_tools`、`call_tool` | ✗ 承载者，常驻 |
-| lazy-skills（`git:github.com/qq458249269/pi-lazy-skills`） | `skill_search` | ✗ 承载者（skill 动态发现），常驻；promptSnippet 限仅用户明确要求使用 skill 时调用 |
+| pi-lazy-tools（`git:github.com/qq458249269/pi-lazy-tools`） | `load_tools`、`call_tool`、`skill_search` | ✗ 承载者（工具懒加载 + skill 动态发现），常驻；`skill_search` promptSnippet 限仅用户明确要求使用 skill 时调用 |
 | pi-one-ui | （无新工具名；**同名覆盖内建 `write`**，如 edit-guard 之于 `edit`） | ✗ 同名替换，归核心 |
 | 用户自定义 | `deploy_tool` | ✓ |
 
 ### 执行纪律
 
-1. **安装任何新扩展 → 其注册工具名补进 `~/.pi/lazy-tools.json` 的 `lazy` 数组**（同扩展工具可部分 lazy，此处全量）。唯一例外：`skill_search`（lazy-skills）作承载者常驻——其 promptSnippet 本身就是按需门控，且系统提示词单行说明直接引用该工具名，剔除会导致说明指向不存在的 active 工具。
+1. **安装任何新扩展 → 其注册工具名补进 `~/.pi/lazy-tools.json` 的 `lazy` 数组**（同扩展工具可部分 lazy，此处全量）。唯一例外：`skill_search`（pi-lazy-tools）作承载者常驻——其 promptSnippet 本身就是按需门控，且系统提示词单行说明直接引用该工具名，剔除会导致说明指向不存在的 active 工具。
 2. **`--tools` 白名单必须保留 lazy 工具**：注册与隐藏是两件事，只加 lazy 名单不进 `--tools`，`load_tools` 会报「未找到工具元数据」。
 3. 激活是会话级记忆，会话开始清空；`load_tools` 只在用户主动点名时才 `confirm:true`，不自行加载。
 4. 开新会话生效（扩展在会话启动时加载）。
