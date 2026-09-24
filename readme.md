@@ -94,6 +94,13 @@ done
 pi install git:github.com/qq458249269/pi-lazy-tools
 ```
 
+> **更新（2026-09-24 起）**：扩展升级**勿用 `pi install`**——实测对已装包命中 npm 缓存不升版本，须带 `@latest` 才到位；直接走专门升级命令，一条即可：
+>
+> ```bash
+> pi update --extension <source>   # 单包，如 pi update --extension pi-web-access
+> pi update --all                  # pi + 全部扩展
+> ```
+>
 > ⚠ `@injaneity/pi-computer-use` 的 postinstall（`node scripts/setup-helper.mjs --postinstall`，生成平台桥接 helper）会被 npm `allowScripts` 默认拦截。装完后再批：
 >
 > ```bash
