@@ -21,8 +21,10 @@
 > 本轮（2026-09-23 四轮）：**卸载 SoL-Pi**（`pi uninstall git:github.com/NVlabs/SoL-Pi`），三轮新增记录作废：`edit`/`write` 同名覆盖（`then_run`）撤除、恢复内建原始行为，`obs_recall`/`update_plan` 注入撤除并从 lazy 名单剔除，`~/.pi/agent/sol-pi.json` 配置已删除。清单 **14 → 13**（12 npm + 1 git，`pi list` 实测核对）。
 >
 > 本轮（2026-09-23 五轮）：新增 **`@agenticup/pi-loop@0.1.4`**（`npm:@agenticup/pi-loop`，loop engineering 递归深潜扩展），清单 **13 → 14**（13 npm + 1 git，`pi list` 实测核对）。只注册 1 个工具 `loop`（5 阶段流水线：Decompose → DRIP 前置回检 → Solve 并发子智能体 → Critique MAKER 投票 → Iterate ADaPT 深分解 → Synthesize DRAGON 冲突检测）。⚠ 现行 pi-lazy-tools fork 为 **resident 例外制**（`~/.pi/lazy-tools.json` 只列常驻例外，其余默认全 lazy），`loop` 不在 `resident` 即自动 lazy，**无需改配置**；`loop` 归属见[工具归属](#工具归属)。
+>
+> 本轮（2026-09-24 六轮）：**卸载 `pi-subagents`**（`pi uninstall npm:pi-subagents`，不再使用子智能体委托），清单 **14 → 13**（12 npm + 1 git，`pi list` 实测核对）。`subagent`/`contact_supervisor` 从 lazy 名单剔除（resident 例外制下无需改配置，工具直接不存在）；安装循环、自查清单、工具归属表、安装后操作条目同步剔除；better-sqlite3 三包并称段改两包（见[安装与配置](#安装与配置)）。
 
-## 推荐清单（14 个，始终最新）
+## 推荐清单（13 个，始终最新）
 
 ### A. 核心层（先装）
 
@@ -42,7 +44,6 @@
 | `pi-edit-guard` | `npm:pi-edit-guard` | **编辑强化**：覆盖内建 `edit`（**同名替换**），多层容错匹配（simple → line/whitespace/indentation/escape/unicode 归一化 → block-anchor → fuzzy 等 12+ passes）、匹配唯一性校验、缩进漂移修复、批量感知错误报告。另注册 `undo` 工具（可撤销编辑）。**同名接管内建 `edit` 即生效；`undo` 是否列入 lazy 名单由你定，列入了才被剔除、按需加载，不增首请求注入**。⚠ 声明 `engines.node >=24.18.0`（本机 24.16.0 仅 npm 告警，仍可安装运行） |
 | `@trycedar/pi-mdiff` | `npm:@trycedar/pi-mdiff` | **Markdown 编辑**：面向 `.md` 的规范化 SEARCH 匹配 + 块级锚定编辑，注册 `md_inspect`/`md_diff`/`md_edit` 三个工具。**旧包名 `pi-mdiff` 已弃用并迁移到带 scope 的 `@trycedar/pi-mdiff`**。三个工具名可列入 lazy 名单按需加载，**不增首请求注入** |
 | `pi-undo-redo` | `npm:pi-undo-redo` | **会话/文件撤销重做**：git 仓库用影子 git 快照、非 git 目录只快照 Pi 文件工具显式触碰的路径（`write`/`edit`），按消息记录补丁元数据。命令 `/undo` 回到上一用户消息并还原其改动的文件、`/redo` 恢复、`/undo-cleanup` 保守清理旧快照；`/tree` 也可还原工作区快照。脏保护：有未快照工作区改动时拦截 `/undo`/`/redo`/`/tree`。**不注册任何 agent 工具**，纯命令扩展，零注入。配置写入 settings.json 的 `undoRedo` namespace（`storageDir`/大文件上限 `largeFileLimitBytes` 默认 2MiB/`gitTimeoutMs`） |
-| `pi-subagents` | `npm:pi-subagents` | **子智能体委托**：Pi 作为父会话派发聚焦子会话（前台子会话在父进程内流式返回，后台子会话跑在分离 Node runner 里可稍后取结果），内置 agent：`scout`（代码侦察）、`reviewer`（评审）、`oracle`（第二意见）、`researcher`（需子会话有 `pi-web-access`）等，可并行评审、保存工作流、后台作业。注册 `subagent`（主委托工具，`bg_wait` 为参数非独立工具）与 `contact_supervisor`（子会话联络父会话）。~~依赖 `better-sqlite3`~~（2026-09-23 起 v0.71.0 已移除该依赖，无需批准，见[全量重装实录](#全量重装实录与问题修复2026-09-23)问题 2） |
 | `pi-mcp-adapter` | `npm:pi-mcp-adapter` | **MCP 适配（免上下文爆炸）**：一个 `mcp` 代理工具（~200 token）替代数百个 MCP 工具定义，按需发现、服务器首次使用时才启动。自动读 `.mcp.json`/`~/.config/mcp/mcp.json`（及 `~/.agents/mcp.json` 等兼容路径）；`/mcp setup` 从 Cursor/Claude Code/Codex 等宿主配置导入、`/mcp disable|enable` 开关服务器。Pi 专用覆盖写 `~/.pi/agent/mcp.json`/.pi 项目层，不改写源文件、不复制凭证。~~依赖 `better-sqlite3`~~（2026-09-23 起 v2.37.0 已移除该依赖，无需批准） |
 | `pi-agent-browser-native` | `npm:pi-agent-browser-native` | **原生浏览器自动化**：agent-browser CLI 封装为原生 `agent_browser` 工具（替代脆弱的 shell 命令拼装）：打开页面、交互式快照（`@eN` 引用可继续点击/填表）、截图与下载文件以 Pi artifact 呈现、持久 profile 支持登录态、溢出大输出写 spill 文件防爆上下文、结构化 details（标题/URL/已存文件/会话/错误）。~~依赖 `better-sqlite3`~~（2026-09-23 起 v0.7.1 已移除该依赖，无需批准） |
 | `@agenticup/pi-loop` | `npm:@agenticup/pi-loop` | **递归深潜（loop engineering，2026-09-23 装，v0.1.4）**：注册 `loop` 工具，5 阶段流水线——Decompose（MAKER 式拆 8–15 个微子问题）→ DRIP 后置回检补前置条件 → Solve（信号量并发子智能体，`concurrency` 1–8，默认 4）→ Critique（自适应 MAKER 投票，1 个 critic、分歧升级 3 个）→ Iterate（ADaPT 式深分解被标记子问题，≤2 次）→ Synthesize（DRAGON 式子解冲突检测）。参数：`prompt`（必填）、`maxDepth`（1–3，默认 2，每层约 2x 成本）、`concurrency`、`model`（默认跟随会话）；子智能体 20 分钟超时优雅降级、循环继续；进度实时可见（超 40 行截断）+ 逐子问题执行摘要。代价：4 子问题约 5–8x 单答 token、2–5 分钟，简单任务过重。**只注册 `loop` 一个工具，resident 例外制下默认 lazy，不增首请求注入**。用法：「Use loop: <任务>」显式触发 |
@@ -81,7 +82,7 @@ cp -r <repo>/SKILL.md <repo>/methodology <repo>/extractors <repo>/templates <rep
 for p in pi-cache-guardian pi-tps pi-one-ui \
          pi-web-access @injaneity/pi-computer-use @tian.zuo/pi-find \
          pi-edit-guard @trycedar/pi-mdiff pi-undo-redo \
-         pi-subagents pi-mcp-adapter pi-agent-browser-native \
+         pi-mcp-adapter pi-agent-browser-native \
          @agenticup/pi-loop; do
   pi install "npm:$p" || echo "[失败] $p"
 done
@@ -106,15 +107,15 @@ pi install git:github.com/qq458249269/pi-lazy-tools
 >   && node scripts/setup-helper.mjs --postinstall   # 输出 [pi-computer-use] ...helper already up to date 即就位
 > ```
 
-> ~~⚠ `pi-subagents`/`pi-mcp-adapter`/`pi-agent-browser-native` 共享原生依赖 `better-sqlite3`……`npm install-scripts approve better-sqlite3`~~ **此步骤 2026-09-23 起作废**：三包新版（pi-subagents 0.71.0 / pi-mcp-adapter 2.37.0 / pi-agent-browser-native 0.7.1）均已移除 `better-sqlite3` 依赖，approve 会报 `ENOMATCH: No installed packages match`，依赖树中亦无该包（实测 `find` 无目录）。`allowScripts` 里的旧条目 `better-sqlite3@13.0.3: true` 为历史残留，无害可留。详见[全量重装实录](#全量重装实录与问题修复2026-09-23)问题 2。
+> ~~⚠ `pi-mcp-adapter`/`pi-agent-browser-native` 共享原生依赖 `better-sqlite3`……`npm install-scripts approve better-sqlite3`~~ **此步骤 2026-09-23 起作废（2026-09-24 随 pi-subagents 卸载改称两包）**：两包新版（pi-mcp-adapter 2.37.0 / pi-agent-browser-native 0.7.1）均已移除 `better-sqlite3` 依赖，approve 会报 `ENOMATCH: No installed packages match`，依赖树中亦无该包（实测 `find` 无目录）。`allowScripts` 里的旧条目 `better-sqlite3@13.0.3: true` 为历史残留，无害可留。详见[全量重装实录](#全量重装实录与问题修复2026-09-23)问题 2。
 
-装完自查（`pi list`，不并行）：应见 **14 个扩展**——13 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-subagents`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 14（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
+装完自查（`pi list`，不并行）：应见 **13 个扩展**——12 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 13（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
 
 pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-22 起执行默认五工具常驻策略**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`，由项目 `.pi/settings.json` 的 `defaultTools` 显式声明）与 `load_tools`/`call_tool` 常驻 active 集，其余扩展工具全部列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
 
 
 ```json
-{ "lazy": ["deploy_tool", "undo", "md_inspect", "md_diff", "md_edit", "grep", "find", "web_search", "source_check", "fetch_content", "get_search_content", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "find_roots", "launch_browser", "navigate_browser", "evaluate_browser", "subagent", "contact_supervisor", "mcp", "agent_browser"] }
+{ "lazy": ["deploy_tool", "undo", "md_inspect", "md_diff", "md_edit", "grep", "find", "web_search", "source_check", "fetch_content", "get_search_content", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "find_roots", "launch_browser", "navigate_browser", "evaluate_browser", "mcp", "agent_browser"] }
 ```
 
 
@@ -133,7 +134,7 @@ pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 
 >
 > **2026-09-18 追加 `pi-edit-guard`/`@trycedar/pi-mdiff` 后基线亦不变**：`pi-edit-guard` **同名覆盖** `edit`（属核心 6，不新增激活项），额外 `undo` 为非核心（被隐藏）；`pi-mdiff` 的 `md_inspect`/`md_diff`/`md_edit` 均为非核心（被隐藏）。`activeTools` 仍 7，不增首请求注入量。
 >
-> **2026-09-21 追加 5 个扩展后基线仍不变**：`pi-undo-redo` 零工具注入；`pi-hermes-memory`（6 工具，**2026-09-22 已卸载**）/`pi-subagents`（`subagent`、`contact_supervisor`）/`pi-mcp-adapter`（`mcp`）/`pi-agent-browser-native`（`agent_browser`）共 10 个工具**全部列入 lazy 名单**，从 active 集剔除，`activeTools` 仍 7，不增首请求注入量。
+> **2026-09-21 追加 5 个扩展后基线仍不变**：`pi-undo-redo` 零工具注入；`pi-hermes-memory`（6 工具，**2026-09-22 已卸载**）/`pi-subagents`（`subagent`、`contact_supervisor`，**2026-09-24 已卸载**）/`pi-mcp-adapter`（`mcp`）/`pi-agent-browser-native`（`agent_browser`）共 10 个工具**全部列入 lazy 名单**，从 active 集剔除，`activeTools` 仍 7，不增首请求注入量。
 >
 > **2026-09-22（二轮）策略回调后基线不变**：自带五工具（`read`/`write`/`edit`/`bash`/`powershell`）经 `.pi/settings.json` 的 `defaultTools` 显式常驻，`edit` 移出 lazy 名单；`grep`/`find` 等扩展工具仍懒加载。`activeTools` 仍 7，首请求注入量不变。
 
@@ -158,7 +159,6 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 5. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**（无需改 lazy 名单）。需要 `undo` 时将其列入 `lazy-tools.json` 的 `lazy` 数组即可按需加载。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
 6. **`@trycedar/pi-mdiff`**：装上即用，编辑 `.md` 时把 `md_inspect`/`md_diff`/`md_edit` 列入 lazy 名单后按需加载。**旧包名 `pi-mdiff` 已弃用，务必用 `npm:@trycedar/pi-mdiff`**（bare 名会触发弃用告警甚至 ECONNRESET 失败）。
 7. **`pi-undo-redo`**：装上即用，纯命令扩展（`/undo`、`/redo`、`/undo-cleanup`），默认存储 `~/.pi/agent/state/pi-undo-redo`，无需配置。可选调整 settings.json 的 `undoRedo`（`storageDir`/`largeFileLimitBytes`）。git 仓库自动走影子 git 快照，非 git 目录只覆盖 `write`/`edit` 显式路径。
-7. **`pi-subagents`**：装上即用。主智能体直接说「用 reviewer 评审这段 diff」「问 oracle 第二意见」即可触发 `subagent` 工具；无需预建 agent 配置。后台子会话跑在分离 runner，可用 `contact_supervisor` 联络。
 8. **`pi-mcp-adapter`**：装上重启后自动读 `.mcp.json`/`~/.config/mcp/mcp.json`；无配置时 `/mcp setup` 导入宿主配置或脚手架。`mcp` 工具已入 lazy 名单，激活后按需代理调用 MCP 服务器，服务器首次使用时才启动。
 9. **`pi-agent-browser-native`**：装上即用，`agent_browser` 工具已入 lazy 名单，激活后可直接驱动真实浏览器（需本机有 `agent-browser` CLI，首次运行时自动按需启动）。
 10. **`@agenticup/pi-loop`**：装上即用，无需配置（resident 例外制下 `loop` 默认 lazy，不改 `~/.pi/lazy-tools.json`）。显式点名触发：「Use loop: <复杂任务>」→ 5 阶段流水线实时输出，结束给执行摘要；子智能体并发与深度按 `concurrency`/`maxDepth` 控制，简单任务勿用（token/延迟 5–8x）。
@@ -177,7 +177,6 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 | @tian.zuo/pi-find | `grep`、`find` | ✓ |
 | pi-web-access | `web_search`、`source_check`、`fetch_content`、`get_search_content` | ✓ |
 | @injaneity/pi-computer-use | `observe_ui`、`search_ui`、`expand_ui`、`inspect_ui`、`act_ui`、`read_text`、`wait_for`、`find_roots`、`launch_browser`、`navigate_browser`、`evaluate_browser` | ✓ |
-| pi-subagents | `subagent`、`contact_supervisor` | ✓ |
 | pi-mcp-adapter | `mcp` | ✓ |
 | pi-agent-browser-native | `agent_browser` | ✓ |
 | @agenticup/pi-loop | `loop` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
