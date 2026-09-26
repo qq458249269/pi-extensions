@@ -23,8 +23,10 @@
 > 本轮（2026-09-23 五轮）：新增 **`@agenticup/pi-loop@0.1.4`**（`npm:@agenticup/pi-loop`，loop engineering 递归深潜扩展），清单 **13 → 14**（13 npm + 1 git，`pi list` 实测核对）。只注册 1 个工具 `loop`（5 阶段流水线：Decompose → DRIP 前置回检 → Solve 并发子智能体 → Critique MAKER 投票 → Iterate ADaPT 深分解 → Synthesize DRAGON 冲突检测）。⚠ 现行 pi-lazy-tools fork 为 **resident 例外制**（`~/.pi/lazy-tools.json` 只列常驻例外，其余默认全 lazy），`loop` 不在 `resident` 即自动 lazy，**无需改配置**；`loop` 归属见[工具归属](#工具归属)。
 >
 > 本轮（2026-09-24 六轮）：**卸载 `pi-subagents`**（`pi uninstall npm:pi-subagents`，不再使用子智能体委托），清单 **14 → 13**（12 npm + 1 git，`pi list` 实测核对）。`subagent`/`contact_supervisor` 从 lazy 名单剔除（resident 例外制下无需改配置，工具直接不存在）；安装循环、自查清单、工具归属表、安装后操作条目同步剔除；better-sqlite3 三包并称段改两包（见[安装与配置](#安装与配置)）。
+>
+> 本轮（2026-09-27）：新增 **`@zhushanwen/pi-smart-context@0.3.4`**（`npm:@zhushanwen/pi-smart-context`，智能上下文压缩：agent 自决 `compact_context` 工具 + 双模式摘要生成 + 3 档阈值提醒），清单 **13 → 14**（13 npm + 1 git，`pi list` 实测核对）。**同时试装并卸载 `billion-context-pi@0.1.80`**——在本机与 `pi-lazy-tools` 冲突，五个 ACP 工具全部加载失败却又无条件取消 pi 原生压缩，净损失，详见[压缩与缓存](#压缩与缓存)。smart-context 实测数据、配置与已知缺陷同见该节。
 
-## 推荐清单（13 个，始终最新）
+## 推荐清单（14 个，始终最新）
 
 ### A. 核心层（先装）
 
@@ -33,6 +35,7 @@
 | `pi-lazy-tools`（`@wolido/pi-lazy-tools` 的 fork） | `git:github.com/qq458249269/pi-lazy-tools` | **核心**。**2026-09-23 起弃 npm 源改装本 fork**（jiti 加载器补丁随仓库版本化，`pi install` 更新不再丢修复，声明 `dependencies.jiti` 供独立 module root 解析）。低频工具懒加载（**2026-09-22 起替代已下架的 `@wolido/pi-tool-search`，配置/工具名/两步确认门完全同款**）：会话启动把 `lazy-tools.json` 名单工具从 LLM 可见 active 集剔除，需要时 `load_tools` 以纯文本注入描述/参数 schema（两步确认门：先挑战文本 `confirm:false` 零副作用、用户主动要求后 `confirm:true` 激活）、`call_tool` 代理执行——相对 tool-search 加强：JSON Schema 预校验（type/required/enum/pattern/properties 等子集，不合法不触碰目标 execute）+ factory 重放捕获真实 `execute`（按 `sourcePath#name` memoize，每会话只重放一次）。**不触碰 `tools` 字段**；系统提示词侧唯一动作是把 `<skills>` 段改写为单行说明（skill 去注入，原独立扩展 `pi-lazy-skills` 已于 commit `358e236` 并入并卸载），其余不动、轮间字节稳定。**关键：`--tools` 白名单必须保留 lazy 工具**（注册与隐藏是两件事）。三常驻工具：`load_tools`、`call_tool`、`skill_search`（skill 动态发现，promptSnippet 限仅用户明确要求使用 skill 时调用） |
 | `pi-cache-guardian` | `npm:pi-cache-guardian` | **缓存守护（防 autocompact 后命中率归零）**。首轮完整链处理后将 system prompt 捕获为 **golden 副本**，之后每轮无条件恢复——字节级一致保证前缀缓存不因 autocompact 重建 system prompt 而整体失效；叠加 prompt reorder（稳定内容前置）、skill 压缩（>4 个 skill 时 4 行 XML 压缩为单行索引）、`<session-overview>` 变化字段剥离（RECENT COMMITS/目录状态/行数），并自动设 `PI_CACHE_RETENTION=long`。自动兼容检测：OpenAI 400 时剥离 `prompt_cache_retention`、Anthropic 400 时降级 `cache_control` TTL、OpenAI 兼容端点注入 `prompt_cache_key`。**不注入任何工具**（无 `setActiveTools`），与 `@wolido/pi-lazy-tools` 懒加载不冲突。命令：`/cache-guardimizer`（npm README 里的 `/cache-guardian` 为旧名）查看每轮 `cacheRead`/`cacheWrite` 统计。可选：`PI_CACHE_GUARD=1` 时会话结束命中率 < `PI_CACHE_GUARD_THRESHOLD`（默认 90）报警。**压缩（`/compact`/autocompact）后命中骤降的判定见[压缩与缓存](#压缩与缓存)** |
 | `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色）。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
+| `@zhushanwen/pi-smart-context` | `npm:@zhushanwen/pi-smart-context` | **智能上下文压缩（2026-09-27 装，v0.3.4）**：注册 `compact_context` 工具交 agent 自决压缩时机（未达最低档阈值时拒绝并回用量建议）；`session_before_compact` 接管压缩生成走**双模式**——`compactModel` 留空/等于当前模型即 same-model（送全量上下文 + 会话原 system prompt + tools + 末尾压缩指令，前缀可复用、模型看全量，质量上限最高），配廉价模型即 cross-model（调用 pi 原生 `compact()` 仅换模型凭证）；另按 `reminderThresholds` 三档静默注入阈值提醒（不强制、每档一次、已提醒档位随 session 持久化）。排除模型走 `excludedModels` 精准 `provider/modelId` 匹配。配置 `~/.pi/agent/config/smart-context-ext-config.json`，**读时热加载**（改完下一次事件即生效，无需重启）。排障日志 `~/.pi/agent/logs/smart-context-*.log`，前缀 `[smart-context]`，需 `TAIJI_AGENT_DEBUG=1`。⚠ 实测结论与配置值见[压缩与缓存](#压缩与缓存) |
 ### B. 功能增强（其次）
 
 | 扩展 | 来源 | 作用 |
@@ -83,7 +86,8 @@ for p in pi-cache-guardian pi-tps pi-one-ui \
          pi-web-access @injaneity/pi-computer-use @tian.zuo/pi-find \
          pi-edit-guard @trycedar/pi-mdiff pi-undo-redo \
          pi-mcp-adapter pi-agent-browser-native \
-         @agenticup/pi-loop; do
+         @agenticup/pi-loop \
+         @zhushanwen/pi-smart-context; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 ```
@@ -116,13 +120,13 @@ pi install git:github.com/qq458249269/pi-lazy-tools
 
 > ~~⚠ `pi-mcp-adapter`/`pi-agent-browser-native` 共享原生依赖 `better-sqlite3`……`npm install-scripts approve better-sqlite3`~~ **此步骤 2026-09-23 起作废（2026-09-24 随 pi-subagents 卸载改称两包）**：两包新版（pi-mcp-adapter 2.37.0 / pi-agent-browser-native 0.7.1）均已移除 `better-sqlite3` 依赖，approve 会报 `ENOMATCH: No installed packages match`，依赖树中亦无该包（实测 `find` 无目录）。`allowScripts` 里的旧条目 `better-sqlite3@13.0.3: true` 为历史残留，无害可留。详见[全量重装实录](#全量重装实录与问题修复2026-09-23)问题 2。
 
-装完自查（`pi list`，不并行）：应见 **13 个扩展**——12 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 13（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
+装完自查（`pi list`，不并行）：应见 **14 个扩展**——13 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`、`@zhushanwen/pi-smart-context`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 13（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
 
 pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-22 起执行默认五工具常驻策略**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`，由项目 `.pi/settings.json` 的 `defaultTools` 显式声明）与 `load_tools`/`call_tool` 常驻 active 集，其余扩展工具全部列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
 
 
 ```json
-{ "lazy": ["deploy_tool", "undo", "md_inspect", "md_diff", "md_edit", "grep", "find", "web_search", "source_check", "fetch_content", "get_search_content", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "find_roots", "launch_browser", "navigate_browser", "evaluate_browser", "mcp", "agent_browser"] }
+{ "lazy": ["deploy_tool", "undo", "md_inspect", "md_diff", "md_edit", "grep", "find", "web_search", "source_check", "fetch_content", "get_search_content", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "find_roots", "launch_browser", "navigate_browser", "evaluate_browser", "mcp", "agent_browser", "compact_context"] }
 ```
 
 
@@ -169,6 +173,7 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 8. **`pi-mcp-adapter`**：装上重启后自动读 `.mcp.json`/`~/.config/mcp/mcp.json`；无配置时 `/mcp setup` 导入宿主配置或脚手架。`mcp` 工具已入 lazy 名单，激活后按需代理调用 MCP 服务器，服务器首次使用时才启动。
 9. **`pi-agent-browser-native`**：装上即用，`agent_browser` 工具已入 lazy 名单，激活后可直接驱动真实浏览器（需本机有 `agent-browser` CLI，首次运行时自动按需启动）。
 10. **`@agenticup/pi-loop`**：装上即用，无需配置（resident 例外制下 `loop` 默认 lazy，不改 `~/.pi/lazy-tools.json`）。显式点名触发：「Use loop: <复杂任务>」→ 5 阶段流水线实时输出，结束给执行摘要；子智能体并发与深度按 `concurrency`/`maxDepth` 控制，简单任务勿用（token/延迟 5–8x）。
+11. **`@zhushanwen/pi-smart-context`**：装上即用，先写 `~/.pi/agent/config/smart-context-ext-config.json`（本机取值见[压缩与缓存](#压缩与缓存)的「smart-context 配置」小节——**默认 400K/500K/600K 三档对本机 100K 窗模型永不触发，须下调**）。`compact_context` 已入 lazy 名单，resident 例外制下默认全懒、无需改配置；阈值提醒静默注入（只进 LLM 上下文、不触发新 turn、不进对话流）。排障加 `TAIJI_AGENT_DEBUG=1` 看 `~/.pi/agent/logs/smart-context-*.log`。
 
 ## 全量懒加载策略
 
@@ -187,6 +192,7 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 | pi-mcp-adapter | `mcp` | ✓ |
 | pi-agent-browser-native | `agent_browser` | ✓ |
 | @agenticup/pi-loop | `loop` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
+| @zhushanwen/pi-smart-context | `compact_context` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
 | pi-undo-redo | （无工具，仅 `/undo` `/redo` `/undo-cleanup` 命令） | — |
 | pi-lazy-tools（`git:github.com/qq458249269/pi-lazy-tools`） | `load_tools`、`call_tool`、`skill_search` | ✗ 承载者（工具懒加载 + skill 动态发现），常驻；`skill_search` promptSnippet 限仅用户明确要求使用 skill 时调用 |
 | pi-one-ui | （无新工具名；**同名覆盖内建 `write`**，如 edit-guard 之于 `edit`） | ✗ 同名替换，归核心 |
@@ -235,6 +241,40 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 **可用性核对（2026-09-26）**：本机 `~/.pi/agent/npm/node_modules/pi-cache-guardian` 为 **v1.0.7**，与 npm `dist-tags.latest` 一致（2026-08-18 发布）；`pi list` 正常加载；`before_agent_start` golden 冻结、`agent_end` 统计、`session_start` 重置、`/cache-guardimizer` 命令四项 hook 均在源码中；**零工具注入**，与 `pi-lazy-tools` 懒加载不冲突。
 
 **同类候选（均不装）**：`pi-observational-memory` 治的是压缩后记忆断层（摘要套摘要丢决策理由），不是命中率；`pi-deepseek-cache` / `@rohaquinlop/pi-deepseek-cache` 的 cache-friendly compaction 绑定 DeepSeek；`pi-cache-optimizer` 与 guardian 在 prompt 稳定化上重叠；`@mrclrchtr/supi-cache` 只做历史取证；`@diousk/pi-warm-cache` 保空闲期 TTL，对压缩后失效无关。**均不解决 system prompt 字节漂移这个根因，装了只是多一份常驻负担**——故维持单一 `pi-cache-guardian`。
+
+### smart-context 与 billion-context 实测（2026-09-27）
+
+**测法**：必须 RPC 多轮驱动（`.sc-test/drive.mjs`、`drive-bcp.mjs`）。`pi -p` 单 turn 压缩**必被拒**：单 turn 下 pi 不填 `preparation.messagesToSummarize` → `shadowedTokens=0` → 收缩校验 `isSummaryInflated(summaryTokens, shadowedTokens) => summaryTokens >= shadowedTokens` 恒真。filler 为三份各约 13K token 的假文档，逐轮 `read` 撑大上下文，provider/model/代理变量全程锁定。
+
+**结论先行：前缀缓存自头顺序匹配，压缩＝改写历史开头＝其后全部失效。故「压缩后高命中」在结构上不可得，可比的只有压缩那一次调用自身的命中。**
+
+| 方案 | 压缩生效 | 压缩调用自身 cacheRead | 压缩后首个请求 cacheRead |
+|---|---|---|---|
+| smart-context same-model 接管 | 是（模型看全量） | **14,778 / 14,794（tokenBefore 59,703 / 19,025 时命中率 20.6% / 47.6%）** | 回落 3,074–3,110（仅 system 前缀） |
+| billion-context 就地块压缩 | 是（`▣ ACP 50.3K → 13.1K`） | 44,632 / 34,176 | **10,578**（−76%，恒定在 10–12K 的 system+tools 固定前缀；第一个被压缩块之后全部重算） |
+| pi 原生回落路径 | 是 | 2,730–5,385（cacheRead 141–2,428） | 3,074–3,110 |
+
+三者中 smart-context 的 same-model 接管最优且质量最高，故为唯一保留项。billion-context 的块/handle 机制对 KV 缓存无益。
+
+**billion-context-pi 卸载原因（不只是无效，是有害）**：其 `compress`/`decompress`/`search_context`/`acp_status`/`acp_cache` 五个工具在**扩展加载期**注册（`dist/index.js` 约 23096 行；`acp_delegate*` 因在 `session_start` 内注册而幸存），而 `pi-lazy-tools` 用裸 jiti 上下文加载他扩展的 load 期工具，bcp 顶层 `import * as piModule from "@earendil-works/pi-coding-agent"` 解析失败 →
+```
+[lazy-tools] failed to load tool definition for "compress" from .../billion-context-pi/dist/index.js:
+  error: Cannot find module '@earendil-works/pi-coding-agent'
+```
+→ 模型三次正确构造 `compress` 调用全部返回 `isError: "Tool compress not found"`。而 bcp 又无条件 `session_before_compact → { cancel: true }`（非 refused 状态），**工具全废 + pi 原生压缩被取消 = 会话永不再压缩**，纯风险。规避手段（曾用）：`PI_CODING_AGENT_DIR` 指向仅装 bcp 的临时 agent 目录即可正常压缩，上表数据即在该环境取得。已 `pi remove npm:billion-context-pi`。
+
+**smart-context 配置（本机）** `~/.pi/agent/config/smart-context-ext-config.json`（热加载，无需重启）：
+```json
+{ "enabled": true, "compactModel": { "type": "ref", "ref": "" }, "reminderThresholds": [60000, 75000, 90000], "excludedModels": [] }
+```
+- `compactModel.ref` 留空 = same-model（空串亦可绕过一个判定差；等价写法 `"ref": "1"`）。改指廉价模型即 cross-model，调用 pi 原生 `compact()`，只换凭证，省的是输入/输出总量而非命中。
+- 三档阈值**必调**：默认 400K/500K/600K 对本机 contextWindow 100K 的模型永不触发。取 60K/75K/90K 配合 `.pi/settings.json` 的 `compaction.reserveTokens`（本机测试用 60000）会与 agent 自选时机重叠，压缩接管率下降，排查时先临时抬高 `reserveTokens`。
+
+**已知缺陷（可报上游）**：pi 0.85.1 下 `preparation.messagesToSummarize` 常为空 → `shadowedTokens=0` → 5 次接管被拒 3 次：
+```
+[smart-context] summary inflated, rejecting takeover {"summaryTokens":1820,"shadowedTokens":0}
+```
+判据在 `src/pure.ts:162`，计估在 `src/compact-handler.ts:307-312`。实际影响：被拒则回落原生压缩，摘要质量降为压缩前，且压缩调用无缓存命中（见上表第三行）。`pi-cache-guardian` 的 system prompt 冻结**救不了此项**（根因是历史消息改写，不是 system prompt 字节漂移）。
 
 ## lazy-tools 执行层修复（2026-09-22）
 
