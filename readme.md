@@ -31,7 +31,7 @@
 | 扩展 | 来源 | 作用 |
 |---|---|---|
 | `pi-lazy-tools`（`@wolido/pi-lazy-tools` 的 fork） | `git:github.com/qq458249269/pi-lazy-tools` | **核心**。**2026-09-23 起弃 npm 源改装本 fork**（jiti 加载器补丁随仓库版本化，`pi install` 更新不再丢修复，声明 `dependencies.jiti` 供独立 module root 解析）。低频工具懒加载（**2026-09-22 起替代已下架的 `@wolido/pi-tool-search`，配置/工具名/两步确认门完全同款**）：会话启动把 `lazy-tools.json` 名单工具从 LLM 可见 active 集剔除，需要时 `load_tools` 以纯文本注入描述/参数 schema（两步确认门：先挑战文本 `confirm:false` 零副作用、用户主动要求后 `confirm:true` 激活）、`call_tool` 代理执行——相对 tool-search 加强：JSON Schema 预校验（type/required/enum/pattern/properties 等子集，不合法不触碰目标 execute）+ factory 重放捕获真实 `execute`（按 `sourcePath#name` memoize，每会话只重放一次）。**不触碰 `tools` 字段**；系统提示词侧唯一动作是把 `<skills>` 段改写为单行说明（skill 去注入，原独立扩展 `pi-lazy-skills` 已于 commit `358e236` 并入并卸载），其余不动、轮间字节稳定。**关键：`--tools` 白名单必须保留 lazy 工具**（注册与隐藏是两件事）。三常驻工具：`load_tools`、`call_tool`、`skill_search`（skill 动态发现，promptSnippet 限仅用户明确要求使用 skill 时调用） |
-| `pi-cache-guardian` | `npm:pi-cache-guardian` | **缓存守护（防 autocompact 后命中率归零）**。首轮完整链处理后将 system prompt 捕获为 **golden 副本**，之后每轮无条件恢复——字节级一致保证前缀缓存不因 autocompact 重建 system prompt 而整体失效；叠加 prompt reorder（稳定内容前置）、skill 压缩（>4 个 skill 时 4 行 XML 压缩为单行索引）、`<session-overview>` 变化字段剥离（RECENT COMMITS/目录状态/行数），并自动设 `PI_CACHE_RETENTION=long`。自动兼容检测：OpenAI 400 时剥离 `prompt_cache_retention`、Anthropic 400 时降级 `cache_control` TTL、OpenAI 兼容端点注入 `prompt_cache_key`。**不注入任何工具**（无 `setActiveTools`），与 `@wolido/pi-lazy-tools` 懒加载不冲突。命令：`/cache-guardimizer`（npm README 里的 `/cache-guardian` 为旧名）查看每轮 `cacheRead`/`cacheWrite` 统计。可选：`PI_CACHE_GUARD=1` 时会话结束命中率 < `PI_CACHE_GUARD_THRESHOLD`（默认 90）报警 |
+| `pi-cache-guardian` | `npm:pi-cache-guardian` | **缓存守护（防 autocompact 后命中率归零）**。首轮完整链处理后将 system prompt 捕获为 **golden 副本**，之后每轮无条件恢复——字节级一致保证前缀缓存不因 autocompact 重建 system prompt 而整体失效；叠加 prompt reorder（稳定内容前置）、skill 压缩（>4 个 skill 时 4 行 XML 压缩为单行索引）、`<session-overview>` 变化字段剥离（RECENT COMMITS/目录状态/行数），并自动设 `PI_CACHE_RETENTION=long`。自动兼容检测：OpenAI 400 时剥离 `prompt_cache_retention`、Anthropic 400 时降级 `cache_control` TTL、OpenAI 兼容端点注入 `prompt_cache_key`。**不注入任何工具**（无 `setActiveTools`），与 `@wolido/pi-lazy-tools` 懒加载不冲突。命令：`/cache-guardimizer`（npm README 里的 `/cache-guardian` 为旧名）查看每轮 `cacheRead`/`cacheWrite` 统计。可选：`PI_CACHE_GUARD=1` 时会话结束命中率 < `PI_CACHE_GUARD_THRESHOLD`（默认 90）报警。**压缩（`/compact`/autocompact）后命中骤降的判定见[压缩与缓存](#压缩与缓存)** |
 | `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色）。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
 ### B. 功能增强（其次）
 
@@ -162,7 +162,7 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 1. **重启 Pi** 使扩展生效。
 2. 新会话里对主智能体说「激活 X」：`load_tools` 先返回挑战文本（`confirm:false` 零副作用），用户点名确认后 `confirm:true` 激活、`call_tool` 调用。**自带五工具（`read`/`write`/`edit`/`bash`/`powershell`）默认常驻，无需激活**；扩展工具（`grep`/`find`/网页/UI/子代理）才需激活。启动时 `ctx.ui.notify` 打印当前 lazy 名单与配置文件路径。
 3. `pi-tps`：运行 `fix-tps-theme.ps1` 让颜色跟随系统主题。`pi-one-ui`：`/oneui` 打开设置面板、`/context` 查看上下文、`/theme` 切换内置主题（`cc-dark`/`cc-light`）；配置存 `~/.pi/agent/pi-one-ui.json`，`/reload` 后 Features 生效（组件开关即时生效）。`@injaneity/pi-computer-use`：先完成上面的 postinstall 批准与 helper 重跑，首次运行时再授予平台权限。
-4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预。
+4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预；`/compact` 后首轮命中低属结构性，判定与处置见[压缩与缓存](#压缩与缓存)。
 5. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**（无需改 lazy 名单）。需要 `undo` 时将其列入 `lazy-tools.json` 的 `lazy` 数组即可按需加载。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
 6. **`@trycedar/pi-mdiff`**：装上即用，编辑 `.md` 时把 `md_inspect`/`md_diff`/`md_edit` 列入 lazy 名单后按需加载。**旧包名 `pi-mdiff` 已弃用，务必用 `npm:@trycedar/pi-mdiff`**（bare 名会触发弃用告警甚至 ECONNRESET 失败）。
 7. **`pi-undo-redo`**：装上即用，纯命令扩展（`/undo`、`/redo`、`/undo-cleanup`），默认存储 `~/.pi/agent/state/pi-undo-redo`，无需配置。可选调整 settings.json 的 `undoRedo`（`storageDir`/`largeFileLimitBytes`）。git 仓库自动走影子 git 快照，非 git 目录只覆盖 `write`/`edit` 显式路径。
@@ -216,6 +216,25 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 2. 大工具输出轮命中率低是结构性必然，评估看 `/cache-guardimizer` 累计值，`PI_CACHE_GUARD_THRESHOLD` 报警阈值勿按单轮瞬间判定。
 3. cacheWrite 全程为 0 时（OpenAI 兼容端点不报写侧缓存），长输出对前缀缓存是净负债，能不进历史就不进。
 
+## 压缩与缓存
+
+**结论先行：压缩后首轮命中不可能 100%，「命中 0」才是故障。** 分清两种「低」，处置完全不同。
+
+**根因（结构性，非 bug）**：Pi 压缩后重建的上下文是 `system | summary | firstKeptEntryId 之后的消息`（`docs/compaction.md`）——被摘要替换掉的那段历史对 provider 是全新前缀，**任何扩展都救不回来**，这是前缀缓存的定义。且压缩请求本身走 fresh routing session id、provider 支持时禁写缓存。若命中低但非 0（例：首轮 input 71k、hit 49%），属正常，看下一轮是否回到 90%+。
+
+**唯一可修的失效点是 system prompt 那一段**：压缩时 Pi 重建 system prompt（日期、CWD、`<session-overview>` 的 RECENT COMMITS / 目录状态 / 行数等字段逐轮变字节）→ 前缀首字节即不匹配 → 整段作废，统计上就表现为 0。`pi-cache-guardian` 的 golden freeze 正是为此：首轮走完整优化链后捕获 golden 副本，此后每轮 `before_agent_start` 无条件恢复（`goldenSystemPrompt !== null` 分支直接 return golden），字节级一致；配 prompt reorder（稳定内容前置）与 `<session-overview>` 变化字段剥离，从源头断掉漂移源。
+
+**实测（2026-09-26，扫本机 `~/.pi/agent/sessions/**.jsonl` 的 `cache-guard-turn` 记录）**：4 个发生过压缩的会话，压缩后首轮 hit 依次 **49% / 98% / 95% / 99%**（cacheRead 6.7 万 ~ 495 万 token），紧随其后的下一轮 **50% / 100% / 97% / 99%**——无一为 0。扩展确实在跑（每轮都落 `cache-guard-turn` 自定义条目），不是空转。
+
+**执行约定**：
+1. 命中 0 → 查 `/cache-guardimizer stats` 的 `Golden system prompt` 是否为 `not yet captured`（`session_start` 清空、首轮才捕获）；为 0 说明本会话尚未捕获，看下一轮。
+2. 已捕获却仍 0 → golden 未生效，核对扩展版本与 pi 版本后 `/reload`。
+3. 命中低但非 0 且下轮不回升 → 查该轮是否有大工具输出（见上文「缓存纪律」一节），不是压缩问题。
+4. 想进一步保命中可开 `PI_CACHE_GUARD=1`，会话结束累计命中率低于阈值时告警。
+
+**可用性核对（2026-09-26）**：本机 `~/.pi/agent/npm/node_modules/pi-cache-guardian` 为 **v1.0.7**，与 npm `dist-tags.latest` 一致（2026-08-18 发布）；`pi list` 正常加载；`before_agent_start` golden 冻结、`agent_end` 统计、`session_start` 重置、`/cache-guardimizer` 命令四项 hook 均在源码中；**零工具注入**，与 `pi-lazy-tools` 懒加载不冲突。
+
+**同类候选（均不装）**：`pi-observational-memory` 治的是压缩后记忆断层（摘要套摘要丢决策理由），不是命中率；`pi-deepseek-cache` / `@rohaquinlop/pi-deepseek-cache` 的 cache-friendly compaction 绑定 DeepSeek；`pi-cache-optimizer` 与 guardian 在 prompt 稳定化上重叠；`@mrclrchtr/supi-cache` 只做历史取证；`@diousk/pi-warm-cache` 保空闲期 TTL，对压缩后失效无关。**均不解决 system prompt 字节漂移这个根因，装了只是多一份常驻负担**——故维持单一 `pi-cache-guardian`。
 
 ## lazy-tools 执行层修复（2026-09-22）
 
