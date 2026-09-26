@@ -25,8 +25,10 @@
 > 本轮（2026-09-24 六轮）：**卸载 `pi-subagents`**（`pi uninstall npm:pi-subagents`，不再使用子智能体委托），清单 **14 → 13**（12 npm + 1 git，`pi list` 实测核对）。`subagent`/`contact_supervisor` 从 lazy 名单剔除（resident 例外制下无需改配置，工具直接不存在）；安装循环、自查清单、工具归属表、安装后操作条目同步剔除；better-sqlite3 三包并称段改两包（见[安装与配置](#安装与配置)）。
 >
 > 本轮（2026-09-27）：新增 **`@zhushanwen/pi-smart-context@0.3.4`**（`npm:@zhushanwen/pi-smart-context`，智能上下文压缩：agent 自决 `compact_context` 工具 + 双模式摘要生成 + 3 档阈值提醒），清单 **13 → 14**（13 npm + 1 git，`pi list` 实测核对）。**同时试装并卸载 `billion-context-pi@0.1.80`**——在本机与 `pi-lazy-tools` 冲突，五个 ACP 工具全部加载失败却又无条件取消 pi 原生压缩，净损失，详见[压缩与缓存](#压缩与缓存)。smart-context 实测数据、配置与已知缺陷同见该节。
+>
+> 本轮（2026-09-28）：再装 4 个扩展，清单 **14 → 18**（`pi list` 实测 18 项：`packages` 18 条无丢失），全部**零 agent 工具注入**（无 `registerTool`/`setActiveTools`），与 `pi-lazy-tools` resident 例外制零冲突：`pi-prefix-stabilizer@0.1.0`（系统提示词前缀稳定 + 漂移检测）、`pi-compaction-cache@0.1.1`（摘要调用复用已缓存前缀，实测把压缩调用自身命中从 **1.6% 拉到 98.8%**）、`pi-warm-cache@0.4.0`（空闲期保 TTL，**本机路由未注册故不生效**）、`pi-footer-template@0.5.0`（footer 模板，默认含 `CH{latestCacheHitRate}%`）。另修 `pi-agent-browser-native@0.7.1` 在 **pi 0.85.1** 下的加载期报错 `ctx.sessionManager.buildSessionProjection is not a function`（该 API 属 0.86+），打双路回退补丁 + 幂等脚本 `fix-browser-native-compat.mjs`，补丁后全量扩展 `extension_error` 实测 **1 → 0**。四包与压缩实测全表见[压缩与缓存](#压缩与缓存)，安装顺序有硬约束（compaction-cache 须在 smart-context **之后**、prefix-stabilizer 须在 compaction-cache **之前**）。
 
-## 推荐清单（14 个，始终最新）
+## 推荐清单（18 个，始终最新）
 
 ### A. 核心层（先装）
 
@@ -36,6 +38,8 @@
 | `pi-cache-guardian` | `npm:pi-cache-guardian` | **缓存守护（防 autocompact 后命中率归零）**。首轮完整链处理后将 system prompt 捕获为 **golden 副本**，之后每轮无条件恢复——字节级一致保证前缀缓存不因 autocompact 重建 system prompt 而整体失效；叠加 prompt reorder（稳定内容前置）、skill 压缩（>4 个 skill 时 4 行 XML 压缩为单行索引）、`<session-overview>` 变化字段剥离（RECENT COMMITS/目录状态/行数），并自动设 `PI_CACHE_RETENTION=long`。自动兼容检测：OpenAI 400 时剥离 `prompt_cache_retention`、Anthropic 400 时降级 `cache_control` TTL、OpenAI 兼容端点注入 `prompt_cache_key`。**不注入任何工具**（无 `setActiveTools`），与 `@wolido/pi-lazy-tools` 懒加载不冲突。命令：`/cache-guardimizer`（npm README 里的 `/cache-guardian` 为旧名）查看每轮 `cacheRead`/`cacheWrite` 统计。可选：`PI_CACHE_GUARD=1` 时会话结束命中率 < `PI_CACHE_GUARD_THRESHOLD`（默认 90）报警。**压缩（`/compact`/autocompact）后命中骤降的判定见[压缩与缓存](#压缩与缓存)** |
 | `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色）。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
 | `@zhushanwen/pi-smart-context` | `npm:@zhushanwen/pi-smart-context` | **智能上下文压缩（2026-09-27 装，v0.3.4）**：注册 `compact_context` 工具交 agent 自决压缩时机（未达最低档阈值时拒绝并回用量建议）；`session_before_compact` 接管压缩生成走**双模式**——`compactModel` 留空/等于当前模型即 same-model（送全量上下文 + 会话原 system prompt + tools + 末尾压缩指令，前缀可复用、模型看全量，质量上限最高），配廉价模型即 cross-model（调用 pi 原生 `compact()` 仅换模型凭证）；另按 `reminderThresholds` 三档静默注入阈值提醒（不强制、每档一次、已提醒档位随 session 持久化）。排除模型走 `excludedModels` 精准 `provider/modelId` 匹配。配置 `~/.pi/agent/config/smart-context-ext-config.json`，**读时热加载**（改完下一次事件即生效，无需重启）。排障日志 `~/.pi/agent/logs/smart-context-*.log`，前缀 `[smart-context]`，需 `TAIJI_AGENT_DEBUG=1`。⚠ 实测结论与配置值见[压缩与缓存](#压缩与缓存) |
+| `pi-prefix-stabilizer` | `npm:pi-prefix-stabilizer` | **前缀稳定器（2026-09-28 装，v0.1.0）**。`before_provider_request` 钩子：把系统提示词里随安装路径/工具顺序漂移的字节钉死——① 安装根路径归一（`packagePathSuffix` → `stablePath`，默认 `$HOME/.pi/pi-home`，可选建软链）；② `tools` 数组**按名排序**；③ `<tools>` 段内条目按名排序；④ system 文本取 sha1 指纹，会话中途变了就**报漂移**（换包/MCP 增删、改 rules/AGENTS.md、换 cwd 都会触发），因为漂移点之后的 KV 前缀全作废。**零工具注入**。⚠ 本机实测**路径改写是 no-op**（Windows 装法在 `D:\agent\pi-windows-x64`、且包内判定只认 `/` 开头且存在的 POSIX 路径），实际只做了 tools 排序 + 漂移检测，8 轮长会话无 `drift` 记录；**不要**把 `packagePathSuffix` 改成 Windows 路径，原理上不生效。详见[压缩与缓存](#压缩与缓存) |
+| `pi-compaction-cache` | `npm:pi-compaction-cache` | **压缩调用缓存化（2026-09-28 装，v0.1.1）**。`session_before_compact` 接管摘要生成：把摘要请求重写成**复用已缓存前缀**的形态（默认 `scope:"boundary"` 只发到摘要边界止，保留区不发），并附一次/会话的提示词漂移自检（`prompt_drift_check`，仅结果 `DRIFTED` 才告警，**它不是接管开关**）。这是**唯一能修的失效点**：压缩本身要重发整段历史，原本是压缩会话里最贵的一击。**必须配 `models` matcher**（本机模型无 cost 元数据时走 zero-cost heuristic 会直接 decline），配置文件 `~/.pi/agent/compaction-cache.json`；命令 `/compaction-cache-status` 看逐次判定。**零工具注入**。⚠ 安装顺序**必须在 `pi-smart-context` 之后**（同抢 `session_before_compact`，靠后接管者胜），实测把压缩调用自身命中率从 1.6% 拉到 98.8%，全表见[压缩与缓存](#压缩与缓存) |
 ### B. 功能增强（其次）
 
 | 扩展 | 来源 | 作用 |
@@ -50,6 +54,8 @@
 | `pi-mcp-adapter` | `npm:pi-mcp-adapter` | **MCP 适配（免上下文爆炸）**：一个 `mcp` 代理工具（~200 token）替代数百个 MCP 工具定义，按需发现、服务器首次使用时才启动。自动读 `.mcp.json`/`~/.config/mcp/mcp.json`（及 `~/.agents/mcp.json` 等兼容路径）；`/mcp setup` 从 Cursor/Claude Code/Codex 等宿主配置导入、`/mcp disable|enable` 开关服务器。Pi 专用覆盖写 `~/.pi/agent/mcp.json`/.pi 项目层，不改写源文件、不复制凭证。~~依赖 `better-sqlite3`~~（2026-09-23 起 v2.37.0 已移除该依赖，无需批准） |
 | `pi-agent-browser-native` | `npm:pi-agent-browser-native` | **原生浏览器自动化**：agent-browser CLI 封装为原生 `agent_browser` 工具（替代脆弱的 shell 命令拼装）：打开页面、交互式快照（`@eN` 引用可继续点击/填表）、截图与下载文件以 Pi artifact 呈现、持久 profile 支持登录态、溢出大输出写 spill 文件防爆上下文、结构化 details（标题/URL/已存文件/会话/错误）。~~依赖 `better-sqlite3`~~（2026-09-23 起 v0.7.1 已移除该依赖，无需批准） |
 | `@agenticup/pi-loop` | `npm:@agenticup/pi-loop` | **递归深潜（loop engineering，2026-09-23 装，v0.1.4）**：注册 `loop` 工具，5 阶段流水线——Decompose（MAKER 式拆 8–15 个微子问题）→ DRIP 后置回检补前置条件 → Solve（信号量并发子智能体，`concurrency` 1–8，默认 4）→ Critique（自适应 MAKER 投票，1 个 critic、分歧升级 3 个）→ Iterate（ADaPT 式深分解被标记子问题，≤2 次）→ Synthesize（DRAGON 式子解冲突检测）。参数：`prompt`（必填）、`maxDepth`（1–3，默认 2，每层约 2x 成本）、`concurrency`、`model`（默认跟随会话）；子智能体 20 分钟超时优雅降级、循环继续；进度实时可见（超 40 行截断）+ 逐子问题执行摘要。代价：4 子问题约 5–8x 单答 token、2–5 分钟，简单任务过重。**只注册 `loop` 一个工具，resident 例外制下默认 lazy，不增首请求注入**。用法：「Use loop: <任务>」显式触发 |
+| `pi-warm-cache` | `npm:pi-warm-cache` | **空闲期保活（2026-09-28 装，v0.4.0）**。对**已注册路由**（Anthropic / OpenAI / Azure / Codex / xAI 4.5+ / OpenCode Go / OpenRouter）按厂商 TTL 在会话空闲时发极小请求续前缀缓存（默认 1 token 输出、锚定同一 cache routing key），`/warm status`（含 `automaticWarm` 判定）、`/warm 5m`、`/warm 1h`、`/warm auto`、`/warm probe`、`/warm log` 手动档。**零工具注入**。⚠ **本机不生效**：模型是本地代理 `http://localhost:20128/v1`（`openai-completions`、未注册路由），`resolveStrategy` 判 `capability.state !== "verified"` → `intervalMs: null, automaticWarm: false`，永不装定时器（源码注释：unverified route never arms a timer）。换到上述任一已注册 provider 才自动启用；不注册也**不会报错**，纯静默待命 |
+| `pi-footer-template` | `npm:pi-footer-template` | **footer 模板（2026-09-28 装，v0.5.0）**。用 `ctx.ui.setFooter` 接管底栏，支持 `{model}`/`{cwd}`/`{tokens}`/`{balance}`/`{branch}`/`{CH}` 等占位（可自注册 token），默认模板已含 **`CH{latestCacheHitRate}%`**——**最后一条 assistant** 的 `cacheRead/(input+cacheRead+cacheWrite)`，即本文各表「命中」那一列的同一口径。配置 `footerTemplate` 写项目 `.pi/settings.json` 或用户 settings。**零工具注入**。⚠ 与 `pi-one-ui` 的 Footer 层**抢同一个 footer 槽**（`ctx.ui.setFooter` 单槽，后写者胜），本机已让 one-ui 主动让位（`pi-one-ui.json` 设 `components.footer.style: "native"`），详见[压缩与缓存](#压缩与缓存)末节 |
 
 ## Skills（可选，非扩展，Agent Skills 标准）
 
@@ -87,10 +93,14 @@ for p in pi-cache-guardian pi-tps pi-one-ui \
          pi-edit-guard @trycedar/pi-mdiff pi-undo-redo \
          pi-mcp-adapter pi-agent-browser-native \
          @agenticup/pi-loop \
-         @zhushanwen/pi-smart-context; do
+         @zhushanwen/pi-smart-context \
+         pi-prefix-stabilizer pi-compaction-cache \
+         pi-warm-cache pi-footer-template; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 ```
+
+> **末 4 个包的顺序有硬约束（2026-09-28）**：`pi-compaction-cache` 必须排在 `@zhushanwen/pi-smart-context` **之后**（两者都接 `session_before_compact`，靠后拿到的接管权；反过来 smart-context 的 same-model 先给摘要，压缩调用命中就退回 1.6%），`pi-prefix-stabilizer` 排在 `pi-compaction-cache` **之前**（先稳前缀再谈复用）。`pi-warm-cache`/`pi-footer-template` 顺序不限。`pi install` 一次只写一条注册，照序跑即可。
 
 > git 源无法并入 npm 循环，单独装（`pi-lazy-tools` fork）：
 
@@ -120,14 +130,18 @@ pi install git:github.com/qq458249269/pi-lazy-tools
 
 > ~~⚠ `pi-mcp-adapter`/`pi-agent-browser-native` 共享原生依赖 `better-sqlite3`……`npm install-scripts approve better-sqlite3`~~ **此步骤 2026-09-23 起作废（2026-09-24 随 pi-subagents 卸载改称两包）**：两包新版（pi-mcp-adapter 2.37.0 / pi-agent-browser-native 0.7.1）均已移除 `better-sqlite3` 依赖，approve 会报 `ENOMATCH: No installed packages match`，依赖树中亦无该包（实测 `find` 无目录）。`allowScripts` 里的旧条目 `better-sqlite3@13.0.3: true` 为历史残留，无害可留。详见[全量重装实录](#全量重装实录与问题修复2026-09-23)问题 2。
 
-装完自查（`pi list`，不并行）：应见 **14 个扩展**——13 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`、`@zhushanwen/pi-smart-context`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 13（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
+装完自查（`pi list`，不并行）：应见 **18 个扩展**——17 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`、`@zhushanwen/pi-smart-context`、`pi-prefix-stabilizer`、`pi-compaction-cache`、`pi-warm-cache`、`pi-footer-template`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 17（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
 
 pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-22 起执行默认五工具常驻策略**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`，由项目 `.pi/settings.json` 的 `defaultTools` 显式声明）与 `load_tools`/`call_tool` 常驻 active 集，其余扩展工具全部列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
 
 
 ```json
-{ "lazy": ["deploy_tool", "undo", "md_inspect", "md_diff", "md_edit", "grep", "find", "web_search", "source_check", "fetch_content", "get_search_content", "observe_ui", "search_ui", "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "find_roots", "launch_browser", "navigate_browser", "evaluate_browser", "mcp", "agent_browser", "compact_context"] }
+{ "resident": ["read", "write", "edit", "bash", "powershell", "load_tools", "call_tool", "skill_search"] }
 ```
+
+> **2026-09-28 订正**：本节早期版本写的是 `"lazy": [...]` 名单数组，那是上游 `@wolido/pi-lazy-tools` 的格式；**当前 fork（`git:github.com/qq458249269/pi-lazy-tools`）用的是 resident 例外制**——`resident` 列常驻例外，**其余一切默认全 lazy**，所以本机 `~/.pi/lazy-tools.json` 里只剩上表这 8 个名字（`~/.pi/lazy-tools.json` 不在 `~/.pi/agent` 下）。
+>
+> **2026-09-28 新增四包对懒加载策略的影响：零**。`pi-prefix-stabilizer`/`pi-compaction-cache`/`pi-warm-cache`/`pi-footer-template` 均无 `registerTool`/`setActiveTools`，不新增任何工具名，`activeTools` 仍 8，不需改 `lazy-tools.json`。
 
 
 > **默认五工具常驻 + 扩展全懒策略（2026-09-22 拍板，长期执行）**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`）与 `load_tools`/`call_tool` 承载工具常驻 active 集，其余扩展工具一律 lazy，低频不设门槛、默认全懒。理由：写代码主链路（读/写/编辑/shell）零 `load_tools` 往返；各扩展 description/schema 不常驻上下文，按需 `load_tools` 注入，注入量与首请求 token 最低。代价：搜索/网页/UI/子代理每次使用多一轮 `load_tools` 往返（含用户点名确认），`grep`/`find` 亦需先激活。**安装任何新扩展后，把其注册的工具名补进下方 lazy 名单，保证新扩展工具同样默认全懒。** 需查当前已注册工具：`pi list` 或新会话启动 `ctx.ui.notify` 打印的 lazy 名单。
@@ -156,24 +170,30 @@ pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 
 | 脚本 | 用途 |
 |---|---|
 | `fix-tps-theme.ps1` | `pi-tps` 颜色跟随系统主题（`theme` -> `light/dark`，`colorPreset` -> `theme`） |
+| `fix-browser-native-compat.mjs` | `pi-agent-browser-native` 在 **pi 0.85.x** 下的加载期兼容补丁（`sessionManager.buildSessionProjection` 是 0.86+ API），修掉启动即报的 `buildSessionProjection is not a function` |
 
 ```bash
 powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
+node fix-browser-native-compat.mjs
 ```
 
-脚本为 UTF-8 BOM 保存，PowerShell 5.1 / 7 均可正确解析中文；已存在配置时自动 `[skip]`，不会覆盖你改过的值。
+`fix-tps-theme.ps1` 为 UTF-8 BOM 保存，PowerShell 5.1 / 7 均可正确解析中文；`fix-browser-native-compat.mjs` 用 node 跑（**别改回 .ps1**：无 BOM 的中文 .ps1 在 Windows PowerShell 5.1 下按 ANSI 读会 ParserError）。两者都幂等：已打过输出 `[skip]`，不会覆盖你改过的值；`pi update`/重装丢了后者，重跑一次即可。
 
 1. **重启 Pi** 使扩展生效。
 2. 新会话里对主智能体说「激活 X」：`load_tools` 先返回挑战文本（`confirm:false` 零副作用），用户点名确认后 `confirm:true` 激活、`call_tool` 调用。**自带五工具（`read`/`write`/`edit`/`bash`/`powershell`）默认常驻，无需激活**；扩展工具（`grep`/`find`/网页/UI/子代理）才需激活。启动时 `ctx.ui.notify` 打印当前 lazy 名单与配置文件路径。
 3. `pi-tps`：运行 `fix-tps-theme.ps1` 让颜色跟随系统主题。`pi-one-ui`：`/oneui` 打开设置面板、`/context` 查看上下文、`/theme` 切换内置主题（`cc-dark`/`cc-light`）；配置存 `~/.pi/agent/pi-one-ui.json`，`/reload` 后 Features 生效（组件开关即时生效）。`@injaneity/pi-computer-use`：先完成上面的 postinstall 批准与 helper 重跑，首次运行时再授予平台权限。
 4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预；`/compact` 后首轮命中低属结构性，判定与处置见[压缩与缓存](#压缩与缓存)。
-5. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**（无需改 lazy 名单）。需要 `undo` 时将其列入 `lazy-tools.json` 的 `lazy` 数组即可按需加载。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
-6. **`@trycedar/pi-mdiff`**：装上即用，编辑 `.md` 时把 `md_inspect`/`md_diff`/`md_edit` 列入 lazy 名单后按需加载。**旧包名 `pi-mdiff` 已弃用，务必用 `npm:@trycedar/pi-mdiff`**（bare 名会触发弃用告警甚至 ECONNRESET 失败）。
+5. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**。`undo` 在 resident 例外制下**默认已全懒**（不在 `resident` 即 lazy），要让它常驻才需把它加进 `~/.pi/lazy-tools.json` 的 `resident`。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
+6. **`@trycedar/pi-mdiff`**：装上即用，编辑 `.md` 时按需 `load_tools` 激活 `md_inspect`/`md_diff`/`md_edit`（三个工具默认已全懒，无需改配置）。**旧包名 `pi-mdiff` 已弃用，务必用 `npm:@trycedar/pi-mdiff`**（bare 名会触发弃用告警甚至 ECONNRESET 失败）。
 7. **`pi-undo-redo`**：装上即用，纯命令扩展（`/undo`、`/redo`、`/undo-cleanup`），默认存储 `~/.pi/agent/state/pi-undo-redo`，无需配置。可选调整 settings.json 的 `undoRedo`（`storageDir`/`largeFileLimitBytes`）。git 仓库自动走影子 git 快照，非 git 目录只覆盖 `write`/`edit` 显式路径。
-8. **`pi-mcp-adapter`**：装上重启后自动读 `.mcp.json`/`~/.config/mcp/mcp.json`；无配置时 `/mcp setup` 导入宿主配置或脚手架。`mcp` 工具已入 lazy 名单，激活后按需代理调用 MCP 服务器，服务器首次使用时才启动。
-9. **`pi-agent-browser-native`**：装上即用，`agent_browser` 工具已入 lazy 名单，激活后可直接驱动真实浏览器（需本机有 `agent-browser` CLI，首次运行时自动按需启动）。
+8. **`pi-mcp-adapter`**：装上重启后自动读 `.mcp.json`/`~/.config/mcp/mcp.json`；无配置时 `/mcp setup` 导入宿主配置或脚手架。`mcp` 工具默认已全懒，`load_tools` 激活后按需代理调用 MCP 服务器，服务器首次使用时才启动。
+9. **`pi-agent-browser-native`**：装上即用，`agent_browser` 默认已全懒，`load_tools` 激活后可直接驱动真实浏览器（需本机有 `agent-browser` CLI，首次运行时自动按需启动）。⚠ **pi 0.85.x 需先跑 `node fix-browser-native-compat.mjs`**，否则启动即报 `buildSessionProjection is not a function`（见[pi-agent-browser-native 兼容补丁](#pi-agent-browser-native-兼容补丁2026-09-28)）。
 10. **`@agenticup/pi-loop`**：装上即用，无需配置（resident 例外制下 `loop` 默认 lazy，不改 `~/.pi/lazy-tools.json`）。显式点名触发：「Use loop: <复杂任务>」→ 5 阶段流水线实时输出，结束给执行摘要；子智能体并发与深度按 `concurrency`/`maxDepth` 控制，简单任务勿用（token/延迟 5–8x）。
-11. **`@zhushanwen/pi-smart-context`**：装上即用，先写 `~/.pi/agent/config/smart-context-ext-config.json`（本机取值见[压缩与缓存](#压缩与缓存)的「smart-context 配置」小节——**默认 400K/500K/600K 三档对本机 100K 窗模型永不触发，须下调**）。`compact_context` 已入 lazy 名单，resident 例外制下默认全懒、无需改配置；阈值提醒静默注入（只进 LLM 上下文、不触发新 turn、不进对话流）。排障加 `TAIJI_AGENT_DEBUG=1` 看 `~/.pi/agent/logs/smart-context-*.log`。
+11. **`@zhushanwen/pi-smart-context`**：装上即用，先写 `~/.pi/agent/config/smart-context-ext-config.json`（本机取值见[压缩与缓存](#压缩与缓存)的「smart-context 配置」小节——**默认 400K/500K/600K 三档对本机 100K 窗模型永不触发，须下调**）。`compact_context` 默认全懒、无需改配置；阈值提醒静默注入（只进 LLM 上下文、不触发新 turn、不进对话流）。排障加 `TAIJI_AGENT_DEBUG=1` 看 `~/.pi/agent/logs/smart-context-*.log`。
+12. **`pi-prefix-stabilizer`**：装上即用，无需配置。默认只做 tools 数组排序 + system 文本 sha1 漂移检测（**本机路径改写是 no-op，别去改 `packagePathSuffix`**，Windows 路径原理上不生效）。排障日志：设 `PI_PREFIX_STABILIZER_LOG=<文件路径>`，`{"first_rewrite":true,"replacements":1,"roots":[]}` = 只排序了 tools；`{"drift":true,"from":…,"to":…}` = 前缀漂移（此时本轮命中会掉，等下轮回升）。
+13. **`pi-compaction-cache`**：**必须先写** `~/.pi/agent/compaction-cache.json`（本机取值见[压缩与缓存](#压缩与缓存)「四包实测」小节：`{"models":["1","1/1"],"scope":"boundary","logPath":"…","debug":false}`）——**`models` matcher 漏了会直接 decline**（本机模型无 cost 元数据，走 zero-cost heuristic 拒绝接管）。装上即用；`/compaction-cache-status` 看逐次判定，日志落 `logPath`。⚠ 须在 smart-context 之后加载，否则拿不到接管权。
+14. **`pi-warm-cache`**：装上即用、无需配置，**但本机不生效**（本地代理属未注册路由，`automaticWarm:false`、永不装定时器）。换到已注册 provider（Anthropic/OpenAI/Azure/Codex/xAI 4.5+/OpenCode Go/OpenRouter）即自动启用；想确认 `/warm status` 里 `automaticWarm` 是 true 还是 false。
+15. **`pi-footer-template`**：装上即用，**默认模板已含 `CH{latestCacheHitRate}%`**（最后一条 assistant 的命中率），无需配置即在底栏显示。要改模板写 `footerTemplate`（项目 `.pi/settings.json` 或用户 settings）。⚠ 必须先让 `pi-one-ui` 让出 footer 槽：`~/.pi/agent/pi-one-ui.json` 设 `{"components":{"footer":{"style":"native"}}}`，否则两者抢同一个 `ctx.ui.setFooter` 槽、谁后加载谁赢。
 
 ## 全量懒加载策略
 
@@ -194,6 +214,10 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 | @agenticup/pi-loop | `loop` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
 | @zhushanwen/pi-smart-context | `compact_context` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
 | pi-undo-redo | （无工具，仅 `/undo` `/redo` `/undo-cleanup` 命令） | — |
+| pi-prefix-stabilizer | （无工具，纯 `before_provider_request` 改写） | — |
+| pi-compaction-cache | （无工具，仅 `/compaction-cache-status` 命令） | — |
+| pi-warm-cache | （无工具，仅 `/warm …` 命令系列） | — |
+| pi-footer-template | （无工具，走 `ctx.ui.setFooter`） | — |
 | pi-lazy-tools（`git:github.com/qq458249269/pi-lazy-tools`） | `load_tools`、`call_tool`、`skill_search` | ✗ 承载者（工具懒加载 + skill 动态发现），常驻；`skill_search` promptSnippet 限仅用户明确要求使用 skill 时调用 |
 | pi-one-ui | （无新工具名；**同名覆盖内建 `write`**，如 edit-guard 之于 `edit`） | ✗ 同名替换，归核心 |
 | 用户自定义 | `deploy_tool` | ✓ |
@@ -224,7 +248,7 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 
 ## 压缩与缓存
 
-**结论先行：压缩后首轮命中不可能 100%，「命中 0」才是故障。** 分清两种「低」，处置完全不同。
+**结论先行：压缩后首轮命中不可能 100%，「命中 0」才是故障。** 分清两种「低」，处置完全不同。**（2026-09-28 补：唯一能被修的「低」是压缩调用自身，本机已由 `pi-compaction-cache` 从 1.6% 拉到 98.8%，见本节末「四个新包实测」。）**
 
 **根因（结构性，非 bug）**：Pi 压缩后重建的上下文是 `system | summary | firstKeptEntryId 之后的消息`（`docs/compaction.md`）——被摘要替换掉的那段历史对 provider 是全新前缀，**任何扩展都救不回来**，这是前缀缓存的定义。且压缩请求本身走 fresh routing session id、provider 支持时禁写缓存。若命中低但非 0（例：首轮 input 71k、hit 49%），属正常，看下一轮是否回到 90%+。
 
@@ -256,6 +280,8 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 
 三者中 smart-context 的 same-model 接管最优且质量最高，故为唯一保留项。billion-context 的块/handle 机制对 KV 缓存无益。
 
+> **2026-09-28 对账**：上表 smart-context 那行（压缩调用 20.6% / 47.6%）是 same-model 接管**碰巧前缀对齐**时的读数；同日用确定性驱动复测，同样的 same-model 接管只拿到 **1.6%**（68,350 全量重发）——即**这次调用本身并不保证命中，看那一刻整段历史有多少已在缓存里**。要稳定拿到高命中，请用 `pi-compaction-cache` 接管（98.8%，见[四个新包实测](#四个新包实测2026-09-28prefix-stabilizer--compaction-cache--warm-cache--footer-template)）。
+
 **billion-context-pi 卸载原因（不只是无效，是有害）**：其 `compress`/`decompress`/`search_context`/`acp_status`/`acp_cache` 五个工具在**扩展加载期**注册（`dist/index.js` 约 23096 行；`acp_delegate*` 因在 `session_start` 内注册而幸存），而 `pi-lazy-tools` 用裸 jiti 上下文加载他扩展的 load 期工具，bcp 顶层 `import * as piModule from "@earendil-works/pi-coding-agent"` 解析失败 →
 ```
 [lazy-tools] failed to load tool definition for "compress" from .../billion-context-pi/dist/index.js:
@@ -275,6 +301,48 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 [smart-context] summary inflated, rejecting takeover {"summaryTokens":1820,"shadowedTokens":0}
 ```
 判据在 `src/pure.ts:162`，计估在 `src/compact-handler.ts:307-312`。实际影响：被拒则回落原生压缩，摘要质量降为压缩前，且压缩调用无缓存命中（见上表第三行）。`pi-cache-guardian` 的 system prompt 冻结**救不了此项**（根因是历史消息改写，不是 system prompt 字节漂移）。
+
+### 四个新包实测（2026-09-28：prefix-stabilizer / compaction-cache / warm-cache / footer-template）
+
+**测法（确定性驱动，不依赖模型是否真调工具）**：`pi --mode rpc` 多轮直灌，驱动脚本 `.sc-test/drive-cache2.mjs`——8 段 ×48KB 假文档当**用户消息**直接灌进去（上下文线性增长、必过阈值、必触发真压缩；早期版本靠模型 `read` 文件撑大上下文，结果代理模型不调工具，压缩根本没触发，数据作废）。测试项目 `.sc-test/.pi/settings.json` 设 `compaction.reserveTokens: 45000`（100K 窗模型 → 阈值 55K），命中口径统一为 `cacheRead/(input+cacheRead+cacheWrite)`。环境：pi 0.85.1、node 24.16.0、npm 12.0.2、本地代理 `http://localhost:20128/v1`（provider id `1`/model id `1`）、`PI_CACHE_RETENTION=long`。
+
+**结论先行：稳态命中与压缩后首轮命中都符合前缀缓存定义（18.0%→80.9% 单调爬升，压缩后首轮 6.7% 恒定），唯一能修的是压缩调用自身——`pi-compaction-cache` 把它从 1.6% 拉到 98.8%。**
+
+同一台机器、同一驱动、只改一个变量的四组对照：
+
+| 组 | 压缩由谁接管 | 压缩调用 `input` | 压缩调用 `cacheRead` | **压缩调用自身命中** | 压缩后首轮 | 再下一轮 |
+|---|---|---|---|---|---|---|
+| C0 基线（`PI_COMPACTION_CACHE=0`） | smart-context same-model | **68,350** | 1,140 | **1.6%** | 33,793 / 2,425 = 6.7% | 76.7% |
+| C1 `scope:"full"` | **pi-compaction-cache** | **309** | 46,462 | **99.3%** | 33,869 / 2,441 = 6.7% | 76.7% |
+| C2 `scope:"boundary"`（默认） | **pi-compaction-cache** | **309** | 24,496 | **98.8%** | 33,756 / 2,425 = 6.7% | 76.7% |
+| C3 定稿（boundary + debug 关） | **pi-compaction-cache** | **309** | 24,498 | **98.8%** | 33,663 / 2,425 = 6.7% | 76.6% |
+
+压缩前的稳态曲线（四组一致）：**18.0% → 55.0% → 68.9% → 76.4% → 80.9%**（每轮新增 48KB 用户消息，前缀命中率随缓存前缀增长而爬升）。压缩后首轮恒为 **6.7%**、`cacheRead` 恒为 **2,425**——那 2.4K 就是 system+tools 固定前缀，后面全是新写的 summary 与保留区消息，**与压缩方式无关，四个扩展都救不回来，也不是故障**；下一轮立刻回到 76.6%–76.7%。
+
+**C1 vs C2 为什么选 boundary（默认）**：命中 99.3% vs 98.8% 差距微弱，但 boundary 只发到摘要边界为止（`sent_messages:6` vs `10`，日志可见），符合 Pi 自己的 `keepRecentTokens` 保留区语义，多发那 4 条是纯浪费。定稿 `~/.pi/agent/compaction-cache.json`：
+```json
+{ "models": ["1", "1/1"], "scope": "boundary", "logPath": "C:/Users/yxh/.pi/agent/logs/compaction-cache.log", "debug": false }
+```
+
+**`models` matcher 是必填项（本机踩过）**：包内 `inputTokensAreFree(model)` 要求 `model.cost.input === 0 && model.cost.cacheRead === 0`，而本机模型**没有 cost 元数据** → 不配 matcher 就走 zero-cost heuristic 直接 decline（日志 `has no cost metadata and no models matcher is configured`），接管永远轮不到它。配 `["1","1/1"]` 后走 `models matcher (1)` 分支，**实测命中率从 1.6% 变 98.8%**。日志 `logPath` 里 `{"compacted":true,…,"summary_chars":2580}` 即接管成功。
+
+**与 smart-context 的竞合（安装顺序即胜负）**：两个包都接 `session_before_compact`，**靠后加载者先给摘要**。C0 里 smart-context 的 same-model 接管先给摘要 → 压缩调用退化成 68,350 全量重发（1.6%），这正是 smart-context 已知的"压缩调用无缓存命中"问题；C1–C3 里 compaction-cache 排在 smart-context 之后拿到接管权（`fromExtension:true`），命中 98.8%——**换句话说，装上 compaction-cache 并排对顺序，顺手解掉了 smart-context 那条已知缺陷**。反例：让 compaction-cache 排在 smart-context 之前，命中会退回 1.6%。
+
+**对上表 2026-09-27 那两个读数的说明**：C0 这次 same-model 压缩调用只拿到 1.6%，而旧表记的是 20.6% / 47.6%——**同一种接管方式，两次差 10 倍以上**，因为它发的是「全量上下文 + 原 system prompt + 末尾压缩指令」，能不能命中全看那一刻整段历史有多少已经在缓存里，**它不保证命中**。compaction-cache 的做法是把请求**切到摘要边界**再拼指令，边界之前那一段必然与上一轮请求逐字节相同，才有 98.8% 这种可复现的数字。
+
+**它也会主动让路（不是每次都接管）**，日志可判读 `skip:` 开头的原因：`skip:"nothing-to-summarize"`（`messagesToSummarize` 为空，pi 0.85.1 的已知 bug，smart-context 同样中招）、`skip:"cannot-preserve-prefix", boundary:N`（边界之后找不到无 tool_calls 的完整 assistant，切不出安全切点）、`skip:"applicability:…"`（模型不匹配，多半又是 `models` 漏配）、`skip:"no-live-request"`（没捕到活的 provider 请求）。让路时回落到 smart-context / 原生压缩，行为退化但不报错。
+
+**别把 `prompt_drift_check` 当失败信号**：它每次会话只跑一次，纯粹是诊断——比对包内复制的 pi 摘要提示词与 `process.argv[1]` 指向的 pi bundle 是否还一致，只有结果为 `"DRIFTED"` 才 `ui.notify` 告警（含义是「该升级 compaction-cache 了，摘要格式可能变了」）。`"unverifiable"` = 比不了而已（`findBundleDir(process.argv[1])` 拿不到 bundle，`pi --mode rpc` 下 `argv[1]` 根本不是 pi 入口），**C1–C3 三次成功接管前它都记的是 `unverifiable`，与成败无关**。
+
+**`pi-prefix-stabilizer` 在本机只剩半条命（诚实标注）**：日志 `{"first_rewrite":true,"replacements":1,"roots":[]}`——`replacements:1` 来自 **tools 数组按名排序**，`roots:[]` 说明**路径改写一次都没发生**。原因有两条，任一条都足以让它在 Windows 上失效：① 本机 pi 是 `D:\agent\pi-windows-x64` 下的独立二进制，提示词里根本没有默认后缀 `node_modules/@earendil-works/pi-coding-agent`（探针实测 system prompt 4061 字符、`suffixHit=false`，只含 `D:\agent\pi-windows-x64\{README.md,docs,examples}` 与 cwd）；② 包内 `normalisePaths` 要求 `candidate.startsWith("/")` 且该路径真实存在，`D:\…` 永不符合。**结论：不要试图把 `packagePathSuffix` 改成 Windows 路径，原理上不生效。** 实际收益 = tools 顺序确定化 + 会话中途 system 文本 sha1 漂移告警（8 轮长会话实测无 `drift` 记录，即前缀字节稳定）。它与 `pi-cache-guardian` 互补不冲突：guardian 管 system 文本字节级冻结（`before_agent_start`），stabilizer 管发往 provider 那一份 payload 的顺序与漂移告警。
+
+**`pi-warm-cache` 本机不生效（不是故障）**：`resolveStrategy` 判 `capability.state !== "verified"` → `intervalMs: null, automaticWarm: false`，源码注释写明 *an unverified route never arms a timer*。本机模型是本地代理（`openai-completions` + localhost baseUrl），不在已注册路由表（Anthropic/OpenAI/Azure/Codex/xAI 4.5+/OpenCode Go/OpenRouter）内，**永不装定时器、一次请求都不额外发**。换 provider 即自动启用，`/warm status` 可查。不注册也**不报错**，属纯静默待命。
+
+**footer 槽位：`pi-one-ui` 主动让位（唯一干净解）**：`ctx.ui.setFooter` 是**单槽、后写者胜**，`pi-one-ui`（第 3 位加载）与 `pi-footer-template`（第 18 位）抢同一个槽。解法不是抢，而是让 one-ui 自己退出：其 `reconcile()` 里 `case "native": this.uninstall(ctx)`，注释明写 *leaving third-party ownership untouched*（不抢也不擦别人的），而 `installedKind === "starship" && ownsStatusLine(ctx)` 的早退又保证它不会在会话中途回头抢。本机 `~/.pi/agent/pi-one-ui.json`：
+```json
+{ "components": { "footer": { "style": "native" } } }
+```
+Header / Context / WorkingLine / Editor 各层照旧，footer 归 `pi-footer-template`。回滚：删掉该文件即恢复 Starship footer（config 走 `components.footer.style` → `normalizeFooter`，只认 `native`/`hidden`/其它默认 `starship`）。默认模板已含 `CH{latestCacheHitRate}%`，口径 = **最后一条 assistant** 的 `cacheRead/(input+cacheRead+cacheWrite)`，与本节各表「命中」列完全同源（`computeSessionUsage` 遍历 `getEntries()` 顺带累加 compaction 条目用量）。⚠ footer 只能目视验收：RPC 模式无 TUI，本条**尚未经界面目视确认**，下次开 TUI 请看一眼底栏 CH% 是否随命中率变动。
 
 ## lazy-tools 执行层修复（2026-09-22）
 
@@ -302,6 +370,33 @@ powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 1. **生效需 `/reload` 或重启 pi**：扩展工厂闭包在会话启动时冻结，本会话内 `call_tool` 仍走旧加载器。
 2. **补丁已版本化（2026-09-23 起）**：jiti 修复并入 fork `git:github.com/qq458249269/pi-lazy-tools`（commit `b2a7d75`）随 `pi install` 更新保留；npm 源与 `lazy-tools.ts.bak` 手工补丁流程作废。
 3. 修复后缓存实验对齐基线：激活注入（grep schema ~180 token）对前缀命中约零影响（对照 T1 消息 14 注入 7,084 token → 单轮 44%、下轮即恢复 96%+），看累计值而非单轮。
+
+## pi-agent-browser-native 兼容补丁（2026-09-28）
+
+**现象**：会话启动与 `/reload` 必报 `ctx.sessionManager.buildSessionProjection is not a function`（扩展 `session_start` 里抛出），其余扩展随后被跳过级联影响观感。
+
+**根因**：`pi-agent-browser-native@0.7.1` 的 `dist/extensions/agent-browser/lib/tool-surface.js` 调 `ctx.sessionManager.buildSessionProjection().messages` 取当前 system 消息里的 `toolsAdded`，而该 API 属 **pi 0.86+**；本机 **pi 0.85.1** 只有 `buildSessionContext()`（`docs/session-format.md`「Instance Methods - Context & Info」，返回 `{messages, thinkingLevel, model}`）。探针 `.sc-test/probe-sessionmanager.js` 实测：`hasBuildSessionProjection: false / hasBuildSessionContext: true`，不猜版本、直接验 API 面。
+
+**处置**：`fix-browser-native-compat.mjs`（本目录）打**双路回退 + try/catch** 补丁——有 `buildSessionProjection` 用新的、没有就退 `buildSessionContext()`、两者皆无或抛错则静默 return（该扩展在浏览器工具未激活时本就不该有副作用）：
+```js
+let restored = new Set();
+try {
+  const { getCurrentSystemMessage } = await import("@earendil-works/pi-ai");
+  const sm = ctx.sessionManager;
+  const messages = typeof sm?.buildSessionProjection === "function"
+    ? sm.buildSessionProjection().messages
+    : (sm?.buildSessionContext?.().messages ?? []);
+  const current = getCurrentSystemMessage(messages);
+  restored = new Set(current?.toolsAdded?.map(({ name }) => name));
+} catch (error) { return; }
+```
+脚本**幂等**（已打过则输出 `[skip]`，特征不符则提示人工核对），可直接重跑；`node --check` 通过。
+
+**验证（同一探针对照）**：补丁前 `extension_error` **1** → 补丁后 **0**；全量扩展扫描 `.sc-test/check-ext-errors.mjs --reload` 得 `extension_error 总数: 0`、stderr 命中 0。
+
+> ⚠ **`pi update` / 重装会丢这个补丁**，需重跑 `node fix-browser-native-compat.mjs`。长期解法是等上游适配 0.85.x 或升 pi 到 0.86+。
+
+> 排障教训：`extension_error` 走 **RPC 事件流**、**不出现在子进程 stderr**，只看 stderr 会得到「无错误」的假阴性。扫描扩展错误必须订阅事件流（见 `.sc-test/check-ext-errors.mjs`）。
 
 ## 全量重装实录与问题修复（2026-09-23）
 
