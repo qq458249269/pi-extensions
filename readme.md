@@ -28,7 +28,9 @@
 >
 > 本轮（2026-09-28）：再装 4 个扩展，清单 **14 → 18**（`pi list` 实测 18 项：`packages` 18 条无丢失），全部**零 agent 工具注入**（无 `registerTool`/`setActiveTools`），与 `pi-lazy-tools` resident 例外制零冲突：`pi-prefix-stabilizer@0.1.0`（系统提示词前缀稳定 + 漂移检测）、`pi-compaction-cache@0.1.1`（摘要调用复用已缓存前缀，实测把压缩调用自身命中从 **1.6% 拉到 98.8%**）、`pi-warm-cache@0.4.0`（空闲期保 TTL，**本机路由未注册故不生效**）、`pi-footer-template@0.5.0`（footer 模板，默认含 `CH{latestCacheHitRate}%`）。另修 `pi-agent-browser-native@0.7.1` 在 **pi 0.85.1** 下的加载期报错 `ctx.sessionManager.buildSessionProjection is not a function`（该 API 属 0.86+），打双路回退补丁 + 幂等脚本 `fix-browser-native-compat.mjs`，补丁后全量扩展 `extension_error` 实测 **1 → 0**。四包与压缩实测全表见[压缩与缓存](#压缩与缓存)，安装顺序有硬约束（compaction-cache 须在 smart-context **之后**、prefix-stabilizer 须在 compaction-cache **之前**）。
 
-## 推荐清单（18 个，始终最新）
+> 本轮（2026-09-27）：新增 **`@nguyenquangthai/pi-ask@0.2.0`**（`npm:@nguyenquangthai/pi-ask`，键盘优先的结构化提问对话框 + 提交前 review 页，Claude Code `AskUserQuestion` 的对标物），清单 **18 → 19**（`pi list` 实测 19 项 = 18 npm + 1 git，`packages` 19 条无丢失）。只注册 1 个工具 `ask_user_question`，**resident 例外制下默认即 lazy，不改 `lazy-tools.json`**；代价是用它前必须先 `load_tools` 激活 + 用户确认（见[本轮实录](#本轮实录装-pi-ask--升级全部扩展2026-09-27)）。同时**升级全部扩展**（`pi update --extensions`，只动扩展不动 pi 本体）：`pi-mcp-adapter` 2.37.0 → **2.38.0**、`pi-agent-browser-native` 0.7.1 → **0.8.1**（⚠ 声明 `engines.node >=24.21.0`，本机 24.16.0 仅 npm 告警；0.8.x 仍调 `buildSessionProjection`，兼容补丁要重打，已重打）。**本轮还揪出并修掉一个静默已久的故障：lazy 执行层全线失效**（`load_tools` 能注入用法，`call_tool` 却加载不到任何 npm 扩展的工具定义），根因是 `@earendil-works/*` 捆绑包在解析路径上无处可寻，详见[lazy 执行层失效与修复](#lazy-执行层失效与修复2026-09-27)。
+
+## 推荐清单（19 个，始终最新）
 
 ### A. 核心层（先装）
 
@@ -56,6 +58,7 @@
 | `@agenticup/pi-loop` | `npm:@agenticup/pi-loop` | **递归深潜（loop engineering，2026-09-23 装，v0.1.4）**：注册 `loop` 工具，5 阶段流水线——Decompose（MAKER 式拆 8–15 个微子问题）→ DRIP 后置回检补前置条件 → Solve（信号量并发子智能体，`concurrency` 1–8，默认 4）→ Critique（自适应 MAKER 投票，1 个 critic、分歧升级 3 个）→ Iterate（ADaPT 式深分解被标记子问题，≤2 次）→ Synthesize（DRAGON 式子解冲突检测）。参数：`prompt`（必填）、`maxDepth`（1–3，默认 2，每层约 2x 成本）、`concurrency`、`model`（默认跟随会话）；子智能体 20 分钟超时优雅降级、循环继续；进度实时可见（超 40 行截断）+ 逐子问题执行摘要。代价：4 子问题约 5–8x 单答 token、2–5 分钟，简单任务过重。**只注册 `loop` 一个工具，resident 例外制下默认 lazy，不增首请求注入**。用法：「Use loop: <任务>」显式触发 |
 | `pi-warm-cache` | `npm:pi-warm-cache` | **空闲期保活（2026-09-28 装，v0.4.0）**。对**已注册路由**（Anthropic / OpenAI / Azure / Codex / xAI 4.5+ / OpenCode Go / OpenRouter）按厂商 TTL 在会话空闲时发极小请求续前缀缓存（默认 1 token 输出、锚定同一 cache routing key），`/warm status`（含 `automaticWarm` 判定）、`/warm 5m`、`/warm 1h`、`/warm auto`、`/warm probe`、`/warm log` 手动档。**零工具注入**。⚠ **本机不生效**：模型是本地代理 `http://localhost:20128/v1`（`openai-completions`、未注册路由），`resolveStrategy` 判 `capability.state !== "verified"` → `intervalMs: null, automaticWarm: false`，永不装定时器（源码注释：unverified route never arms a timer）。换到上述任一已注册 provider 才自动启用；不注册也**不会报错**，纯静默待命 |
 | `pi-footer-template` | `npm:pi-footer-template` | **footer 模板（2026-09-28 装，v0.5.0）**。用 `ctx.ui.setFooter` 接管底栏，支持 `{model}`/`{cwd}`/`{tokens}`/`{balance}`/`{branch}`/`{CH}` 等占位（可自注册 token），默认模板已含 **`CH{latestCacheHitRate}%`**——**最后一条 assistant** 的 `cacheRead/(input+cacheRead+cacheWrite)`，即本文各表「命中」那一列的同一口径。配置 `footerTemplate` 写项目 `.pi/settings.json` 或用户 settings。**零工具注入**。⚠ 与 `pi-one-ui` 的 Footer 层**抢同一个 footer 槽**（`ctx.ui.setFooter` 单槽，后写者胜），本机已让 one-ui 主动让位（`pi-one-ui.json` 设 `components.footer.style: "native"`），详见[压缩与缓存](#压缩与缓存)末节 |
+| `@nguyenquangthai/pi-ask` | `npm:@nguyenquangthai/pi-ask` | **结构化提问对话框（2026-09-27 装，v0.2.0）**。注册 1 个工具 `ask_user_question`，把「有歧义时问用户」变成键盘优先的 1–4 题表单：每题 2–4 个选项、`recommended: true` 置顶提示、**Other 自由输入**（组件自动加，不要模型自己写）、`required: false` 出「跳过本题」行、`multiSelect` 空格多选、`showWhen: {questionId, equals}` 做一级条件追问（父题选中某 value 才出现，选回父题其他值则清空并隐藏子题）、提交前 **Review 页**可回改。`prepareArguments` 钩子在 Pi 校验前补全模型漏填的 `value`/`id`/`header`、剥转义序列、裁剪超长项——所以模型调用几乎不会撞 schema 校验错误。结果按 `questionId` 键回传给模型（`selectedValues` + `customText` 都保留），答案落在 Pi 会话 JSONL 的 `toolResult.details` 里，`/tree`、`/fork` 自动跟对分支。**非 TUI 模式自动摘除自己**（`session_start` 里 `setActiveTools` 过滤，print/JSON/RPC 模式下模型根本看不到该工具，直接调用返回 `status:"unavailable"`），故对本机 RPC 实测无副作用。**只注册 1 个工具、resident 例外制下默认即 lazy，无需改 `lazy-tools.json`**。用法：先 `load_tools` 激活（两步确认门，需用户点名「激活 ask_user_question」），再由模型调用。实测与注意见[本轮实录](#本轮实录装-pi-ask--升级全部扩展2026-09-27) |
 
 ## Skills（可选，非扩展，Agent Skills 标准）
 
@@ -95,12 +98,15 @@ for p in pi-cache-guardian pi-tps pi-one-ui \
          @agenticup/pi-loop \
          @zhushanwen/pi-smart-context \
          pi-prefix-stabilizer pi-compaction-cache \
-         pi-warm-cache pi-footer-template; do
+         pi-warm-cache pi-footer-template \
+         @nguyenquangthai/pi-ask; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 ```
 
-> **末 4 个包的顺序有硬约束（2026-09-28）**：`pi-compaction-cache` 必须排在 `@zhushanwen/pi-smart-context` **之后**（两者都接 `session_before_compact`，靠后拿到的接管权；反过来 smart-context 的 same-model 先给摘要，压缩调用命中就退回 1.6%），`pi-prefix-stabilizer` 排在 `pi-compaction-cache` **之前**（先稳前缀再谈复用）。`pi-warm-cache`/`pi-footer-template` 顺序不限。`pi install` 一次只写一条注册，照序跑即可。
+> **末 4 个包的顺序有硬约束（2026-09-28）**：`pi-compaction-cache` 必须排在 `@zhushanwen/pi-smart-context` **之后**（两者都接 `session_before_compact`，靠后拿到的接管权；反过来 smart-context 的 same-model 先给摘要，压缩调用命中就退回 1.6%），`pi-prefix-stabilizer` 排在 `pi-compaction-cache` **之前**（先稳前缀再谈复用）。`pi-warm-cache`/`pi-footer-template`/`@nguyenquangthai/pi-ask` 顺序不限（pi-ask 只在 `session_start` 里按需摘除自己，不抢任何 hook）。`pi install` 一次只写一条注册，照序跑即可。
+
+> **升级（2026-09-27 复核）**：`pi update --extensions` 只升扩展、不动 pi 本体（`--all` 会连 pi 一起升）；升完**必须重跑 `node fix-browser-native-compat.mjs`**（`pi-agent-browser-native` 0.8.1 仍调 `buildSessionProjection`），并且若家目录 `~/node_modules` 已清理，需确认 `~/.pi/agent/node_modules/@earendil-works/*` 还在（lazy 执行层地基，见[lazy 执行层失效与修复](#lazy-执行层失效与修复2026-09-27)）。
 
 > git 源无法并入 npm 循环，单独装（`pi-lazy-tools` fork）：
 
@@ -130,7 +136,7 @@ pi install git:github.com/qq458249269/pi-lazy-tools
 
 > ~~⚠ `pi-mcp-adapter`/`pi-agent-browser-native` 共享原生依赖 `better-sqlite3`……`npm install-scripts approve better-sqlite3`~~ **此步骤 2026-09-23 起作废（2026-09-24 随 pi-subagents 卸载改称两包）**：两包新版（pi-mcp-adapter 2.37.0 / pi-agent-browser-native 0.7.1）均已移除 `better-sqlite3` 依赖，approve 会报 `ENOMATCH: No installed packages match`，依赖树中亦无该包（实测 `find` 无目录）。`allowScripts` 里的旧条目 `better-sqlite3@13.0.3: true` 为历史残留，无害可留。详见[全量重装实录](#全量重装实录与问题修复2026-09-23)问题 2。
 
-装完自查（`pi list`，不并行）：应见 **18 个扩展**——17 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`、`@zhushanwen/pi-smart-context`、`pi-prefix-stabilizer`、`pi-compaction-cache`、`pi-warm-cache`、`pi-footer-template`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 17（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
+装完自查（`pi list`，不并行）：应见 **19 个扩展**——18 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`、`@zhushanwen/pi-smart-context`、`pi-prefix-stabilizer`、`pi-compaction-cache`、`pi-warm-cache`、`pi-footer-template`、`@nguyenquangthai/pi-ask`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 18（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
 
 pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-22 起执行默认五工具常驻策略**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`，由项目 `.pi/settings.json` 的 `defaultTools` 显式声明）与 `load_tools`/`call_tool` 常驻 active 集，其余扩展工具全部列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
 
@@ -142,6 +148,8 @@ pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 
 > **2026-09-28 订正**：本节早期版本写的是 `"lazy": [...]` 名单数组，那是上游 `@wolido/pi-lazy-tools` 的格式；**当前 fork（`git:github.com/qq458249269/pi-lazy-tools`）用的是 resident 例外制**——`resident` 列常驻例外，**其余一切默认全 lazy**，所以本机 `~/.pi/lazy-tools.json` 里只剩上表这 8 个名字（`~/.pi/lazy-tools.json` 不在 `~/.pi/agent` 下）。
 >
 > **2026-09-28 新增四包对懒加载策略的影响：零**。`pi-prefix-stabilizer`/`pi-compaction-cache`/`pi-warm-cache`/`pi-footer-template` 均无 `registerTool`/`setActiveTools`，不新增任何工具名，`activeTools` 仍 8，不需改 `lazy-tools.json`。
+>
+> **2026-09-27 新增 `@nguyenquangthai/pi-ask` 同样不改配置**：只注册 `ask_user_question`，不在 `resident` 即默认 lazy。但**「被 lazy」≠「能用」**——本轮实测发现 lazy 的**执行层**（`call_tool` 加载目标扩展的 `execute`）早已全线失效，且启动期零报错，详见[lazy 执行层失效与修复](#lazy-执行层失效与修复2026-09-27)。
 
 
 > **默认五工具常驻 + 扩展全懒策略（2026-09-22 拍板，长期执行）**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`）与 `load_tools`/`call_tool` 承载工具常驻 active 集，其余扩展工具一律 lazy，低频不设门槛、默认全懒。理由：写代码主链路（读/写/编辑/shell）零 `load_tools` 往返；各扩展 description/schema 不常驻上下文，按需 `load_tools` 注入，注入量与首请求 token 最低。代价：搜索/网页/UI/子代理每次使用多一轮 `load_tools` 往返（含用户点名确认），`grep`/`find` 亦需先激活。**安装任何新扩展后，把其注册的工具名补进下方 lazy 名单，保证新扩展工具同样默认全懒。** 需查当前已注册工具：`pi list` 或新会话启动 `ctx.ui.notify` 打印的 lazy 名单。
@@ -194,6 +202,7 @@ node fix-browser-native-compat.mjs
 13. **`pi-compaction-cache`**：**必须先写** `~/.pi/agent/compaction-cache.json`（本机取值见[压缩与缓存](#压缩与缓存)「四包实测」小节：`{"models":["1","1/1"],"scope":"boundary","logPath":"…","debug":false}`）——**`models` matcher 漏了会直接 decline**（本机模型无 cost 元数据，走 zero-cost heuristic 拒绝接管）。装上即用；`/compaction-cache-status` 看逐次判定，日志落 `logPath`。⚠ 须在 smart-context 之后加载，否则拿不到接管权。
 14. **`pi-warm-cache`**：装上即用、无需配置，**但本机不生效**（本地代理属未注册路由，`automaticWarm:false`、永不装定时器）。换到已注册 provider（Anthropic/OpenAI/Azure/Codex/xAI 4.5+/OpenCode Go/OpenRouter）即自动启用；想确认 `/warm status` 里 `automaticWarm` 是 true 还是 false。
 15. **`pi-footer-template`**：装上即用，**默认模板已含 `CH{latestCacheHitRate}%`**（最后一条 assistant 的命中率），无需配置即在底栏显示。要改模板写 `footerTemplate`（项目 `.pi/settings.json` 或用户 settings）。⚠ 必须先让 `pi-one-ui` 让出 footer 槽：`~/.pi/agent/pi-one-ui.json` 设 `{"components":{"footer":{"style":"native"}}}`，否则两者抢同一个 `ctx.ui.setFooter` 槽、谁后加载谁赢。
+16. **`@nguyenquangthai/pi-ask`**：装上即用，**无需任何配置**（`ask_user_question` 不在 `resident`，默认全懒）。⚠ 三个注意点：① **非 TUI 模式自动摘除自己**（print/JSON/RPC 下模型看不到该工具，直接调用返回 `unavailable`），所以在 `pi -p`/`--mode rpc` 里做自动化验证时它等于不存在，别误判成没装上；② 它是**提问工具**，走 lazy 就多一道手续：模型得先 `load_tools` 拿用法、再由用户点名确认（两步门）才 `call_tool` 调得到——如果希望它随手可用，就把 `ask_user_question` 加进 `~/.pi/lazy-tools.json` 的 `resident`（代价是其 description 约 986 字符常驻上下文）；③ 答案落在会话 JSONL 的 `toolResult.details` 里，`/tree`、`/fork` 会自动跟对分支。
 
 ## 全量懒加载策略
 
@@ -210,7 +219,7 @@ node fix-browser-native-compat.mjs
 | pi-web-access | `web_search`、`source_check`、`fetch_content`、`get_search_content` | ✓ |
 | @injaneity/pi-computer-use | `observe_ui`、`search_ui`、`expand_ui`、`inspect_ui`、`act_ui`、`read_text`、`wait_for`、`find_roots`、`launch_browser`、`navigate_browser`、`evaluate_browser` | ✓ |
 | pi-mcp-adapter | `mcp` | ✓ |
-| pi-agent-browser-native | `agent_browser` | ✓ |
+| pi-agent-browser-native | `agent_browser`、**`agent_browser_code`/`agent_browser_action`/`agent_browser_qa`/`agent_browser_electron`/`agent_browser_source`/`agent_browser_network_source`/`agent_browser_tools`** | ✓ 全部 8 个（后 7 个是 **0.8.1 新增**，非 resident 即自动全懒） |
 | @agenticup/pi-loop | `loop` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
 | @zhushanwen/pi-smart-context | `compact_context` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
 | pi-undo-redo | （无工具，仅 `/undo` `/redo` `/undo-cleanup` 命令） | — |
@@ -218,13 +227,14 @@ node fix-browser-native-compat.mjs
 | pi-compaction-cache | （无工具，仅 `/compaction-cache-status` 命令） | — |
 | pi-warm-cache | （无工具，仅 `/warm …` 命令系列） | — |
 | pi-footer-template | （无工具，走 `ctx.ui.setFooter`） | — |
+| @nguyenquangthai/pi-ask | `ask_user_question` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
 | pi-lazy-tools（`git:github.com/qq458249269/pi-lazy-tools`） | `load_tools`、`call_tool`、`skill_search` | ✗ 承载者（工具懒加载 + skill 动态发现），常驻；`skill_search` promptSnippet 限仅用户明确要求使用 skill 时调用 |
 | pi-one-ui | （无新工具名；**同名覆盖内建 `write`**，如 edit-guard 之于 `edit`） | ✗ 同名替换，归核心 |
 | 用户自定义 | `deploy_tool` | ✓ |
 
 ### 执行纪律
 
-1. **安装任何新扩展 → 其注册工具名补进 `~/.pi/lazy-tools.json` 的 `lazy` 数组**（同扩展工具可部分 lazy，此处全量）。唯一例外：`skill_search`（pi-lazy-tools）作承载者常驻——其 promptSnippet 本身就是按需门控，且系统提示词单行说明直接引用该工具名，剔除会导致说明指向不存在的 active 工具。
+1. **安装任何新扩展 → 确认其注册的工具名都不在 `~/.pi/lazy-tools.json` 的 `resident` 里**（本 fork 是 resident 例外制：不在 `resident` 即默认全懒，**不需要**、也**不支持**往里加 `lazy` 名单；升级扩展后新出现的工具名同样自动 lazy）。唯一例外：`skill_search`（pi-lazy-tools）作承载者常驻——其 promptSnippet 本身就是按需门控，且系统提示词单行说明直接引用该工具名，剔除会导致说明指向不存在的 active 工具。⚠ 但名单只是**策略快照**：fork 在 `session_start` 一次性取 `getAllTools()` 过滤，**会话中途才注册的工具（如 `pi-mcp-adapter` 2.38 的 MCP 直连工具）不在快照内、会直接进 active 集**；本机无任何 `.mcp.json`，暂不受影响。
 2. **`--tools` 白名单必须保留 lazy 工具**：注册与隐藏是两件事，只加 lazy 名单不进 `--tools`，`load_tools` 会报「未找到工具元数据」。
 3. 激活是会话级记忆，会话开始清空；`load_tools` 只在用户主动点名时才 `confirm:true`，不自行加载。
 4. 开新会话生效（扩展在会话启动时加载）。
@@ -371,6 +381,70 @@ Header / Context / WorkingLine / Editor 各层照旧，footer 归 `pi-footer-tem
 2. **补丁已版本化（2026-09-23 起）**：jiti 修复并入 fork `git:github.com/qq458249269/pi-lazy-tools`（commit `b2a7d75`）随 `pi install` 更新保留；npm 源与 `lazy-tools.ts.bak` 手工补丁流程作废。
 3. 修复后缓存实验对齐基线：激活注入（grep schema ~180 token）对前缀命中约零影响（对照 T1 消息 14 注入 7,084 token → 单轮 44%、下轮即恢复 96%+），看累计值而非单轮。
 
+## 本轮实录：装 pi-ask + 升级全部扩展（2026-09-27）
+
+**三件事**：① 装 `@nguyenquangthai/pi-ask@0.2.0` 并按 lazy 策略处理；② 全量升级扩展（`pi update --extensions`）；③ 升级后体检时撞上 lazy 执行层全线失效，顺手修掉。
+
+### 装 pi-ask
+
+```bash
+pi install npm:@nguyenquangthai/pi-ask
+```
+
+零依赖（`npm view` 显示 `deps: none`）、`engines.node >=22.19.0`（本机 24.16.0 满足，安装无 EBADENGINE 告警）、`files` 只含 `src/`（2092 行 TS，无 dist、无 tests）。**只注册 1 个工具 `ask_user_question`**（`src/index.ts:74`），无 `registerCommand`。
+
+**lazy 判定：什么都不用改。** fork 是 resident 例外制，`resident` 里只有五工具 + `load_tools`/`call_tool`/`skill_search` 八项，`ask_user_question` 不在其中 → 会话启动即被剔除出 active 集，**默认全懒**。核对方式：探针 `.sc-test/probe-lazy-jiti.mjs` 复刻 fork 的 factory 重放，确认 `ask_user_question` 的 `execute` 与 `prepareArguments` 都能拿到（`description` 986 字符、`label="Ask User"`）。要不要提为常驻见[安装后操作 16](#安装后操作)。
+
+**行为要点（README + 源码核对）**：`Other` 选项由组件自动加，**不要**让模型自己写；`header` ≤ 12 终端列（CJK/emoji 按 2 列算，超了截断而非报错）；`showWhen` 只支持一级；`prepareArguments` 在 Pi 校验前补全 `value`/`id`/`header`、剥转义序列、裁到 4 个选项、给重复 id/value 加 `-2` 后缀——**基本不会撞 schema 校验错误**；结果按 `questionId` 回传，`details` 里带 `selectedValues`/`customText`；**非 TUI 模式在 `session_start` 里 `setActiveTools` 把自己摘掉**（`src/index.ts:71`），print/JSON/RPC 下模型看不到它，直接调用返回 `status:"unavailable"`。
+
+⚠ 该包无宿主级测试，**TUI 里的实际键盘交互（选项高亮、Review 页回改、中文 IME）尚未目视验收**——下次开 TUI 激活它试一次再定论。
+
+### 升级全部扩展
+
+`pi update --extensions`（**只升扩展不动 pi 本体**；`--all` 会连 pi 一起升，本轮刻意不用）。19 项全部处理完，实测只有 2 个动了版本：
+
+| 扩展 | 升级前 | 升级后 | 备注 |
+|---|---|---|---|
+| `pi-mcp-adapter` | 2.37.0 | **2.38.0** | search 模式的 MCP 工具在一次成功代理调用后升级为完整直连工具；运行时注册的 keep-alive 服务器无启动服务器也能发布工具；`mcpScript` 结果更紧凑；stdio 配置支持家目录相对路径；`MCP_UI_VIEWER=orca` |
+| `pi-agent-browser-native` | 0.7.1 | **0.8.1** | ⚠ 声明 `engines.node >=24.21.0`（本机 24.16.0 → 仅 npm 告警，运行正常）；校验基线升到 pi 0.87.1、TS 7；**仍调 `buildSessionProjection` → 兼容补丁依旧要打**；**注册工具从 1 个变 8 个**（新增 `agent_browser_code`/`_action`/`_qa`/`_electron`/`_source`/`_network_source`/`_tools`），全部非 resident → 自动全懒，见[工具归属](#工具归属) |
+| 其余 16 个 npm + 1 个 git | — | 无变化 | 已是 latest（git 包 HEAD 仍 `eab1626`） |
+
+升级后必做的两件事（本轮都做了）：
+1. **重跑兼容补丁**：`node fix-browser-native-compat.mjs` → `[done]`，并在 0.8.1 的 `tool-surface.js:137` 核到双路回退已就位。
+2. **扫加载期错误**：`node .sc-test/check-ext-errors.mjs --reload` → `extension_error 总数: 0`、`stderr 命中: 0`。
+
+体检工具面时顺手发现：**`pi-agent-browser-native` 从 1 个工具变 8 个**，逐个列名写入[工具归属](#工具归属)；也顺手发现 lazy 执行层早已失效（下一节）。
+
+## lazy 执行层失效与修复（2026-09-27）
+
+**现象**：19 个扩展全装好、`pi list` 齐、`extension_error` 为 0、策略上低频工具也确实被剔除出了 active 集——但**整条 lazy 链是空转的**：`load_tools` 能把用法文本注入进来，真正 `call_tool` 时却拿不到执行定义。
+
+**根因（`Cannot find module`，与懒加载配置无关）**：fork 用 jiti 二次加载目标扩展入口、重跑 factory 来抓 `ToolDefinition`（2026-09-22 的修复，见上节），jiti 按**目标文件自身路径**逐级上溯找 node_modules。而绝大多数扩展在**运行期值导入** pi 的内置包（`@earendil-works/pi-tui` 的 `Text`/`Container`、`pi-ai`、`pi-coding-agent`）——`docs/packages.md` 写明这些是 pi 捆绑包，扩展只写 `peerDependencies: "*"`，**并不由 pi 装进 npm 树**（实测 `~/.pi/agent/npm/node_modules/@earendil-works/` 是**空目录**）。本机解析链上唯一能兜底的 `~/node_modules/@earendil-works/*`（2026-09-22 时还在的历史遗留）**已被清理**，pi 也**没给子进程设 `NODE_PATH`**（RPC 会话里 `echo $NODE_PATH` 实测为空）。→ `jiti.import()` 抛 `Cannot find module`，`findToolDefinition` catch 后 `return undefined`，于是**所有 npm 扩展的工具都“注册了但调不动”**。
+
+| 探针对象 | 修复前 | 修复后 |
+|---|---|---|
+| `@tian.zuo/pi-find` | `Cannot find module '@earendil-works/pi-ai'` | factory OK，`grep`/`find` 定义加载 OK |
+| `pi-agent-browser-native@0.8.1` | `Cannot find module '@earendil-works/pi-tui'` | factory OK，**8 个**工具定义全部加载 OK |
+| `@nguyenquangthai/pi-ask` | `Cannot find module '@earendil-works/pi-tui'` | factory OK，`ask_user_question` 定义 + `execute` 重放 OK（返回 `status:"unavailable"`，非 TUI 下的既定行为，不是错误） |
+
+**为什么一直没暴露**：2026-09-22 那次「`REPLAY OK: grep,find`」的验证是在家目录遗留还在时做的；遗留一清理，全站 lazy 执行层**静默归零**——启动期**没有任何报错**（`extension_error` 仍 0），只有真去 `call_tool` 才失败。所以本轮的教训是：**「工具被 lazy 隐藏」与「工具能被 lazy 调用」是两件事，后者坏掉不会自己报警**，必须用探针主动验。
+
+**修复**：把与 pi 同版本（0.85.1）的三个捆绑包装到 **`~/.pi/agent/node_modules`**——它在目标文件的解析上溯路径上（`npm/node_modules` 的父目录），但**不在 pi 托管的 npm 工程内**（`~/.pi/agent/npm/`，`pi install`/`pi update` 会重写其 `package.json` 并 prune 外来依赖，所以不能装那儿；`--legacy-peer-deps` 也不行：`@agenticup/pi-loop@0.1.4` 把 peer 钉在 `^0.78.0`）：
+
+```bash
+npm i --prefix "$HOME/.pi/agent" \
+  @earendil-works/pi-coding-agent@0.85.1 @earendil-works/pi-tui@0.85.1 @earendil-works/pi-ai@0.85.1
+```
+
+装完 `~/.pi/agent/node_modules/@earendil-works/` 下多出 `pi-coding-agent`/`pi-tui`/`pi-ai`（+ 传递依赖 `chord`/`pi-agent-core`/`pi-telemetry`）。验证：`probe-lazy-jiti.mjs` 三个对象全绿（上表右列），`check-ext-errors.mjs --reload` 仍 `extension_error 总数: 0`，`pi list` 19 项。
+
+**纪律**：
+1. **pi 升级时同步升这三个包**（`npm i --prefix "$HOME/.pi/agent" @earendil-works/{pi-coding-agent,pi-tui,pi-ai}@<新版本>`）——版本错配不报错，只会静默带进旧行为。
+2. **别删 `~/.pi/agent/node_modules`**，它现在是 lazy 执行层的地基；也别把依赖挪进 `~/.pi/agent/npm/`，会被 `pi update` prune 掉。
+3. 判据：`call_tool` 报「无法加载执行定义」+ stderr 出现 `[lazy-tools] failed to load tool definition "X" from …: Cannot find module '@earendil-works/…'` → 就是这个病，**别去改 `lazy-tools.json`**（改名单只会把症状换成「工具不在 active 集」）。
+4. 探针脚本（都放 `.sc-test/`，只读不改）：`probe-lazy-jiti.mjs <扩展入口> [工具名…]` 复刻 fork 的 jiti 基准 + factory 重放（可重放 `execute`）；`probe-all-tools.mjs` 逐个重放 19 个扩展的 factory 并列工具名，用来核对 resident/lazy 名单。`probe-all-tools.mjs` 对 `pi-tps`/`pi-one-ui`/`computer-use`/`pi-mcp-adapter` 会报 `Cannot find module …/extensions` 或 `pi.events.on is not a function`——那是探针的 fake pi 不完整（目录型入口、事件钩子），**不是这些扩展的故障**。
+5. 遗留风险：TUI 自定义组件类（如 pi-ask 的 `QuestionnaireComponent extends Container`）在 lazy 路径下用的是这份 **npm 副本**的 pi-tui，而 pi 本体内部是另一份实例；版本与 pi 对齐（0.85.1）下实测正常，**跨版本组合未验证**。
+
 ## pi-agent-browser-native 兼容补丁（2026-09-28）
 
 **现象**：会话启动与 `/reload` 必报 `ctx.sessionManager.buildSessionProjection is not a function`（扩展 `session_start` 里抛出），其余扩展随后被跳过级联影响观感。
@@ -395,6 +469,8 @@ try {
 **验证（同一探针对照）**：补丁前 `extension_error` **1** → 补丁后 **0**；全量扩展扫描 `.sc-test/check-ext-errors.mjs --reload` 得 `extension_error 总数: 0`、stderr 命中 0。
 
 > ⚠ **`pi update` / 重装会丢这个补丁**，需重跑 `node fix-browser-native-compat.mjs`。长期解法是等上游适配 0.85.x 或升 pi 到 0.86+。
+>
+> **2026-09-27 复核**：升到 `pi-agent-browser-native@0.8.1` 后**该调用依然存在**（`dist/extensions/agent-browser/lib/tool-surface.js:137`），补丁照旧要打、已重打并实测 `extension_error` 0；0.8.1 另要求 Node `>=24.21.0`（本机 24.16.0 仅告警）。
 
 > 排障教训：`extension_error` 走 **RPC 事件流**、**不出现在子进程 stderr**，只看 stderr 会得到「无错误」的假阴性。扫描扩展错误必须订阅事件流（见 `.sc-test/check-ext-errors.mjs`）。
 
