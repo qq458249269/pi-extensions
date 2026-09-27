@@ -30,7 +30,9 @@
 
 > 本轮（2026-09-27）：新增 **`@nguyenquangthai/pi-ask@0.2.0`**（`npm:@nguyenquangthai/pi-ask`，键盘优先的结构化提问对话框 + 提交前 review 页，Claude Code `AskUserQuestion` 的对标物），清单 **18 → 19**（`pi list` 实测 19 项 = 18 npm + 1 git，`packages` 19 条无丢失）。只注册 1 个工具 `ask_user_question`，**resident 例外制下默认即 lazy，不改 `lazy-tools.json`**；代价是用它前必须先 `load_tools` 激活 + 用户确认（见[本轮实录](#本轮实录装-pi-ask--升级全部扩展2026-09-27)）。同时**升级全部扩展**（`pi update --extensions`，只动扩展不动 pi 本体）：`pi-mcp-adapter` 2.37.0 → **2.38.0**、`pi-agent-browser-native` 0.7.1 → **0.8.1**（⚠ 声明 `engines.node >=24.21.0`，本机 24.16.0 仅 npm 告警；0.8.x 仍调 `buildSessionProjection`，兼容补丁要重打，已重打）。**本轮还揪出并修掉一个静默已久的故障：lazy 执行层全线失效**（`load_tools` 能注入用法，`call_tool` 却加载不到任何 npm 扩展的工具定义），根因是 `@earendil-works/*` 捆绑包在解析路径上无处可寻，详见[lazy 执行层失效与修复](#lazy-执行层失效与修复2026-09-27)。
 
-## 推荐清单（19 个，始终最新）
+> 本轮（2026-09-28 二次）：新增 **`@ssk_dev/rpiv-todo-lean@2.10.3`**（`npm:@ssk_dev/rpiv-todo-lean`，任务清单 / todo 跟踪），清单 **19 → 20**（`pi list` 实测 20 项 = 19 npm + 1 git，`packages` 20 条无丢失）。只注册 1 个工具 `todo`（6 个 action、依赖 `blockedBy`、抗压缩/抗 `/tree` 的分支重放），是 `@juicesharp/rpiv-todo@2.10.1` 的**瘦包装**——保留完整引擎、只把工具描述从 904 砍到 119 字符（省 72.8%）；**resident 例外制下默认即全懒，不改 `lazy-tools.json`**。TUI overlay 走 `setWidget("rpiv-todos")` 具名槽，与 pi-one-ui 的 widget key 不重叠、不抢 footer 槽。用法：`/todos` 看全量、`ctrl+shift+t` 折叠 overlay。详见[本轮实录](#本轮实录装-ssk_devrpiv-todo-lean2026-09-28)。
+
+## 推荐清单（20 个，始终最新）
 
 ### A. 核心层（先装）
 
@@ -59,6 +61,7 @@
 | `pi-warm-cache` | `npm:pi-warm-cache` | **空闲期保活（2026-09-28 装，v0.4.0）**。对**已注册路由**（Anthropic / OpenAI / Azure / Codex / xAI 4.5+ / OpenCode Go / OpenRouter）按厂商 TTL 在会话空闲时发极小请求续前缀缓存（默认 1 token 输出、锚定同一 cache routing key），`/warm status`（含 `automaticWarm` 判定）、`/warm 5m`、`/warm 1h`、`/warm auto`、`/warm probe`、`/warm log` 手动档。**零工具注入**。⚠ **本机不生效**：模型是本地代理 `http://localhost:20128/v1`（`openai-completions`、未注册路由），`resolveStrategy` 判 `capability.state !== "verified"` → `intervalMs: null, automaticWarm: false`，永不装定时器（源码注释：unverified route never arms a timer）。换到上述任一已注册 provider 才自动启用；不注册也**不会报错**，纯静默待命 |
 | `pi-footer-template` | `npm:pi-footer-template` | **footer 模板（2026-09-28 装，v0.5.0）**。用 `ctx.ui.setFooter` 接管底栏，支持 `{model}`/`{cwd}`/`{tokens}`/`{balance}`/`{branch}`/`{CH}` 等占位（可自注册 token），默认模板已含 **`CH{latestCacheHitRate}%`**——**最后一条 assistant** 的 `cacheRead/(input+cacheRead+cacheWrite)`，即本文各表「命中」那一列的同一口径。配置 `footerTemplate` 写项目 `.pi/settings.json` 或用户 settings。**零工具注入**。⚠ 与 `pi-one-ui` 的 Footer 层**抢同一个 footer 槽**（`ctx.ui.setFooter` 单槽，后写者胜），本机已让 one-ui 主动让位（`pi-one-ui.json` 设 `components.footer.style: "native"`），详见[压缩与缓存](#压缩与缓存)末节 |
 | `@nguyenquangthai/pi-ask` | `npm:@nguyenquangthai/pi-ask` | **结构化提问对话框（2026-09-27 装，v0.2.0）**。注册 1 个工具 `ask_user_question`，把「有歧义时问用户」变成键盘优先的 1–4 题表单：每题 2–4 个选项、`recommended: true` 置顶提示、**Other 自由输入**（组件自动加，不要模型自己写）、`required: false` 出「跳过本题」行、`multiSelect` 空格多选、`showWhen: {questionId, equals}` 做一级条件追问（父题选中某 value 才出现，选回父题其他值则清空并隐藏子题）、提交前 **Review 页**可回改。`prepareArguments` 钩子在 Pi 校验前补全模型漏填的 `value`/`id`/`header`、剥转义序列、裁剪超长项——所以模型调用几乎不会撞 schema 校验错误。结果按 `questionId` 键回传给模型（`selectedValues` + `customText` 都保留），答案落在 Pi 会话 JSONL 的 `toolResult.details` 里，`/tree`、`/fork` 自动跟对分支。**非 TUI 模式自动摘除自己**（`session_start` 里 `setActiveTools` 过滤，print/JSON/RPC 模式下模型根本看不到该工具，直接调用返回 `status:"unavailable"`），故对本机 RPC 实测无副作用。**只注册 1 个工具、resident 例外制下默认即 lazy，无需改 `lazy-tools.json`**。用法：先 `load_tools` 激活（两步确认门，需用户点名「激活 ask_user_question」），再由模型调用。实测与注意见[本轮实录](#本轮实录装-pi-ask--升级全部扩展2026-09-27) |
+| `@ssk_dev/rpiv-todo-lean` | `npm:@ssk_dev/rpiv-todo-lean` | **任务清单（2026-09-28 装，v2.10.3）**：`@juicesharp/rpiv-todo@2.10.1` 的**瘦包装**（Proxy 拦 `registerTool`/`on`/`registerShortcut`/`registerCommand`，上游引擎原样跑，只砍工具描述 904 → **119 字符**、省 72.8% 首请求 token）。**只注册 1 个工具 `todo`**（`create`/`update`/`list`/`get`/`delete`/`clear` 六 action；状态 `pending`/`in_progress`/`completed`/`deleted`；支持 `blockedBy` 依赖图、`addBlockedBy`/`removeBlockedBy`、`owner`/`metadata`/`activeForm`）。lean 层三件事：递归剥掉 JSON Schema 里所有 `description`、description 压成 119 字符单行 + `promptSnippet` 清空 + `promptGuidelines` 收成 1 行、`prepareArguments` 按字段反推缺失的 `action`（有 `id`+可变字段→`update`，仅 `subject`→`create`）。**抗压缩/抗 `/tree`**：`session_compact`/`session_tree` 时 `replayFromBranch` 重放并重排 session 槽；钩子是 `session_compact`（**非** `session_before_compact`）→ 与 `pi-smart-context`/`pi-compaction-cache` 的接管权**零冲突**。**TUI overlay 走 `ctx.ui.setWidget("rpiv-todos", …)` 具名槽**（`todo-overlay.ts:23`），与 pi-one-ui 的 `ccstyle-tool-mouse`/`compact-thinking-render-loop` 两个 key 不重叠、也不碰 `setFooter` → **不抢槽**。命令 `/todos`（看全量，含 overlay 隐藏的已完成项），快捷键 `ctrl+shift+t` 折叠/展开 overlay。配置 `~/.config/rpiv-todo/config.json`（受 `XDG_CONFIG_HOME` 影响）：`maxWidgetLines`（默认 12，<3 回落默认）、`collapseKey`（默认 `ctrl+shift+t`，`"off"` 关闭）、`guidance`，**逐渲染现读**、改完无需 `/reload`。⚠ **不可与另一个 rpiv-todo 包装同载**（重复注册同名 `todo`）。实测与未验收项见[本轮实录](#本轮实录装-ssk_devrpiv-todo-lean2026-09-28) |
 
 ## Skills（可选，非扩展，Agent Skills 标准）
 
@@ -99,12 +102,13 @@ for p in pi-cache-guardian pi-tps pi-one-ui \
          @zhushanwen/pi-smart-context \
          pi-prefix-stabilizer pi-compaction-cache \
          pi-warm-cache pi-footer-template \
-         @nguyenquangthai/pi-ask; do
+         @nguyenquangthai/pi-ask \
+         @ssk_dev/rpiv-todo-lean; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 ```
 
-> **末 4 个包的顺序有硬约束（2026-09-28）**：`pi-compaction-cache` 必须排在 `@zhushanwen/pi-smart-context` **之后**（两者都接 `session_before_compact`，靠后拿到的接管权；反过来 smart-context 的 same-model 先给摘要，压缩调用命中就退回 1.6%），`pi-prefix-stabilizer` 排在 `pi-compaction-cache` **之前**（先稳前缀再谈复用）。`pi-warm-cache`/`pi-footer-template`/`@nguyenquangthai/pi-ask` 顺序不限（pi-ask 只在 `session_start` 里按需摘除自己，不抢任何 hook）。`pi install` 一次只写一条注册，照序跑即可。
+> **末 4 个包的顺序有硬约束（2026-09-28）**：`pi-compaction-cache` 必须排在 `@zhushanwen/pi-smart-context` **之后**（两者都接 `session_before_compact`，靠后拿到的接管权；反过来 smart-context 的 same-model 先给摘要，压缩调用命中就退回 1.6%），`pi-prefix-stabilizer` 排在 `pi-compaction-cache` **之前**（先稳前缀再谈复用）。`pi-warm-cache`/`pi-footer-template`/`@nguyenquangthai/pi-ask` 顺序不限（pi-ask 只在 `session_start` 里按需摘除自己，不抢任何 hook）。末尾的 `@ssk_dev/rpiv-todo-lean`（2026-09-28 加）同样顺序不限——它只接 `session_compact`/`session_tree`，不碰 `session_before_compact`。`pi install` 一次只写一条注册，照序跑即可。
 
 > **升级（2026-09-27 复核）**：`pi update --extensions` 只升扩展、不动 pi 本体（`--all` 会连 pi 一起升）；升完**必须重跑 `node fix-browser-native-compat.mjs`**（`pi-agent-browser-native` 0.8.1 仍调 `buildSessionProjection`），并且若家目录 `~/node_modules` 已清理，需确认 `~/.pi/agent/node_modules/@earendil-works/*` 还在（lazy 执行层地基，见[lazy 执行层失效与修复](#lazy-执行层失效与修复2026-09-27)）。
 
@@ -136,7 +140,7 @@ pi install git:github.com/qq458249269/pi-lazy-tools
 
 > ~~⚠ `pi-mcp-adapter`/`pi-agent-browser-native` 共享原生依赖 `better-sqlite3`……`npm install-scripts approve better-sqlite3`~~ **此步骤 2026-09-23 起作废（2026-09-24 随 pi-subagents 卸载改称两包）**：两包新版（pi-mcp-adapter 2.37.0 / pi-agent-browser-native 0.7.1）均已移除 `better-sqlite3` 依赖，approve 会报 `ENOMATCH: No installed packages match`，依赖树中亦无该包（实测 `find` 无目录）。`allowScripts` 里的旧条目 `better-sqlite3@13.0.3: true` 为历史残留，无害可留。详见[全量重装实录](#全量重装实录与问题修复2026-09-23)问题 2。
 
-装完自查（`pi list`，不并行）：应见 **19 个扩展**——18 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`、`@zhushanwen/pi-smart-context`、`pi-prefix-stabilizer`、`pi-compaction-cache`、`pi-warm-cache`、`pi-footer-template`、`@nguyenquangthai/pi-ask`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 18（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
+装完自查（`pi list`，不并行）：应见 **20 个扩展**——19 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`、`@zhushanwen/pi-smart-context`、`pi-prefix-stabilizer`、`pi-compaction-cache`、`pi-warm-cache`、`pi-footer-template`、`@nguyenquangthai/pi-ask`、`@ssk_dev/rpiv-todo-lean`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 19（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
 
 pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-22 起执行默认五工具常驻策略**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`，由项目 `.pi/settings.json` 的 `defaultTools` 显式声明）与 `load_tools`/`call_tool` 常驻 active 集，其余扩展工具全部列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
 
@@ -203,6 +207,7 @@ node fix-browser-native-compat.mjs
 14. **`pi-warm-cache`**：装上即用、无需配置，**但本机不生效**（本地代理属未注册路由，`automaticWarm:false`、永不装定时器）。换到已注册 provider（Anthropic/OpenAI/Azure/Codex/xAI 4.5+/OpenCode Go/OpenRouter）即自动启用；想确认 `/warm status` 里 `automaticWarm` 是 true 还是 false。
 15. **`pi-footer-template`**：装上即用，**默认模板已含 `CH{latestCacheHitRate}%`**（最后一条 assistant 的命中率），无需配置即在底栏显示。要改模板写 `footerTemplate`（项目 `.pi/settings.json` 或用户 settings）。⚠ 必须先让 `pi-one-ui` 让出 footer 槽：`~/.pi/agent/pi-one-ui.json` 设 `{"components":{"footer":{"style":"native"}}}`，否则两者抢同一个 `ctx.ui.setFooter` 槽、谁后加载谁赢。
 16. **`@nguyenquangthai/pi-ask`**：装上即用，**无需任何配置**（`ask_user_question` 不在 `resident`，默认全懒）。⚠ 三个注意点：① **非 TUI 模式自动摘除自己**（print/JSON/RPC 下模型看不到该工具，直接调用返回 `unavailable`），所以在 `pi -p`/`--mode rpc` 里做自动化验证时它等于不存在，别误判成没装上；② 它是**提问工具**，走 lazy 就多一道手续：模型得先 `load_tools` 拿用法、再由用户点名确认（两步门）才 `call_tool` 调得到——如果希望它随手可用，就把 `ask_user_question` 加进 `~/.pi/lazy-tools.json` 的 `resident`（代价是其 description 约 986 字符常驻上下文）；③ 答案落在会话 JSONL 的 `toolResult.details` 里，`/tree`、`/fork` 会自动跟对分支。
+17. **`@ssk_dev/rpiv-todo-lean`**：装上即用，**无需任何配置**（`todo` 不在 `resident`，默认全懒；要它随手可用就把 `todo` 加进 `~/.pi/lazy-tools.json` 的 `resident`，代价是 119 字符描述常驻）。⚠ 四个注意点：① **lazy 两步门的手续成本**——模型得先 `load_tools` 拿用法、再由用户点名确认才 `call_tool` 得调得到，`/todos` 命令和 `ctrl+shift+t` 快捷键则是**直接可用、不经这道门**；② **overlay 只在 TUI 出现**，print/JSON/RPC 模式下 `todo` 工具照常工作但没有可视化（`index.ts` 里所有 `ctx.mode === "rpc"` 分支仅做 overlay 转发，非 TUI 直接透传给上游）；③ **不可与另一个 rpiv-todo 包装同载**，重复注册同名 `todo`，本机只把它当依赖装、未单独装 `@juicesharp/rpiv-todo`；④ 想调 overlay 行数/折叠键写 `~/.config/rpiv-todo/config.json`（`maxWidgetLines`/`collapseKey`/`guidance`），**逐渲染现读**、无需 `/reload`。
 
 ## 全量懒加载策略
 
@@ -222,6 +227,7 @@ node fix-browser-native-compat.mjs
 | pi-agent-browser-native | `agent_browser`、**`agent_browser_code`/`agent_browser_action`/`agent_browser_qa`/`agent_browser_electron`/`agent_browser_source`/`agent_browser_network_source`/`agent_browser_tools`** | ✓ 全部 8 个（后 7 个是 **0.8.1 新增**，非 resident 即自动全懒） |
 | @agenticup/pi-loop | `loop` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
 | @zhushanwen/pi-smart-context | `compact_context` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
+| `@ssk_dev/rpiv-todo-lean` | `todo` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
 | pi-undo-redo | （无工具，仅 `/undo` `/redo` `/undo-cleanup` 命令） | — |
 | pi-prefix-stabilizer | （无工具，纯 `before_provider_request` 改写） | — |
 | pi-compaction-cache | （无工具，仅 `/compaction-cache-status` 命令） | — |
@@ -414,6 +420,44 @@ pi install npm:@nguyenquangthai/pi-ask
 2. **扫加载期错误**：`node .sc-test/check-ext-errors.mjs --reload` → `extension_error 总数: 0`、`stderr 命中: 0`。
 
 体检工具面时顺手发现：**`pi-agent-browser-native` 从 1 个工具变 8 个**，逐个列名写入[工具归属](#工具归属)；也顺手发现 lazy 执行层早已失效（下一节）。
+
+## 本轮实录：装 @ssk_dev/rpiv-todo-lean（2026-09-28）
+
+**一件事**：清单里长期缺 todo 类扩展（19 项里没有任何任务清单），本轮补上 `@ssk_dev/rpiv-todo-lean@2.10.3`，清单 19 → 20。选它的理由是**它是同类里唯一把「常驻 token」当卖点做的**——不是重写引擎，而是在上游外面套一层 Proxy 拦截器。
+
+```bash
+pi install npm:@ssk_dev/rpiv-todo-lean   # added 4 packages in 7s
+```
+
+**包形态**：`files` 只有 4 项（`index.ts` + `LICENSE` + 两份 README），unpacked **19.1 kB**，`engines.node >=22.19.0`（本机 24.16.0 满足，安装无 EBADENGINE 告警）。两个依赖 `@juicesharp/rpiv-todo@2.10.1` 与 `@juicesharp/rpiv-i18n@2.10.1` 都是**精确钉版**（无 `^`），所以升级 lean wrapper 不会顺手把上游拖动；`peerDependencies` 要求 `@earendil-works/pi-{ai,coding-agent,tui} >=0.84.1 <1.0.0`。
+
+**工具面**：单工具 `todo`（上游 `tool/types.ts:11` 的 `TOOL_NAME`，源码注明它同时是分支重放的持久化键与权限项，**DO NOT rename**）。六 action `create`/`update`/`list`/`get`/`delete`/`clear`，四状态 `pending`/`in_progress`/`completed`/`deleted`，任务模型带 `blockedBy: number[]` 依赖图 + `addBlockedBy`/`removeBlockedBy` + `owner`/`metadata`/`activeForm`。每次成功调用都在 `details` 里回 `TaskDetails`（`{action, params, tasks, nextId}`，字段序被跨版本重放钉死），压缩/树导航后据此重建。
+
+**lean 层到底改了什么**（读 `index.ts` 全文核对，三件事）：
+1. `removeSchemaDescriptions` 递归遍历 schema 对象删掉所有 `description` 键，但对 `properties` 映射本身例外（否则字段说明会被当 schema 元数据删掉）。
+2. `todo` 的 description 换成 119 字符单行（`action` 必填 + 各 action 的必填字段），`promptSnippet` 置空，`promptGuidelines` 从上游的多行收成 1 行。
+3. `prepareArguments` 兜底：先跑上游的 `prepareArguments`，再套 lean 层自己的 `action` 反推（模型漏给 `action` 时按字段猜：有 `id` 且带任一可变字段 → `update`，只有 `subject` → `create`；两者都没有则原样放行给上游校验报错）。
+
+**lazy 判定：什么都不用改。** `todo` 不在 `resident` 八项里 → 会话启动即被剔除出 active 集。探针实测：
+
+```
+node .sc-test/probe-lazy-jiti.mjs ~/.pi/agent/npm/node_modules/@ssk_dev/rpiv-todo-lean/index.ts todo
+factory OK，捕获工具 1 个: todo
+  todo: execute=function prepareArguments=function label=Todo descLen=119
+    execute 重放失败: Cannot read properties of undefined (reading 'getSessionId')
+```
+
+最后一行**不是故障**：探针的 fake pi 没有 `getSessionId`，与本手册里对 `pi-tps`/`pi-one-ui`/`computer-use` 的同类说明一致（假 pi 不完整），真实执行路径要靠 `load_tools` + `call_tool` 在活会话里验。另做了一次 print 模式实测（`pi -p --no-session --thinking off` 让模型自报 active 工具）→ `read, bash, edit, write, omnify`，`todo` 确实不在其中（该次 cwd 在 `/tmp`、无项目 `.pi/settings.json`，故 `powershell` 不在内）。加载期体检：`node .sc-test/check-ext-errors.mjs --reload` → **`extension_error 总数: 0`**、`stderr 命中: 0`。
+
+**TUI 侧冲突核对（本轮重点）**：
+- overlay 用 `ctx.ui.setWidget("rpiv-todos", …)` 的**具名槽**（`todo-overlay.ts:23`），`setWidget` 是按 key 的 map，不是单槽。pi-one-ui 用的是 `ccstyle-tool-mouse`（mouse interaction.ts:100）与 `compact-thinking-render-loop`（compact-thinking.ts:585），**三个 key 互不重叠** → 不抢。
+- 它不调 `setFooter`，所以 footer 槽仍归 `pi-footer-template`（one-ui 已让位）不变；`pi-tps` 的底部状态栏亦不受影响。
+- 快捷键 `ctrl+shift+t`（`config.ts:24` 的 `DEFAULT_COLLAPSE_KEY`）折叠/展开 overlay，工厂作用域解析一次、改配置要 `/reload` 才重新绑定（`"off"` 可整个关掉）；overlay 空列表时自动隐藏，此时快捷键 no-op。
+- 事件钩子用的是 `session_compact` / `session_tree`，**不是** `session_before_compact` → 与 `pi-smart-context`、`pi-compaction-cache` 抢的那条钩子不是同一条，**压缩接管权零冲突**，也无需排安装顺序。
+
+**配置**：`~/.config/rpiv-todo/config.json`（`XDG_CONFIG_HOME` 未设时的默认位置，rpiv 走自己的 XDG 层，与 `~/.pi/…` 正交）。`maxWidgetLines` 默认 12、非数字或 <3 回落默认、无上限；`collapseKey` 默认 `ctrl+shift+t`；另有 `guidance`。`maxWidgetLines`/`collapseKey` 的读取是**逐渲染现读**，改完不用 `/reload`（只有快捷键绑定是工厂级一次性）。
+
+⚠ **未目视验收**：TUI 里 overlay 的实际落位（与 pi-one-ui 的 WorkingLine/Context 层的上下关系）、`ctrl+shift+t` 的折叠效果、以及 `/todos` 的分组渲染，都还没在真 TUI 里看过——下次开 TUI 激活 `todo` 试一次再定论。另外 `/todos` 在非交互模式会返回 `ERR_REQUIRES_INTERACTIVE`。
 
 ## lazy 执行层失效与修复（2026-09-27）
 
