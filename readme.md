@@ -32,6 +32,8 @@
 
 > 本轮（2026-09-28 二次）：新增 **`@ssk_dev/rpiv-todo-lean@2.10.3`**（`npm:@ssk_dev/rpiv-todo-lean`，任务清单 / todo 跟踪），清单 **19 → 20**（`pi list` 实测 20 项 = 19 npm + 1 git，`packages` 20 条无丢失）。只注册 1 个工具 `todo`（6 个 action、依赖 `blockedBy`、抗压缩/抗 `/tree` 的分支重放），是 `@juicesharp/rpiv-todo@2.10.1` 的**瘦包装**——保留完整引擎、只把工具描述从 904 砍到 119 字符（省 72.8%）；**resident 例外制下默认即全懒，不改 `lazy-tools.json`**。TUI overlay 走 `setWidget("rpiv-todos")` 具名槽，与 pi-one-ui 的 widget key 不重叠、不抢 footer 槽。用法：`/todos` 看全量、`ctrl+shift+t` 折叠 overlay。详见[本轮实录](#本轮实录装-ssk_devrpiv-todo-lean2026-09-28)。
 
+> 本轮（2026-09-28 三次）：**首字 token 三步优化**。`pi list` 仍 20 项（`pi-lean-prompt`/`pi-shell` 是**本地扩展**，放 `~/.pi/agent/extensions/` 随会话自动加载、不走 `pi install`，故不计入清单）。A/B 实测（同 driver / 同模型 / 同任务）静态前缀 **9183B → 5751B（-37%）**、首请求 `cacheRead` **2604 → 1916 tok（-26%）**，且逐轮全命中不变。① **压 `Guidelines` / `Pi documentation` 两段**：`before_agent_start` 改 `event.systemPrompt`（rules -701B / docs -665B），文档路径从原段落正则搬运、`sections` 存在即让路给 0.86+ 的 fork；② **裁 `edit`/`read` 的 description 与 schema 样板**：`before_provider_request` 改 `payload.tools`，**只改 payload 不覆盖注册**，pi-edit-guard / pi-one-ui / pi-undo-redo 零影响（wire `edit` 2045→661B）；③ **bash + powershell 合一为 `shell`**：委托内建 `createBashToolDefinition`/`createPowerShellToolDefinition`，1128B→678B，参数 `{command, shell: bash|powershell, timeout}` 默认 bash。**五合一（read/write/edit/bash/powershell 并成一个 fs 工具）已评估并否决**：会打断 pi-edit-guard 的 fuzzy `edit`、pi-one-ui 的 write diff 元数据、pi-undo-redo 的路径追踪（`/undo` 失效），`edits[]` 深层 schema 摊平还会抬失败率。新增脚本 `install-local-extensions.mjs`（仓库→本机同步）、`fix-lazy-tools-notes.mjs`（fork 的 `DOCS_NOTE` 路径 bug + shell 措辞，均幂等）。详见[首字 token 三步优化](#首字-token-三步优化2026-09-28-三次)。
+
 ## 推荐清单（20 个，始终最新）
 
 ### A. 核心层（先装）
@@ -142,14 +144,16 @@ pi install git:github.com/qq458249269/pi-lazy-tools
 
 装完自查（`pi list`，不并行）：应见 **20 个扩展**——19 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`、`@zhushanwen/pi-smart-context`、`pi-prefix-stabilizer`、`pi-compaction-cache`、`pi-warm-cache`、`pi-footer-template`、`@nguyenquangthai/pi-ask`、`@ssk_dev/rpiv-todo-lean`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 19（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
 
-pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-22 起执行默认五工具常驻策略**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`，由项目 `.pi/settings.json` 的 `defaultTools` 显式声明）与 `load_tools`/`call_tool` 常驻 active 集，其余扩展工具全部列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)：
+pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-22 起执行默认五工具常驻策略**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`，由项目 `.pi/settings.json` 的 `defaultTools` 显式声明）与 `load_tools`/`call_tool` 常驻 active 集，其余扩展工具全部列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)。**2026-09-28 三次优化后本机实际取值如下**（`shell` 取代 `bash`/`powershell`，其余非 resident 工具全懒）：
 
 
 ```json
-{ "resident": ["read", "write", "edit", "bash", "powershell", "load_tools", "call_tool", "skill_search"] }
+{ "resident": ["read", "write", "edit", "shell"] }
 ```
 
-> **2026-09-28 订正**：本节早期版本写的是 `"lazy": [...]` 名单数组，那是上游 `@wolido/pi-lazy-tools` 的格式；**当前 fork（`git:github.com/qq458249269/pi-lazy-tools`）用的是 resident 例外制**——`resident` 列常驻例外，**其余一切默认全 lazy**，所以本机 `~/.pi/lazy-tools.json` 里只剩上表这 8 个名字（`~/.pi/lazy-tools.json` 不在 `~/.pi/agent` 下）。
+> **2026-09-28 三次订正**：本机 `defaultTools` 已改为 `["read","edit","write"]`（`bash`/`powershell` 退出默认集，由本地扩展 `pi-shell` 注册的 `shell` 顶替），resident 也只剩上面 4 个名字。**`load_tools`/`call_tool`/`skill_search` 现在都是 lazy**（不是 active 集成员）——fork 代码里唯一硬编码的 resident 例外是 `omnify`（`const resident = new Set([OMNIFY_NAME])`），所以 active 集实测 = 4 resident + `omnify` = **5 个工具**；要临时拿回旧的 `load_tools` 两步门，把名字加回 `resident` 即可。
+
+> **2026-09-28 订正**：本节早期版本写的是 `"lazy": [...]` 名单数组，那是上游 `@wolido/pi-lazy-tools` 的格式；**当前 fork（`git:github.com/qq458249269/pi-lazy-tools`）用的是 resident 例外制**——`resident` 列常驻例外，**其余一切默认全 lazy**，所以本机 `~/.pi/lazy-tools.json` 里只剩上表这 4 个名字（`~/.pi/lazy-tools.json` 不在 `~/.pi/agent` 下）。
 >
 > **2026-09-28 新增四包对懒加载策略的影响：零**。`pi-prefix-stabilizer`/`pi-compaction-cache`/`pi-warm-cache`/`pi-footer-template` 均无 `registerTool`/`setActiveTools`，不新增任何工具名，`activeTools` 仍 8，不需改 `lazy-tools.json`。
 >
@@ -183,16 +187,20 @@ pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 
 |---|---|
 | `fix-tps-theme.ps1` | `pi-tps` 颜色跟随系统主题（`theme` -> `light/dark`，`colorPreset` -> `theme`） |
 | `fix-browser-native-compat.mjs` | `pi-agent-browser-native` 在 **pi 0.85.x** 下的加载期兼容补丁（`sessionManager.buildSessionProjection` 是 0.86+ API），修掉启动即报的 `buildSessionProjection is not a function` |
+| `install-local-extensions.mjs` | 把仓库 `extensions/*.ts` 同步到 `~/.pi/agent/extensions/`（`pi-lean-prompt`/`pi-shell`），内容一致不写盘；`--check` 有漂移 exit 1 |
+| `fix-lazy-tools-notes.mjs` | 修 lazy-tools fork 的 `DOCS_NOTE` 死路径（`D:\Agent\pi\` → 按 pi 安装目录实测填入）并把文案里的 `bash` 措辞改为 `shell`（装了 `pi-shell` 时） |
 
 ```bash
 powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
 node fix-browser-native-compat.mjs
+node install-local-extensions.mjs
+node fix-lazy-tools-notes.mjs
 ```
 
-`fix-tps-theme.ps1` 为 UTF-8 BOM 保存，PowerShell 5.1 / 7 均可正确解析中文；`fix-browser-native-compat.mjs` 用 node 跑（**别改回 .ps1**：无 BOM 的中文 .ps1 在 Windows PowerShell 5.1 下按 ANSI 读会 ParserError）。两者都幂等：已打过输出 `[skip]`，不会覆盖你改过的值；`pi update`/重装丢了后者，重跑一次即可。
+`fix-tps-theme.ps1` 为 UTF-8 BOM 保存，PowerShell 5.1 / 7 均可正确解析中文；`fix-browser-native-compat.mjs` 用 node 跑（**别改回 .ps1**：无 BOM 的中文 .ps1 在 Windows PowerShell 5.1 下按 ANSI 读会 ParserError）。四个脚本都幂等：已打过输出 `[skip]`/`无需改动`，不会覆盖你改过的值；`pi update`/重装丢了前两个里的补丁，重跑一次即可。
 
 1. **重启 Pi** 使扩展生效。
-2. 新会话里对主智能体说「激活 X」：`load_tools` 先返回挑战文本（`confirm:false` 零副作用），用户点名确认后 `confirm:true` 激活、`call_tool` 调用。**自带五工具（`read`/`write`/`edit`/`bash`/`powershell`）默认常驻，无需激活**；扩展工具（`grep`/`find`/网页/UI/子代理）才需激活。启动时 `ctx.ui.notify` 打印当前 lazy 名单与配置文件路径。
+2. 新会话里对主智能体说「激活 X」：`load_tools` 先返回挑战文本（`confirm:false` 零副作用），用户点名确认后 `confirm:true` 激活、`call_tool` 调用。**自带四工具（`read`/`write`/`edit`/`shell`）默认常驻，无需激活**；扩展工具（`grep`/`find`/网页/UI/子代理）才需激活。启动时 `ctx.ui.notify` 打印当前 lazy 名单与配置文件路径。
 3. `pi-tps`：运行 `fix-tps-theme.ps1` 让颜色跟随系统主题。`pi-one-ui`：`/oneui` 打开设置面板、`/context` 查看上下文、`/theme` 切换内置主题（`cc-dark`/`cc-light`）；配置存 `~/.pi/agent/pi-one-ui.json`，`/reload` 后 Features 生效（组件开关即时生效）。`@injaneity/pi-computer-use`：先完成上面的 postinstall 批准与 helper 重跑，首次运行时再授予平台权限。
 4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预；`/compact` 后首轮命中低属结构性，判定与处置见[压缩与缓存](#压缩与缓存)。
 5. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**。`undo` 在 resident 例外制下**默认已全懒**（不在 `resident` 即 lazy），要让它常驻才需把它加进 `~/.pi/lazy-tools.json` 的 `resident`。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
@@ -208,16 +216,22 @@ node fix-browser-native-compat.mjs
 15. **`pi-footer-template`**：装上即用，**默认模板已含 `CH{latestCacheHitRate}%`**（最后一条 assistant 的命中率），无需配置即在底栏显示。要改模板写 `footerTemplate`（项目 `.pi/settings.json` 或用户 settings）。⚠ 必须先让 `pi-one-ui` 让出 footer 槽：`~/.pi/agent/pi-one-ui.json` 设 `{"components":{"footer":{"style":"native"}}}`，否则两者抢同一个 `ctx.ui.setFooter` 槽、谁后加载谁赢。
 16. **`@nguyenquangthai/pi-ask`**：装上即用，**无需任何配置**（`ask_user_question` 不在 `resident`，默认全懒）。⚠ 三个注意点：① **非 TUI 模式自动摘除自己**（print/JSON/RPC 下模型看不到该工具，直接调用返回 `unavailable`），所以在 `pi -p`/`--mode rpc` 里做自动化验证时它等于不存在，别误判成没装上；② 它是**提问工具**，走 lazy 就多一道手续：模型得先 `load_tools` 拿用法、再由用户点名确认（两步门）才 `call_tool` 调得到——如果希望它随手可用，就把 `ask_user_question` 加进 `~/.pi/lazy-tools.json` 的 `resident`（代价是其 description 约 986 字符常驻上下文）；③ 答案落在会话 JSONL 的 `toolResult.details` 里，`/tree`、`/fork` 会自动跟对分支。
 17. **`@ssk_dev/rpiv-todo-lean`**：装上即用，**无需任何配置**（`todo` 不在 `resident`，默认全懒；要它随手可用就把 `todo` 加进 `~/.pi/lazy-tools.json` 的 `resident`，代价是 119 字符描述常驻）。⚠ 四个注意点：① **lazy 两步门的手续成本**——模型得先 `load_tools` 拿用法、再由用户点名确认才 `call_tool` 得调得到，`/todos` 命令和 `ctrl+shift+t` 快捷键则是**直接可用、不经这道门**；② **overlay 只在 TUI 出现**，print/JSON/RPC 模式下 `todo` 工具照常工作但没有可视化（`index.ts` 里所有 `ctx.mode === "rpc"` 分支仅做 overlay 转发，非 TUI 直接透传给上游）；③ **不可与另一个 rpiv-todo 包装同载**，重复注册同名 `todo`，本机只把它当依赖装、未单独装 `@juicesharp/rpiv-todo`；④ 想调 overlay 行数/折叠键写 `~/.config/rpiv-todo/config.json`（`maxWidgetLines`/`collapseKey`/`guidance`），**逐渲染现读**、无需 `/reload`。
+18. **`pi-shell`（本地扩展，非 `pi install` 清单项）**：仓库 `extensions/pi-shell.ts` → `~/.pi/agent/extensions/pi-shell.ts`，装法 `node install-local-extensions.mjs` + `/reload`（**不用重启**）。把 `bash` 与 `powershell` 合成 1 个 `shell` 工具（省 450B 工具定义），execute/render 全程**委托内建** `createBashToolDefinition`/`createPowerShellToolDefinition`，功能不打折。⚠ **必须把 `shell` 写进 `~/.pi/lazy-tools.json` 的 `resident`**（resident 例外制下不写就自动 lazy），并把 `defaultTools` 里的 `bash`/`powershell` 删掉；`session_start` 还会再过滤一次双 shell 兼顶，三处不依赖事件先后顺序。排障：`shell` 返回 `Shell must be "bash" or "powershell"` = 参数 schema 写错了；需要 PowerShell 时模型传 `{"shell":"powershell"}`。
+19. **`pi-lean-prompt`（本地扩展，非 `pi install` 清单项）**：同上装法，装上即用、**无需任何配置**。压系统提示词里的 `Guidelines`/`Pi documentation` 两段 + 裁 `edit`/`read` 的 description/schema 样板，共省 3432B 静态前缀（-37%）。看节省量：`/lean-stats`（只统计首请求，改完工具定义要开新会话才见效）；`PI_LEAN_DEBUG=1` 会把整个 `tools` JSON dump 到 stderr。⚠ **只在 pi 0.85.x 上启用**：检测到 `systemPromptOptions.sections` 存在（0.86+ 的 fork 压缩路径）就自动让路、不动手，两套压缩不会叠加。
 
 ## 全量懒加载策略
 
 **2026-09-22 起长期执行：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`）默认常驻 active 集，扩展工具一律 lazy，低频不设门槛。** 首请求上下文保留五个内置工具 + `load_tools`/`call_tool` 两个承载工具，其余全部从 LLM 可见 active 集剔除；需要时由 `load_tools` 纯文本注入用法、`call_tool` 代理执行（两步确认门：`confirm:false` 零副作用挑战文本 → 用户点名后 `confirm:true` 激活，会话级记忆、会话开始清空）。
 
+> **2026-09-28 三次调整**：① 双 shell 合一，active 集里的 `bash`/`powershell` 换成单一 `shell`（省 450B 工具定义 + 一整条 snippet）；② `load_tools`/`call_tool`/`skill_search` 不再常驻（fork 只硬编码放行 `omnify` 一个例外），即今日常驻的是 **4 resident + `omnify` = 5 个**；③ `pi-lean-prompt` 把 `Guidelines`/`Pi documentation` 两段压掉 1366B。策略本身（扩展工具全懒、低频不设门槛）不变。详见[首字 token 三步优化](#首字-token-三步优化2026-09-28-三次)。
+
 ### 工具归属
 
 | 扩展 | 工具 | lazy 名单位 |
 |---|---|---|
-| 自带五工具 | `read`、`write`、`edit`、`bash`、`powershell` | ✗ 内建常驻（`.pi/settings.json` 的 `defaultTools` 显式声明） |
+| 自带三工具 | `read`、`write`、`edit` | ✗ 内建常驻（`defaultTools` 显式声明：项目 `.pi/settings.json` + 用户 `~/.pi/agent/settings.json` **两处都要有**） |
+| pi-shell（本地扩展） | `shell`（**bash + powershell 二合一**） | ✗ 内建常驻（resident 例外制下**必须**显式列 `shell`，否则自动 lazy） |
+| pi-lean-prompt（本地扩展） | （无工具，仅 `/lean-stats` 命令） | — |
 | pi-edit-guard | `edit`、`undo` | `undo` ✓；`edit` ✗ 同名覆盖内建，归核心常驻 |
 | @trycedar/pi-mdiff | `md_inspect`、`md_diff`、`md_edit` | ✓ |
 | @tian.zuo/pi-find | `grep`、`find` | ✓ |
@@ -244,11 +258,11 @@ node fix-browser-native-compat.mjs
 2. **`--tools` 白名单必须保留 lazy 工具**：注册与隐藏是两件事，只加 lazy 名单不进 `--tools`，`load_tools` 会报「未找到工具元数据」。
 3. 激活是会话级记忆，会话开始清空；`load_tools` 只在用户主动点名时才 `confirm:true`，不自行加载。
 4. 开新会话生效（扩展在会话启动时加载）。
-5. **勿把 `defaultTools` 置空或移除五工具**：`.pi/settings.json` 的 `defaultTools` 显式声明五个内置工具，改 `[]` 会退回零内置工具（只留扩展工具）。
+5. **勿把 `defaultTools` 置空**：**2026-09-28 三次优化后本机取值为 `["read","edit","write"]`**（双 shell 已合为 `shell`，故只剩三个）。改 `[]` 会退回零内置工具（只留扩展工具）。`shell` 靠 `~/.pi/lazy-tools.json` 的 `resident` 常驻（不看 `defaultTools`），所以**双 shell 隐藏靠三处同时生效**：① `defaultTools` 去掉 `bash`/`powershell`、② `resident` 列出 `shell`、③ `pi-shell` 的 `session_start` 再过滤一次——不依赖事件先后顺序。
 
 ### 权衡
 
-- 得：五个核心工具（`read`/`write`/`edit`/`bash`/`powershell`）零成本常驻、写代码主链路随叫随用；扩展工具说明书不常驻上下文、注入量与 token 低。
+- 得：四个核心工具（`read`/`write`/`edit`/`shell`）零成本常驻、写代码主链路随叫随用；扩展工具说明书不常驻上下文、注入量与 token 低；首请求静态前缀已从 9183B 压到 5751B（-37%）。
 - 失：搜索/网页/UI/子代理等扩展工具每次使用多一轮 `load_tools` 往返（含用户确认），`grep`/`find`（@tian.zuo/pi-find）亦需先激活。
 - `edit` 常驻即原始能力（同名覆盖内建行为保留）；`grep`/`find` 仍 lazy，激活后即恢复。
 
@@ -534,3 +548,82 @@ try {
 
 - 根因：pi-subagents@0.71.0 / pi-mcp-adapter@2.37.0 / pi-agent-browser-native@0.7.1 新版**已移除 `better-sqlite3` 依赖**（三包 `package.json` grep 无此依赖，`node_modules` 无此目录，`npm ls better-sqlite3` 空），依赖树里没有可批准的包。上轮记录的「共享原生依赖批准」流程基于旧版本。
 - 处置：安装后操作中的 better-sqlite3 批准段已标作废（见上），清单 B 三行的 ⚠ 依赖声明同步划掉；`allowScripts` 残留条目无害不清理。`approve @injaneity/pi-computer-use` 报 `Nothing to approve` 属正常（批准记录已存在且跨卸载保留，`pi install` 不清除），此后仅需手动重跑 `node scripts/setup-helper.mjs --postinstall` 确认 helper 就位。
+
+## 首字 token 三步优化（2026-09-28 三次）
+
+**动机**：常驻的五个内置工具定义 + 系统提示词里 `Guidelines`（10 行长句规范）与 `Pi documentation`（含「读本 md 须全文读完并循内部链接」等解释性文字）构成每轮都要重发的**静态前缀**。前缀在 provider 侧按 `cacheRead` 计费，**字节就是硬成本**——省下来的是每一轮、每一个 token 的钱。本轮只动这三处，均为 payload 级、可回退、不碰工具注册。
+
+**A/B 实测**（`.sc-test/ab-baseline.mjs`，同 driver / 同模型 / 同任务，仅切换扩展与配置）：
+
+| 项 | 基线 | 三步优化后 | Δ |
+|---|---|---|---|
+| system 提示词 | 4290B | 2859B | **-1431B（-33%）** |
+| tools 定义（wire 口径） | 4893B（6 个） | 2892B（5 个） | **-2001B（-41%）** |
+| 静态前缀合计 | 9183B | 5751B | **-3432B（-37%）** |
+| 首请求 `cacheRead` | 2604 tok | 1916 tok | **-688 tok（-26%）** |
+| active 集 | 6 工具 | 5 工具（`edit`/`read`/`shell`/`write`/`omnify`） | -1 |
+
+逐工具（wire 字节）：基线 `read 699 / bash 558 / powershell 570 / edit 2045 / write 445 / omnify 569` → 优化后 `read 533 / edit 661 / write 445 / shell 678 / omnify 569`。缓存纪律：优化后连续三轮 `input 35/125/125 + cacheRead 1916/1916/1916`，**前缀逐轮全命中、字节确定**（`pi-prefix-stabilizer` 无漂移告警）。`/lean-stats` 实测：system `4064→2700B`（rules -701 / docs -665）、tools `2744→1194B`（read -166、edit -1384）。
+
+### 第一步：压 `Guidelines` / `Pi documentation` 两段
+
+`extensions/pi-lean-prompt.ts` 在 `before_agent_start` 里改 `event.systemPrompt`：用 `RULES_RE=/\n\nGuidelines:[\s\S]*?(?=\n\n[^\n])/` 与 `DOCS_RE=/\n\nPi documentation \([^)]*\):[\s\S]*?(?=\n\n[^\n])/` 定位两段，换成 7 行压缩版 Guidelines（read/shell、**edit 全部 6 条**：精确唯一 / 尽量短 / 同文件多处与相邻改动合并 / 不重叠不嵌套 / anchor / `replaceAll`、write、omnify 两条、`PI_*`、回答纪律）与精简的 docs 段。
+
+三条边界，都是踩过的坑：
+
+1. **判定句幂等**：判据用 pi 原文里的定子 `RULES_ORIGINAL="Use read to examine files instead of cat or sed."` / `DOCS_ORIGINAL="Main documentation:"`——**原文不见了就说明已被别处压缩（fork 或别的扩展）过，直接跳过**，绝不会两层压缩叠成乱码。
+2. **让路 0.86+**：`before_agent_start` 首行 `if (event.systemPromptOptions?.sections) return;`。0.85.1 的 `BuildSystemPromptOptions` 没有 `sections`，本扩展接位；0.86+ 有 `sections` 就把活儿交回 lazy-tools fork 的 `RULES_NOTE`/`DOCS_NOTE`（那段在 0.85.1 上本来就是死代码）。
+3. **路径不硬编码**：三条文档路径（`Main documentation` / `Additional docs` / `Examples`）用 `PATH_BULLET_RE=/^- (?:Main documentation|Additional docs|Examples):[^\n]*$/` **从原段落里搬运**——pi 换安装目录不用改代码。额外保留一句「相对路径按上表根目录解析（非当前工作目录）；读 pi 相关 md 须全文读完并循内部链接。」，这是唯一丢了会真出错的语义。
+
+### 第二步：裁 `edit` / `read` 的 description 与 schema 样板
+
+在 `before_provider_request` 里改 `payload.tools`。**关键取舍：只改 payload、不重新注册同名工具**——所以 `pi-edit-guard` 的 fuzzy `edit`、`pi-one-ui` 的 write diff 元数据、`pi-undo-redo` 的路径追踪**全部不受影响**（工具定义对象还是同一个，只是发给 provider 的那份样板被裁了）。裁掉的是 pi 内建说明里的解释性文字（Examples/Notes 段、`anchor` 参数的 3 段用法展开、`replaceAll` 的多示例列举、`read` 的 `autoResizeImages` 解释等），**裁掉后仍逐字覆盖了本仓库系统提示词里那 6 条 edit 纪律**。
+
+踩过的两个坑：① 字段路径要带最外层 `properties.` 前缀（`properties.edits.items.properties.oldText.description`，少一层就删不到，`edit` 只从 1653B 降到 1261B）；② `payload.tools` 里的 `parameters` 对象是**同一引用跨轮复用**，第二轮起再量就是已瘦身值——`/lean-stats` 因此只记**首请求**。
+
+### 第三步：`bash` + `powershell` → `shell`
+
+`extensions/pi-shell.ts` 注册单一 `shell` 工具，`execute`/`renderCall`/`renderResult` **全权委托内建** `createBashToolDefinition(cwd, options)` / `createPowerShellToolDefinition(cwd)`（pi 根导出，自带输出截断、临时文件回写、`PI_*` 超时、abort、流式渲染），自研部分只有参数适配：
+
+```json
+{ "command": "…", "shell": "bash | powershell", "timeout": 120 }
+```
+
+- 手写 JSON Schema（用 `as unknown as TSchema` 强转）而不用 `Type.Union`——后者展开成 `anyOf`，模型在 `{"shell":"powershell"}` 上的选择率反而更差，还多占字节。
+- `shellPath` / `shellCommandPrefix` 从 global + project 两份 `settings.json` 透传（与 `SettingsManager.deepMergeSettings` 同序：project 覆盖 global），按 cwd 缓存。
+- 委托内建定义 ⇒ **PowerShell 路径的流式渲染也在**（实测 2 次 `tool_execution_update`），不是只传一个字符串。
+- 省下 450B（wire 1128→678B），且**少一个工具就少一条 promptSnippet**。
+
+**隐藏双 shell 靠三处同时生效**（不依赖事件先后顺序）：项目 + 用户 `settings.json` 的 `defaultTools` 都改成 `["read","edit","write"]`；`~/.pi/lazy-tools.json` 的 `resident` 列出 `shell`；扩展自己的 `session_start` 再 `setActiveTools(getActiveTools().filter(n => !["bash","powershell"].includes(n)))` 兜底。
+
+### 五合一（read/write/edit/bash/powershell → 单个 fs 工具）为什么不做
+
+评估后否决，理由三条：① **打断既有链**——`edit` 的多段 `edits[]` 语义是 `pi-edit-guard` fuzzy 匹配的载体、`write` 的 diff 元数据是 `pi-one-ui` TUI 渲染的载体、文件路径追踪是 `pi-undo-redo` 的 `/undo` 载体，合并后三者全部失效；② `edits[].oldText/newText/anchor/replaceAll` 的深层 schema 被摊平，模型填错率上升，而 `edit` 是主链路工具，一次失败代价远大于 450B 收益；③ 收益只兑现一次（bash+powershell 合一是删掉一个重复工具，收益完整；五合一砍的是语义不同的四个工具，边际收益递减）。
+
+### 两个扩展 + 两个脚本
+
+| 文件 | 作用 |
+|---|---|
+| `extensions/pi-lean-prompt.ts`（9497B） | 第一步 + 第二步，零工具注入，只挂 `before_agent_start` / `before_provider_request`；`/lean-stats` 看节省量，`PI_LEAN_DEBUG=1` dump 完整 tools JSON |
+| `extensions/pi-shell.ts`（6165B） | 第三步，替换 1 个工具；`session_start` 兼顶隐藏双 shell |
+| `install-local-extensions.mjs` | 仓库 `extensions/*.ts` → `~/.pi/agent/extensions/`（内容一致不写盘，`--check` 有漂移 exit 1，并校验 `resident` 是否含 `shell`） |
+| `fix-lazy-tools-notes.mjs` | 修 fork 的 `DOCS_NOTE` 死路径 + shell 措辞（见下） |
+
+两个扩展**拆开**是刻意的：`pi-lean-prompt` 零工具注入、纯改文本，出问题可单独禁用；`pi-shell` 替换工具，想回退就删文件 `/reload`。
+
+**`DOCS_NOTE` 路径 bug**：fork 里写死 `D:\Agent\pi\README.md`，本机根本不存在（真身在 `D:\agent\pi-windows-x64\`）。0.85.1 上该常量是死代码（`sections` 不存在），但 0.86+ 会启用。git 包是**独立 module root**，不能 runtime import 根 `node_modules` 的 `getReadmePath()`，所以由 `fix-lazy-tools-notes.mjs` **实测**填入：`PI_INSTALL_DIR` → `where pi.exe` 的 dirname → npm 包目录，**要求 `README.md` + `docs/` + `examples/` 三者齐全**才认。⚠ 别用 npm 副本的 `getReadmePath()` 去猜——它解析出的是 `C:\Users\yxh\.pi\agent\node_modules\…`（npm 安装路径），不是 pi 二进制所在目录。
+
+### 回退
+
+```bash
+rm ~/.pi/agent/extensions/pi-lean-prompt.ts ~/.pi/agent/extensions/pi-shell.ts   # 一步回退两步半
+# 再把 defaultTools 改回 ["read","bash","powershell","edit","write"]、resident 改回 8 个名字
+```
+
+两个扩展都只是 hook，不改 pi 本体、不改包配置，删掉即回到基线 9183B。已装副本的 `.bak`（`lazy-tools.ts.bak`）在补丁目录旁。
+
+### 待办
+
+- ⚠ **未目视 TUI**：`shell` 的流式渲染、`/lean-stats` 的弹窗、`pi-shell` 与 pi-one-ui/pi-tps 的渲染叠加都只在 RPC 探针下验过，**没在真 TUI 里看过**，下次开 TUI 试一次。
+- `pi-lean-prompt` 的裁剪是**基于本仓库系统提示词**校准的（那套 6 条 edit 纪律的措辞）；若换项目、改了本仓库的系统提示词，裁剪后的 `edit` 描述可能与仓库规范措辞不一致，需重校。
+- 探针纪律：`timeout` 杀 A/B 脚本的父进程会**跳过 `finally` 里的配置恢复**，把现场留在「基线态」；下次要么别套外层 `timeout`，要么在脚本开头先做一次 `.off → live` 的自愈。

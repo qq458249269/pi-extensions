@@ -1,3 +1,7 @@
 {
-  "defaultTools": ["read", "bash", "powershell", "edit", "write"]
+  "defaultTools": [
+    "read",
+    "edit",
+    "write"
+  ]
 }
