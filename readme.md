@@ -12,32 +12,39 @@
 
 > 下表 20 行里 `pi-edit-guard` 已卸载（删除线保留作决策记录，见 §7.1），**实际在用 19 个**。
 
-版本列为**本机实测安装版本**（`pi list` + 各包 `package.json`），非 npm 最新。
+**不锁版本**：安装命令一律不带 `@版本号`（取 npm 最新），本清单不维护版本矩阵。要查本机实际装的版本：
+
+```bash
+node -e 'const{execSync}=require("child_process"),fs=require("fs");
+execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.test(l)).map(l=>l.trim())
+ .forEach(s=>{const n=s.split(":").slice(1).join(":");
+  try{console.log(n,"→",JSON.parse(fs.readFileSync("C:/Users/yinxuehao/.pi/agent/npm/node_modules/"+n+"/package.json","utf8")).version)}catch{console.log(n,"→ (git)")}})'
+```
 
 ### 1.1 核心层（先装，装完先跑一次冒烟）
 
-| 包 | 版本 | 作用 | 备注 |
-|---|---|---|---|
-| `npm:pi-web-access` | 0.31.0 | 网页搜索 / 抓取 | 大输出工具，用前先看 §5 缓存纪律 |
-| `npm:pi-tps` | 1.0.1 | 底部 token/speed 状态栏 | 装后跑 `fix-tps-theme.ps1` 让配色跟随系统主题 |
-| `npm:@injaneity/pi-computer-use` | 0.5.1 | 桌面截图 / 点击 / 输入 | **唯一需批准 install 脚本的包**，见 §3.1 |
-| `npm:pi-one-ui` | 0.7.1 | TUI 统一美化（Header/Context/WorkingLine/Editor/Footer） | 取代旧 `alps-pi`；要求 Node ≥22.19、Pi ≥0.84 |
-| `npm:pi-cache-guardian` | 1.0.7 | 缓存命中巡检 + 前缀漂移告警 | 与 §6 的 prefix-stabilizer 是同一根因的两端，一并用 |
-| `npm:@tian.zuo/pi-find` | 0.6.0 | `grep` / `find` 工具 | **覆盖内建同名工具**（替换，不是并列） |
-| `npm:pi-edit-guard` | ~~0.1.5~~ | 覆盖内建 `edit` + 注册 `undo` | **已卸载**，见 §7.1 |
-| `npm:@trycedar/pi-mdiff` | 0.4.0 | `md_inspect` / `md_diff` / `md_edit` | Markdown 结构化编辑，`.md` 改动优先用它 |
-| `npm:pi-undo-redo` | 0.1.3 | 会话 / 文件撤销重做 | 纯命令扩展，零工具 |
-| `npm:pi-mcp-adapter` | 2.37.0 | 一个 `mcp` 代理工具替代成百上千个 MCP 工具定义 | 装完重启自动读 `.mcp.json` |
-| `npm:pi-agent-browser-native` | 0.7.1 | 原生 `agent_browser*` 工具（8 个） | 要求 Pi ≥0.86.1；本机 0.87.1 满足，**不需要**兼容补丁 |
-| `npm:@agenticup/pi-loop` | 0.1.4 | `loop` 递归深潜工具 | 入口是 `extensions/loop.ts`，不是 `dist/index.js` |
-| `git:github.com/qq458249269/pi-lazy-tools` | — | 按需工具加载（`load_tools` / `call_tool`） | **fork，含 jiti 加载器补丁**；npm 版 `@wolido/pi-lazy-tools` 已下架 |
-| `npm:@zhushanwen/pi-smart-context` | 0.3.4 | 智能压缩：注册 `compact_context` 交 agent 自决 | **必做配置**见 §3.2 |
-| `npm:pi-prefix-stabilizer` | 0.1.0 | 系统提示词前缀稳定 + 漂移检测 | 与 compaction-cache 有先后要求，见 §2.2 |
-| `npm:pi-compaction-cache` | 0.1.1 | 摘要调用复用已缓存前缀 | **必做配置**见 §3.3；实测把压缩调用自身命中从 1.6% 拉到 98.8% |
-| `npm:pi-warm-cache` | 0.4.0 | 空闲期按厂商 TTL 续前缀缓存 | **本机不生效**（本地代理属未注册路由），纯静默待命 |
-| `npm:@nguyenquangthai/pi-ask` | 0.2.0 | `ask_user_question` 结构化提问对话框 | 歧义时问用户，比猜省事 |
-| `npm:@ssk_dev/rpiv-todo-lean` | 2.11.0 | `todo` 任务清单工具 + TUI overlay | `ctrl+shift+t` 折叠；`/todos` 看全量 |
-| `npm:@aboutlo/pi-smart-edit` | 0.4.0 | 覆盖内建 `edit`，容忍引号/空白不匹配 | **已生效**；`edit` 归它，匹配走「精确 → NFKC 归一化行」 |
+| 包 | 作用 | 备注 |
+|---|---|---|
+| `npm:pi-web-access` | 网页搜索 / 抓取 | 大输出工具，用前先看 §5 缓存纪律 |
+| `npm:pi-tps` | 底部 token/speed 状态栏 | 装后跑 `fix-tps-theme.ps1` 让配色跟随系统主题 |
+| `npm:@injaneity/pi-computer-use` | 桌面截图 / 点击 / 输入 | **唯一需批准 install 脚本的包**，见 §3.1 |
+| `npm:pi-one-ui` | TUI 统一美化（Header/Context/WorkingLine/Editor/Footer） | 取代旧 `alps-pi`；要求 Node ≥22.19、Pi ≥0.84 |
+| `npm:pi-cache-guardian` | 缓存命中巡检 + 前缀漂移告警 | 与 §6 的 prefix-stabilizer 是同一根因的两端，一并用 |
+| `npm:@tian.zuo/pi-find` | `grep` / `find` 工具 | **覆盖内建同名工具**（替换，不是并列） |
+| `npm:pi-edit-guard` | 覆盖内建 `edit` + 注册 `undo` | **已卸载**，见 §7.1（要装的话注意与 smart-edit 争 `edit` 槽） |
+| `npm:@trycedar/pi-mdiff` | `md_inspect` / `md_diff` / `md_edit` | Markdown 结构化编辑，`.md` 改动优先用它 |
+| `npm:pi-undo-redo` | 会话 / 文件撤销重做 | 纯命令扩展，零工具 |
+| `npm:pi-mcp-adapter` | 一个 `mcp` 代理工具替代成百上千个 MCP 工具定义 | 装完重启自动读 `.mcp.json` |
+| `npm:pi-agent-browser-native` | 原生 `agent_browser*` 工具（8 个） | 要求 Pi ≥0.86.1；本机 0.87.1 满足，**不需要**兼容补丁 |
+| `npm:@agenticup/pi-loop` | `loop` 递归深潜工具 | 入口是 `extensions/loop.ts`，不是 `dist/index.js` |
+| `git:github.com/qq458249269/pi-lazy-tools` | 按需工具加载（`load_tools` / `call_tool`） | **fork，含 jiti 加载器补丁**；npm 版 `@wolido/pi-lazy-tools` 已下架 |
+| `npm:@zhushanwen/pi-smart-context` | 智能压缩：注册 `compact_context` 交 agent 自决 | **必做配置**见 §3.2 |
+| `npm:pi-prefix-stabilizer` | 系统提示词前缀稳定 + 漂移检测 | 与 compaction-cache 有先后要求，见 §2.2 |
+| `npm:pi-compaction-cache` | 摘要调用复用已缓存前缀 | **必做配置**见 §3.3；实测把压缩调用自身命中从 1.6% 拉到 98.8% |
+| `npm:pi-warm-cache` | 空闲期按厂商 TTL 续前缀缓存 | **本机不生效**（本地代理属未注册路由），纯静默待命 |
+| `npm:@nguyenquangthai/pi-ask` | `ask_user_question` 结构化提问对话框 | 歧义时问用户，比猜省事 |
+| `npm:@ssk_dev/rpiv-todo-lean` | `todo` 任务清单工具 + TUI overlay | `ctrl+shift+t` 折叠；`/todos` 看全量 |
+| `npm:@aboutlo/pi-smart-edit` | 覆盖内建 `edit`，容忍引号/空白不匹配 | **已生效**；`edit` 归它，匹配走「精确 → NFKC 归一化行」 |
 
 ### 1.2 本地扩展（不走 `pi install`，放 `~/.pi/agent/extensions/`）
 
@@ -103,7 +110,9 @@ node install-local-extensions.mjs
 pi update --extensions        # 只升扩展，不动 pi 本体（--all 会连 pi 一起升）
 ```
 
-**升级禁用 `pi install`**：对已装包会命中 npm 缓存、不升版本（要升必须带 `@latest`，但那会重装并可能打乱顺序）。升级后跑 §8 体检。
+**升级禁用 `pi install`**：对已装包会命中 npm 缓存、不升版本。升级一律走 `pi update --extensions`（不带版本号 = 取各包 npm 最新）。升级后跑 §8 体检。
+
+> 首次安装（§2.1）同样不带版本号，npm 自动解析 latest；**本仓库任何位置都不写死扩展版本号**。
 
 ### 2.4 卸载
 
@@ -276,7 +285,7 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 
 **决定：卸载 `pi-edit-guard`，由 `@aboutlo/pi-smart-edit` 独占 `edit`。**
 
-| | `pi-edit-guard` 0.1.5（已卸） | `@aboutlo/pi-smart-edit` 0.4.0（在用） |
+| | `pi-edit-guard`（已卸） | `@aboutlo/pi-smart-edit`（在用） |
 |---|---|---|
 | 匹配策略 | 14 趟分级匹配 + 锚点窗口 + 自修复 | 精确 → NFKC 归一化行匹配 |
 | 附加能力 | 注册 `undo`、越界 cwd 提示、`.env`/secret 提示、锚点与诊断报告 | 无 |
@@ -286,12 +295,12 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 
 > 若哪天要回退：装回 `pi-edit-guard` 并卸 smart-edit 即可；或给 edit-guard 写 `~/.pi/agent/extensions/edit-guard-config.json` 的 `{"editOverrideEnabled": false}`（**必须是 `extensions/` 子目录，放 `~/.pi/agent/` 根下不生效**——已实测），让它只让出 `edit`、保留 `undo`。
 
-### 7.2 其它遗留（未清理，等定夺）
+### 7.2 其它遗留（2026-09-28 六次清理后只剩备份）
 
-- `settings.json` 里的 `alps-pi` 死配置块（已被 pi-one-ui 取代）。
-- `~/.pi/agent/pi-hermes-memory/`（`pi-hermes-memory` 早已卸载）。
-- `~/node_modules/@earendil-works*@0.85.1`：旧版本残留，是 pi-web-access 报 "Dynamic tool activation requires Pi 0.86.1 or newer" 告警的来源；0.87.1 上属误报，**不影响功能**。
-- `.backup-20250915/`（历史备份）与若干 `settings.json.bak-*`。
+- `settings.json` 里的 `alps-pi` 死配置块（已被 pi-one-ui 取代）→ **已删**（2026-09-28 六次），删后 pi 启动与体检均正常。
+- `~/.pi/agent/pi-hermes-memory/`（`pi-hermes-memory` 早已卸载）→ **已删**（19MB 死数据）。
+- `~/node_modules/@earendil-works*@0.85.1`：**故意保留**。那是一棵自洽的 0.85.1 生态，且 `@wolido/pi-lazy-tools` 依赖它，删了会连带坏掉。pi 自身的扩展从 `~/.pi/agent/node_modules`（0.87.1）解析，**不会走到家目录那份**；pi-web-access 报的 "Dynamic tool activation requires Pi 0.86.1 or newer" 属误报，不影响功能。
+- `.backup-20250915/`（仓库内未跟踪）与 `~/.pi/agent/settings.json.bak-*` ×4：**保留**。这是旧配置的唯一副本，删了不可逆；确认不再需要时可自行删。
 
 ---
 
@@ -305,7 +314,7 @@ node .sc-test/check-ext-errors.mjs
 | 症状 | 原因 | 处置 |
 |---|---|---|
 | 扩展报 `Tool "x" conflicts with ...` | 两个扩展抢同一工具名 | 二选一卸载（见 §7.1） |
-| 懒加载报 `Cannot find module` | lazy 执行层地基缺失 | `npm i --prefix ~/.pi/agent @earendil-works/{pi-coding-agent,pi-tui,pi-ai}@<与 pi 同版本>` |
+| 懒加载报 `Cannot find module` | lazy 执行层地基缺失（版本要与 pi 本体一致，别写死） | `npm i --prefix ~/.pi/agent @earendil-works/{pi-coding-agent,pi-tui,pi-ai}@$(pi --version \| grep -oE '[0-9]+\.[0-9]+\.[0-9]+')` |
 | 工具调用不到、wire 上也没有 | 不在 `defaultTools`（不注册）或不在 `resident`（被 lazy） | 对照 §4 的两道闸 |
 | 会话/文件撤销 | `pi-edit-guard` 已卸载，其 `undo` 工具随之消失 | 会话级用 `pi-undo-redo`（`/undo` `/redo`）；文件级靠 git 或改前先 `read` |
 | agent 没有 shell | `defaultTools` 里没有 `bash` | 写 `bash` 进两处 `defaultTools` + `resident`；若 `extensions/pi-shell.ts` 被装回来，它会在 `session_start` 无条件隐藏 `bash` |
