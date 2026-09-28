@@ -1,629 +1,346 @@
-# Pi Extensions 安装清单
+# Pi 扩展安装配置清单
 
-本手册汇总一套推荐的 Pi 扩展安装方案，按「缓存与节省优先，编程增强次之」的原则组织。扩展统一安装在 Pi 配置根 `~/.pi/agent`（Windows 下为 `%USERPROFILE%\.pi\agent`），以下路径均以此计。
+本手册是一份**可直接照做的安装 + 配置清单**：装哪些、按什么顺序装、每个必做配置写什么、以及每条结论的实测依据。
+扩展统一装在 `~/.pi/agent`（Windows：`%USERPROFILE%\.pi\agent`），下文路径均以此计。
 
-> 按需工具加载由 **pi-lazy-tools** 承担（前身 `@wolido/pi-tool-search` 已下架；2026-09-22 由 npm `@wolido/pi-lazy-tools` 承接，**2026-09-23 起改装 fork `git:github.com/qq458249269/pi-lazy-tools`，3 行 jiti 加载器补丁已并入仓库 `b2a7d75`**）：低频工具列入 lazy 名单后从 LLM 可见 active 集剔除，需要时 `load_tools` 纯文本注入用法、`call_tool` 代理执行，与其它扩展不冲突。
->
-> 本轮（2026-09-17）新增 4 个扩展，全部**零工具注入**（无 `registerTool`/`setActiveTools`），只挂事件钩子，不增加首请求 token、不与 `@wolido/pi-lazy-tools` 懒加载冲突。
->
-> 本轮（2026-09-21）再增 5 个扩展：`pi-undo-redo`（会话/文件撤销重做）、`pi-hermes-memory`（持久记忆 + 会话检索 + 密钥扫描）、`pi-subagents`（子智能体委托）、`pi-mcp-adapter`（MCP 适配）、`pi-agent-browser-native`（原生浏览器工具）。注册的 10 个工具一律列入 lazy 名单（见[工具归属](#工具归属)），不增首请求注入量。
->
-> 本轮（2026-09-22）换装：`@wolido/pi-tool-search` 已从 npm 下架 → 由**同作者的 `@wolido/pi-lazy-tools@0.3.1` 承接**（配置 `lazy-tools.json`、常驻 `load_tools`/`call_tool`、两步确认门全部同款，新增 call_tool 的 JSON Schema 预校验 + factory 重放真实 execute）；**移除 `alps-pi`**（TUI 美化）→ **加入 `pi-one-ui@0.7.1`**（统一 TUI 包，功能覆盖 alps-pi 并扩展，见下方清单 B）。**移除 `pi-hermes-memory`**（持久记忆，不再使用，其 6 个工具从 lazy 名单与工具归属中同步剔除）。清单现 13 个。
->
-> 本轮（2026-09-22 二轮，策略回调）：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`）恢复**默认常驻 active 集**（项目 `.pi/settings.json` 显式 `defaultTools`，Windows 下同含 bash/powershell 双 shell）；`edit` 从 lazy 名单移除（归核心五工具，同名覆盖内建行为保留）；`grep`/`find`（@tian.zuo/pi-find）等其余扩展工具**仍全量懒加载**。active 集回到 7（五工具 + `load_tools`/`call_tool`），写代码主链路零 `load_tools` 往返。
+**本机基线（所有实测都在这上面做的）**：Pi **0.87.1**、node **24.16.0**、npm 12、模型走本地代理 `http://localhost:20128/v1`（`openai-completions`，模型 id `1`，窗口 100K）。
+换版本 / 换 provider 后，**先复测再信下面的数字**（见文末「怎么复测」）。
 
-> 本轮（2026-09-22 三轮）：新增 **SoL-Pi**（`git:github.com/NVlabs/SoL-Pi`，NVIDIA 开源上下文/token 效率扩展，arXiv 2609.20519），清单 **13 → 14**（13 npm + 1 git）。四机制全 opt-in 默认关（`sol-pi.json` 配置，见[清单 A](#a-核心层先装)）：**Action Fusion** 同名覆盖内建 `edit`/`write` 追加 `then_run` 参数（同一次工具调用完成编辑 + 校验命令，省一轮往返）；**ObservationPack** 大文本结果转稳定句柄 + 分页回放（注册 `obs_recall`）；**Evidence-Preserving Reducer** 长诊断日志转紧凑收据（无工具）；**Online Context Compact** 完成的计划步骤成原生压缩候选点（注册 `update_plan`）。`obs_recall`/`update_plan` 补入 lazy 名单；`edit`/`write` 同名覆盖归核心常驻（与 pi-edit-guard 之于 `edit`、pi-one-ui 之于 `write` 同类）。**维护机已启用保守两机制**（actionFusion + observationPack，`~/.pi/agent/sol-pi.json`，见[安装后操作 10](#安装后操作)）。
->
-> 本轮（2026-09-23）skill 去注入：`before_agent_start` 剥离 Pi 默认注入的 `<skills>` 段（全部 skill 的 name + description 常驻），改写为单行说明；改为**动态发现**：常驻 `skill_search` 工具按关键词/名返回 skill 的 name、description 与 SKILL.md 路径，promptSnippet 限「仅用户明确要求使用 skill 时调用，never proactively」。实测系统提示词 0 个 skill 名/description（装前 4 个全注入），`skill_search("恋爱")` 正确返回 `goutoujunshi` 元数据与路径。`/skill:name` 显式命令不受影响。**该功能曾为独立扩展 `pi-lazy-skills`，现已并入 `pi-lazy-tools` fork（commit `358e236`），`pi-lazy-skills` 已卸载，清单现 14 个**。
->
-> 本轮（2026-09-23）lazy-tools 换源：`npm:@wolido/pi-lazy-tools` 移除 → **`pi install git:github.com/qq458249269/pi-lazy-tools`**（fork 含 jiti 补丁 `b2a7d75` + `dependencies: jiti`；git 包独立 module root，不能蹭根 node_modules，故依赖必须声明）。实测 `load_tools`→`call_tool` 全链 OK（replay `grep` → 43 matches，`isError":false`）。配置 `~/.pi/lazy-tools.json` 不变。
->
-> 本轮（2026-09-23 四轮）：**卸载 SoL-Pi**（`pi uninstall git:github.com/NVlabs/SoL-Pi`），三轮新增记录作废：`edit`/`write` 同名覆盖（`then_run`）撤除、恢复内建原始行为，`obs_recall`/`update_plan` 注入撤除并从 lazy 名单剔除，`~/.pi/agent/sol-pi.json` 配置已删除。清单 **14 → 13**（12 npm + 1 git，`pi list` 实测核对）。
->
-> 本轮（2026-09-23 五轮）：新增 **`@agenticup/pi-loop@0.1.4`**（`npm:@agenticup/pi-loop`，loop engineering 递归深潜扩展），清单 **13 → 14**（13 npm + 1 git，`pi list` 实测核对）。只注册 1 个工具 `loop`（5 阶段流水线：Decompose → DRIP 前置回检 → Solve 并发子智能体 → Critique MAKER 投票 → Iterate ADaPT 深分解 → Synthesize DRAGON 冲突检测）。⚠ 现行 pi-lazy-tools fork 为 **resident 例外制**（`~/.pi/lazy-tools.json` 只列常驻例外，其余默认全 lazy），`loop` 不在 `resident` 即自动 lazy，**无需改配置**；`loop` 归属见[工具归属](#工具归属)。
->
-> 本轮（2026-09-24 六轮）：**卸载 `pi-subagents`**（`pi uninstall npm:pi-subagents`，不再使用子智能体委托），清单 **14 → 13**（12 npm + 1 git，`pi list` 实测核对）。`subagent`/`contact_supervisor` 从 lazy 名单剔除（resident 例外制下无需改配置，工具直接不存在）；安装循环、自查清单、工具归属表、安装后操作条目同步剔除；better-sqlite3 三包并称段改两包（见[安装与配置](#安装与配置)）。
->
-> 本轮（2026-09-27）：新增 **`@zhushanwen/pi-smart-context@0.3.4`**（`npm:@zhushanwen/pi-smart-context`，智能上下文压缩：agent 自决 `compact_context` 工具 + 双模式摘要生成 + 3 档阈值提醒），清单 **13 → 14**（13 npm + 1 git，`pi list` 实测核对）。**同时试装并卸载 `billion-context-pi@0.1.80`**——在本机与 `pi-lazy-tools` 冲突，五个 ACP 工具全部加载失败却又无条件取消 pi 原生压缩，净损失，详见[压缩与缓存](#压缩与缓存)。smart-context 实测数据、配置与已知缺陷同见该节。
->
-> 本轮（2026-09-28）：再装 4 个扩展，清单 **14 → 18**（`pi list` 实测 18 项：`packages` 18 条无丢失），全部**零 agent 工具注入**（无 `registerTool`/`setActiveTools`），与 `pi-lazy-tools` resident 例外制零冲突：`pi-prefix-stabilizer@0.1.0`（系统提示词前缀稳定 + 漂移检测）、`pi-compaction-cache@0.1.1`（摘要调用复用已缓存前缀，实测把压缩调用自身命中从 **1.6% 拉到 98.8%**）、`pi-warm-cache@0.4.0`（空闲期保 TTL，**本机路由未注册故不生效**）、`pi-footer-template@0.5.0`（footer 模板，默认含 `CH{latestCacheHitRate}%`）。另修 `pi-agent-browser-native@0.7.1` 在 **pi 0.85.1** 下的加载期报错 `ctx.sessionManager.buildSessionProjection is not a function`（该 API 属 0.86+），打双路回退补丁 + 幂等脚本 `fix-browser-native-compat.mjs`，补丁后全量扩展 `extension_error` 实测 **1 → 0**。四包与压缩实测全表见[压缩与缓存](#压缩与缓存)，安装顺序有硬约束（compaction-cache 须在 smart-context **之后**、prefix-stabilizer 须在 compaction-cache **之前**）。
+---
 
-> 本轮（2026-09-27）：新增 **`@nguyenquangthai/pi-ask@0.2.0`**（`npm:@nguyenquangthai/pi-ask`，键盘优先的结构化提问对话框 + 提交前 review 页，Claude Code `AskUserQuestion` 的对标物），清单 **18 → 19**（`pi list` 实测 19 项 = 18 npm + 1 git，`packages` 19 条无丢失）。只注册 1 个工具 `ask_user_question`，**resident 例外制下默认即 lazy，不改 `lazy-tools.json`**；代价是用它前必须先 `load_tools` 激活 + 用户确认（见[本轮实录](#本轮实录装-pi-ask--升级全部扩展2026-09-27)）。同时**升级全部扩展**（`pi update --extensions`，只动扩展不动 pi 本体）：`pi-mcp-adapter` 2.37.0 → **2.38.0**、`pi-agent-browser-native` 0.7.1 → **0.8.1**（⚠ 声明 `engines.node >=24.21.0`，本机 24.16.0 仅 npm 告警；0.8.x 仍调 `buildSessionProjection`，兼容补丁要重打，已重打）。**本轮还揪出并修掉一个静默已久的故障：lazy 执行层全线失效**（`load_tools` 能注入用法，`call_tool` 却加载不到任何 npm 扩展的工具定义），根因是 `@earendil-works/*` 捆绑包在解析路径上无处可寻，详见[lazy 执行层失效与修复](#lazy-执行层失效与修复2026-09-27)。
+## 1. 清单（在用 19 个扩展 = 18 npm + 1 git）
 
-> 本轮（2026-09-28 二次）：新增 **`@ssk_dev/rpiv-todo-lean@2.10.3`**（`npm:@ssk_dev/rpiv-todo-lean`，任务清单 / todo 跟踪），清单 **19 → 20**（`pi list` 实测 20 项 = 19 npm + 1 git，`packages` 20 条无丢失）。只注册 1 个工具 `todo`（6 个 action、依赖 `blockedBy`、抗压缩/抗 `/tree` 的分支重放），是 `@juicesharp/rpiv-todo@2.10.1` 的**瘦包装**——保留完整引擎、只把工具描述从 904 砍到 119 字符（省 72.8%）；**resident 例外制下默认即全懒，不改 `lazy-tools.json`**。TUI overlay 走 `setWidget("rpiv-todos")` 具名槽，与 pi-one-ui 的 widget key 不重叠、不抢 footer 槽。用法：`/todos` 看全量、`ctrl+shift+t` 折叠 overlay。详见[本轮实录](#本轮实录装-ssk_devrpiv-todo-lean2026-09-28)。
+> 下表 20 行里 `pi-edit-guard` 已卸载（删除线保留作决策记录，见 §7.1），**实际在用 19 个**。
 
-> 本轮（2026-09-28 三次）：**首字 token 三步优化**。`pi list` 仍 20 项（`pi-lean-prompt`/`pi-shell` 是**本地扩展**，放 `~/.pi/agent/extensions/` 随会话自动加载、不走 `pi install`，故不计入清单）。A/B 实测（同 driver / 同模型 / 同任务）静态前缀 **9183B → 5751B（-37%）**、首请求 `cacheRead` **2604 → 1916 tok（-26%）**，且逐轮全命中不变。① **压 `Guidelines` / `Pi documentation` 两段**：`before_agent_start` 改 `event.systemPrompt`（rules -701B / docs -665B），文档路径从原段落正则搬运、`sections` 存在即让路给 0.86+ 的 fork；② **裁 `edit`/`read` 的 description 与 schema 样板**：`before_provider_request` 改 `payload.tools`，**只改 payload 不覆盖注册**，pi-edit-guard / pi-one-ui / pi-undo-redo 零影响（wire `edit` 2045→661B）；③ **bash + powershell 合一为 `shell`**：委托内建 `createBashToolDefinition`/`createPowerShellToolDefinition`，1128B→678B，参数 `{command, shell: bash|powershell, timeout}` 默认 bash。**五合一（read/write/edit/bash/powershell 并成一个 fs 工具）已评估并否决**：会打断 pi-edit-guard 的 fuzzy `edit`、pi-one-ui 的 write diff 元数据、pi-undo-redo 的路径追踪（`/undo` 失效），`edits[]` 深层 schema 摊平还会抬失败率。新增脚本 `install-local-extensions.mjs`（仓库→本机同步）、`fix-lazy-tools-notes.mjs`（fork 的 `DOCS_NOTE` 路径 bug + shell 措辞，均幂等）。详见[首字 token 三步优化](#首字-token-三步优化2026-09-28-三次)。
+版本列为**本机实测安装版本**（`pi list` + 各包 `package.json`），非 npm 最新。
 
-## 推荐清单（20 个，始终最新）
+### 1.1 核心层（先装，装完先跑一次冒烟）
 
-### A. 核心层（先装）
-
-| 扩展 | 来源 | 作用 |
-|---|---|---|
-| `pi-lazy-tools`（`@wolido/pi-lazy-tools` 的 fork） | `git:github.com/qq458249269/pi-lazy-tools` | **核心**。**2026-09-23 起弃 npm 源改装本 fork**（jiti 加载器补丁随仓库版本化，`pi install` 更新不再丢修复，声明 `dependencies.jiti` 供独立 module root 解析）。低频工具懒加载（**2026-09-22 起替代已下架的 `@wolido/pi-tool-search`，配置/工具名/两步确认门完全同款**）：会话启动把 `lazy-tools.json` 名单工具从 LLM 可见 active 集剔除，需要时 `load_tools` 以纯文本注入描述/参数 schema（两步确认门：先挑战文本 `confirm:false` 零副作用、用户主动要求后 `confirm:true` 激活）、`call_tool` 代理执行——相对 tool-search 加强：JSON Schema 预校验（type/required/enum/pattern/properties 等子集，不合法不触碰目标 execute）+ factory 重放捕获真实 `execute`（按 `sourcePath#name` memoize，每会话只重放一次）。**不触碰 `tools` 字段**；系统提示词侧唯一动作是把 `<skills>` 段改写为单行说明（skill 去注入，原独立扩展 `pi-lazy-skills` 已于 commit `358e236` 并入并卸载），其余不动、轮间字节稳定。**关键：`--tools` 白名单必须保留 lazy 工具**（注册与隐藏是两件事）。三常驻工具：`load_tools`、`call_tool`、`skill_search`（skill 动态发现，promptSnippet 限仅用户明确要求使用 skill 时调用） |
-| `pi-cache-guardian` | `npm:pi-cache-guardian` | **缓存守护（防 autocompact 后命中率归零）**。首轮完整链处理后将 system prompt 捕获为 **golden 副本**，之后每轮无条件恢复——字节级一致保证前缀缓存不因 autocompact 重建 system prompt 而整体失效；叠加 prompt reorder（稳定内容前置）、skill 压缩（>4 个 skill 时 4 行 XML 压缩为单行索引）、`<session-overview>` 变化字段剥离（RECENT COMMITS/目录状态/行数），并自动设 `PI_CACHE_RETENTION=long`。自动兼容检测：OpenAI 400 时剥离 `prompt_cache_retention`、Anthropic 400 时降级 `cache_control` TTL、OpenAI 兼容端点注入 `prompt_cache_key`。**不注入任何工具**（无 `setActiveTools`），与 `@wolido/pi-lazy-tools` 懒加载不冲突。命令：`/cache-guardimizer`（npm README 里的 `/cache-guardian` 为旧名）查看每轮 `cacheRead`/`cacheWrite` 统计。可选：`PI_CACHE_GUARD=1` 时会话结束命中率 < `PI_CACHE_GUARD_THRESHOLD`（默认 90）报警。**压缩（`/compact`/autocompact）后命中骤降的判定见[压缩与缓存](#压缩与缓存)** |
-| `pi-tps` | `npm:pi-tps` | TPS/TTFT/停顿/token 成本监控 widget + **运行状态指示**（回合运行中 TUI 底部状态栏实时 spinner、实时 TPS、Waterfall 瀑布图，回合结束弹整回合统计摘要）。配置：`/pi-tps`（`showTraces`/`showStats`/`showTtft`/颜色）。**必须配主题**：装好后 `colorPreset` 默认 `mono`，运行 `fix-tps-theme.ps1`（幂等：同时把 `pi-tps.json` 设为 `theme`、`settings.json` 的 `theme` 设为 `light/dark` 跟随系统）或手动 `/pi-tps` 选 `theme`、`/settings` 主题设 `light/dark` |
-| `@zhushanwen/pi-smart-context` | `npm:@zhushanwen/pi-smart-context` | **智能上下文压缩（2026-09-27 装，v0.3.4）**：注册 `compact_context` 工具交 agent 自决压缩时机（未达最低档阈值时拒绝并回用量建议）；`session_before_compact` 接管压缩生成走**双模式**——`compactModel` 留空/等于当前模型即 same-model（送全量上下文 + 会话原 system prompt + tools + 末尾压缩指令，前缀可复用、模型看全量，质量上限最高），配廉价模型即 cross-model（调用 pi 原生 `compact()` 仅换模型凭证）；另按 `reminderThresholds` 三档静默注入阈值提醒（不强制、每档一次、已提醒档位随 session 持久化）。排除模型走 `excludedModels` 精准 `provider/modelId` 匹配。配置 `~/.pi/agent/config/smart-context-ext-config.json`，**读时热加载**（改完下一次事件即生效，无需重启）。排障日志 `~/.pi/agent/logs/smart-context-*.log`，前缀 `[smart-context]`，需 `TAIJI_AGENT_DEBUG=1`。⚠ 实测结论与配置值见[压缩与缓存](#压缩与缓存) |
-| `pi-prefix-stabilizer` | `npm:pi-prefix-stabilizer` | **前缀稳定器（2026-09-28 装，v0.1.0）**。`before_provider_request` 钩子：把系统提示词里随安装路径/工具顺序漂移的字节钉死——① 安装根路径归一（`packagePathSuffix` → `stablePath`，默认 `$HOME/.pi/pi-home`，可选建软链）；② `tools` 数组**按名排序**；③ `<tools>` 段内条目按名排序；④ system 文本取 sha1 指纹，会话中途变了就**报漂移**（换包/MCP 增删、改 rules/AGENTS.md、换 cwd 都会触发），因为漂移点之后的 KV 前缀全作废。**零工具注入**。⚠ 本机实测**路径改写是 no-op**（Windows 装法在 `D:\agent\pi-windows-x64`、且包内判定只认 `/` 开头且存在的 POSIX 路径），实际只做了 tools 排序 + 漂移检测，8 轮长会话无 `drift` 记录；**不要**把 `packagePathSuffix` 改成 Windows 路径，原理上不生效。详见[压缩与缓存](#压缩与缓存) |
-| `pi-compaction-cache` | `npm:pi-compaction-cache` | **压缩调用缓存化（2026-09-28 装，v0.1.1）**。`session_before_compact` 接管摘要生成：把摘要请求重写成**复用已缓存前缀**的形态（默认 `scope:"boundary"` 只发到摘要边界止，保留区不发），并附一次/会话的提示词漂移自检（`prompt_drift_check`，仅结果 `DRIFTED` 才告警，**它不是接管开关**）。这是**唯一能修的失效点**：压缩本身要重发整段历史，原本是压缩会话里最贵的一击。**必须配 `models` matcher**（本机模型无 cost 元数据时走 zero-cost heuristic 会直接 decline），配置文件 `~/.pi/agent/compaction-cache.json`；命令 `/compaction-cache-status` 看逐次判定。**零工具注入**。⚠ 安装顺序**必须在 `pi-smart-context` 之后**（同抢 `session_before_compact`，靠后接管者胜），实测把压缩调用自身命中率从 1.6% 拉到 98.8%，全表见[压缩与缓存](#压缩与缓存) |
-### B. 功能增强（其次）
-
-| 扩展 | 来源 | 作用 |
-|---|---|---|
-| `pi-web-access` | `npm:pi-web-access` | 网页搜索、URL 抓取、GitHub 克隆、PDF/YouTube 理解 |
-| `pi-one-ui` | `npm:pi-one-ui` | **统一 TUI 包（2026-09-22 起替代 `alps-pi` 承担美化，要求 Node >=22.19、Pi >=0.84）**：Header/Context/WorkingLine/Editor/Footer 分层布局；`/oneui` 设置面板、`/context` Context Inspector、`@` 补全（会话引用 + Subagent 委派）、Tool/Diff 美化渲染、Mermaid 增强、内置 `cc-dark`/`cc-light` 主题（`/theme`）。配置 `~/.pi/agent/pi-one-ui.json`（canonical v1）。**唯一直改面是同名覆盖内建 `write`**（包内在 edit/write 时记元数据供 Diff 渲染，同名替换不新增 active 工具数，对 token/首请求无影响）；其余皆布局/渲染层。`/oneui` 设置、Preset 一跳保存 |
-| `@injaneity/pi-computer-use` | `npm:@injaneity/pi-computer-use` | 观察并控制 macOS/Windows/Linux 桌面应用，**需运行时授予平台权限** |
-| `@tian.zuo/pi-find` | `npm:@tian.zuo/pi-find` | **搜索增强**：用 ripgrep/fd 实现 `grep`/`find`，**复用内建工具名**（替换内建而非并列，模型只看到一套搜索面）。有界输出（grep ≤100 命中、find ≤200 文件、行长裁剪、硬字节上限、大文件/超长记录跳过），尊重 `.gitignore` 并跳过 `.git`，支持 `glob`/`!` 排除/`@`与`~` 路径展开。**只注册 `grep`/`find` 两个工具名，不在 lazy 名单即保持常驻 active，不新增工具、不增加注入量** |
-| `pi-edit-guard` | `npm:pi-edit-guard` | **编辑强化**：覆盖内建 `edit`（**同名替换**），多层容错匹配（simple → line/whitespace/indentation/escape/unicode 归一化 → block-anchor → fuzzy 等 12+ passes）、匹配唯一性校验、缩进漂移修复、批量感知错误报告。另注册 `undo` 工具（可撤销编辑）。**同名接管内建 `edit` 即生效；`undo` 是否列入 lazy 名单由你定，列入了才被剔除、按需加载，不增首请求注入**。⚠ 声明 `engines.node >=24.18.0`（本机 24.16.0 仅 npm 告警，仍可安装运行） |
-| `@trycedar/pi-mdiff` | `npm:@trycedar/pi-mdiff` | **Markdown 编辑**：面向 `.md` 的规范化 SEARCH 匹配 + 块级锚定编辑，注册 `md_inspect`/`md_diff`/`md_edit` 三个工具。**旧包名 `pi-mdiff` 已弃用并迁移到带 scope 的 `@trycedar/pi-mdiff`**。三个工具名可列入 lazy 名单按需加载，**不增首请求注入** |
-| `pi-undo-redo` | `npm:pi-undo-redo` | **会话/文件撤销重做**：git 仓库用影子 git 快照、非 git 目录只快照 Pi 文件工具显式触碰的路径（`write`/`edit`），按消息记录补丁元数据。命令 `/undo` 回到上一用户消息并还原其改动的文件、`/redo` 恢复、`/undo-cleanup` 保守清理旧快照；`/tree` 也可还原工作区快照。脏保护：有未快照工作区改动时拦截 `/undo`/`/redo`/`/tree`。**不注册任何 agent 工具**，纯命令扩展，零注入。配置写入 settings.json 的 `undoRedo` namespace（`storageDir`/大文件上限 `largeFileLimitBytes` 默认 2MiB/`gitTimeoutMs`） |
-| `pi-mcp-adapter` | `npm:pi-mcp-adapter` | **MCP 适配（免上下文爆炸）**：一个 `mcp` 代理工具（~200 token）替代数百个 MCP 工具定义，按需发现、服务器首次使用时才启动。自动读 `.mcp.json`/`~/.config/mcp/mcp.json`（及 `~/.agents/mcp.json` 等兼容路径）；`/mcp setup` 从 Cursor/Claude Code/Codex 等宿主配置导入、`/mcp disable|enable` 开关服务器。Pi 专用覆盖写 `~/.pi/agent/mcp.json`/.pi 项目层，不改写源文件、不复制凭证。~~依赖 `better-sqlite3`~~（2026-09-23 起 v2.37.0 已移除该依赖，无需批准） |
-| `pi-agent-browser-native` | `npm:pi-agent-browser-native` | **原生浏览器自动化**：agent-browser CLI 封装为原生 `agent_browser` 工具（替代脆弱的 shell 命令拼装）：打开页面、交互式快照（`@eN` 引用可继续点击/填表）、截图与下载文件以 Pi artifact 呈现、持久 profile 支持登录态、溢出大输出写 spill 文件防爆上下文、结构化 details（标题/URL/已存文件/会话/错误）。~~依赖 `better-sqlite3`~~（2026-09-23 起 v0.7.1 已移除该依赖，无需批准） |
-| `@agenticup/pi-loop` | `npm:@agenticup/pi-loop` | **递归深潜（loop engineering，2026-09-23 装，v0.1.4）**：注册 `loop` 工具，5 阶段流水线——Decompose（MAKER 式拆 8–15 个微子问题）→ DRIP 后置回检补前置条件 → Solve（信号量并发子智能体，`concurrency` 1–8，默认 4）→ Critique（自适应 MAKER 投票，1 个 critic、分歧升级 3 个）→ Iterate（ADaPT 式深分解被标记子问题，≤2 次）→ Synthesize（DRAGON 式子解冲突检测）。参数：`prompt`（必填）、`maxDepth`（1–3，默认 2，每层约 2x 成本）、`concurrency`、`model`（默认跟随会话）；子智能体 20 分钟超时优雅降级、循环继续；进度实时可见（超 40 行截断）+ 逐子问题执行摘要。代价：4 子问题约 5–8x 单答 token、2–5 分钟，简单任务过重。**只注册 `loop` 一个工具，resident 例外制下默认 lazy，不增首请求注入**。用法：「Use loop: <任务>」显式触发 |
-| `pi-warm-cache` | `npm:pi-warm-cache` | **空闲期保活（2026-09-28 装，v0.4.0）**。对**已注册路由**（Anthropic / OpenAI / Azure / Codex / xAI 4.5+ / OpenCode Go / OpenRouter）按厂商 TTL 在会话空闲时发极小请求续前缀缓存（默认 1 token 输出、锚定同一 cache routing key），`/warm status`（含 `automaticWarm` 判定）、`/warm 5m`、`/warm 1h`、`/warm auto`、`/warm probe`、`/warm log` 手动档。**零工具注入**。⚠ **本机不生效**：模型是本地代理 `http://localhost:20128/v1`（`openai-completions`、未注册路由），`resolveStrategy` 判 `capability.state !== "verified"` → `intervalMs: null, automaticWarm: false`，永不装定时器（源码注释：unverified route never arms a timer）。换到上述任一已注册 provider 才自动启用；不注册也**不会报错**，纯静默待命 |
-| `pi-footer-template` | `npm:pi-footer-template` | **footer 模板（2026-09-28 装，v0.5.0）**。用 `ctx.ui.setFooter` 接管底栏，支持 `{model}`/`{cwd}`/`{tokens}`/`{balance}`/`{branch}`/`{CH}` 等占位（可自注册 token），默认模板已含 **`CH{latestCacheHitRate}%`**——**最后一条 assistant** 的 `cacheRead/(input+cacheRead+cacheWrite)`，即本文各表「命中」那一列的同一口径。配置 `footerTemplate` 写项目 `.pi/settings.json` 或用户 settings。**零工具注入**。⚠ 与 `pi-one-ui` 的 Footer 层**抢同一个 footer 槽**（`ctx.ui.setFooter` 单槽，后写者胜），本机已让 one-ui 主动让位（`pi-one-ui.json` 设 `components.footer.style: "native"`），详见[压缩与缓存](#压缩与缓存)末节 |
-| `@nguyenquangthai/pi-ask` | `npm:@nguyenquangthai/pi-ask` | **结构化提问对话框（2026-09-27 装，v0.2.0）**。注册 1 个工具 `ask_user_question`，把「有歧义时问用户」变成键盘优先的 1–4 题表单：每题 2–4 个选项、`recommended: true` 置顶提示、**Other 自由输入**（组件自动加，不要模型自己写）、`required: false` 出「跳过本题」行、`multiSelect` 空格多选、`showWhen: {questionId, equals}` 做一级条件追问（父题选中某 value 才出现，选回父题其他值则清空并隐藏子题）、提交前 **Review 页**可回改。`prepareArguments` 钩子在 Pi 校验前补全模型漏填的 `value`/`id`/`header`、剥转义序列、裁剪超长项——所以模型调用几乎不会撞 schema 校验错误。结果按 `questionId` 键回传给模型（`selectedValues` + `customText` 都保留），答案落在 Pi 会话 JSONL 的 `toolResult.details` 里，`/tree`、`/fork` 自动跟对分支。**非 TUI 模式自动摘除自己**（`session_start` 里 `setActiveTools` 过滤，print/JSON/RPC 模式下模型根本看不到该工具，直接调用返回 `status:"unavailable"`），故对本机 RPC 实测无副作用。**只注册 1 个工具、resident 例外制下默认即 lazy，无需改 `lazy-tools.json`**。用法：先 `load_tools` 激活（两步确认门，需用户点名「激活 ask_user_question」），再由模型调用。实测与注意见[本轮实录](#本轮实录装-pi-ask--升级全部扩展2026-09-27) |
-| `@ssk_dev/rpiv-todo-lean` | `npm:@ssk_dev/rpiv-todo-lean` | **任务清单（2026-09-28 装，v2.10.3）**：`@juicesharp/rpiv-todo@2.10.1` 的**瘦包装**（Proxy 拦 `registerTool`/`on`/`registerShortcut`/`registerCommand`，上游引擎原样跑，只砍工具描述 904 → **119 字符**、省 72.8% 首请求 token）。**只注册 1 个工具 `todo`**（`create`/`update`/`list`/`get`/`delete`/`clear` 六 action；状态 `pending`/`in_progress`/`completed`/`deleted`；支持 `blockedBy` 依赖图、`addBlockedBy`/`removeBlockedBy`、`owner`/`metadata`/`activeForm`）。lean 层三件事：递归剥掉 JSON Schema 里所有 `description`、description 压成 119 字符单行 + `promptSnippet` 清空 + `promptGuidelines` 收成 1 行、`prepareArguments` 按字段反推缺失的 `action`（有 `id`+可变字段→`update`，仅 `subject`→`create`）。**抗压缩/抗 `/tree`**：`session_compact`/`session_tree` 时 `replayFromBranch` 重放并重排 session 槽；钩子是 `session_compact`（**非** `session_before_compact`）→ 与 `pi-smart-context`/`pi-compaction-cache` 的接管权**零冲突**。**TUI overlay 走 `ctx.ui.setWidget("rpiv-todos", …)` 具名槽**（`todo-overlay.ts:23`），与 pi-one-ui 的 `ccstyle-tool-mouse`/`compact-thinking-render-loop` 两个 key 不重叠、也不碰 `setFooter` → **不抢槽**。命令 `/todos`（看全量，含 overlay 隐藏的已完成项），快捷键 `ctrl+shift+t` 折叠/展开 overlay。配置 `~/.config/rpiv-todo/config.json`（受 `XDG_CONFIG_HOME` 影响）：`maxWidgetLines`（默认 12，<3 回落默认）、`collapseKey`（默认 `ctrl+shift+t`，`"off"` 关闭）、`guidance`，**逐渲染现读**、改完无需 `/reload`。⚠ **不可与另一个 rpiv-todo 包装同载**（重复注册同名 `todo`）。实测与未验收项见[本轮实录](#本轮实录装-ssk_devrpiv-todo-lean2026-09-28) |
-
-## Skills（可选，非扩展，Agent Skills 标准）
-
-> **与扩展不同：skill 不经 `pi install`，是目录粒放到 `~/.pi/agent/skills/`**（pi 按 Agent Skills 标准递归发现含 SKILL.md 的目录）。skill **不注册任何工具**；**系统提示词注入由 `pi-lazy-tools` fork 内置剥离（原独立包 `pi-lazy-skills` 已并入并卸载）**——Pi 默认把全部 skill 的 name + description 常驻注入 `<skills>` 段，pi-lazy-tools 在 `before_agent_start` 改写为单行说明，skill 元数据**零常驻**，改为按需 `skill_search` 动态发现（常驻承载工具，唯一不入 lazy 名单的例外，见[工具归属](#工具归属)）。全文与 references 按需 `read` 加载。存入即生效（新会话 / `/reload`）。
-
-| Skill | 来源 | 作用 | 上下文开销 |
+| 包 | 版本 | 作用 | 备注 |
 |---|---|---|---|
-| `cangjie-skill`（仓颉） | `git clone github.com/kangarooking/cangjie-skill`（2026-09-23 安装，HEAD `3adf9e6`，v2.5.0） | 拆书元 skill：把书/长视频/播客/课程的方法论蒸馏成原子化可调用的 skill packs（RIA-TV++ 流水线，Adler 阶段 0 → 并行抽取 → 三重校验 → 编译 → 压测 → 交付；description 511 字符 < 1024 上限）。仅装 `SKILL.md + methodology/ + extractors/ + templates/ + scripts/ + schemas/`（349K），跳过 website/books/benchmarks/dist/tests/docs/registry（~2.5M，非运行必需；`docs/migrations` 一处引用为版本迁移说明，需要时回仓库看） | 常驻 0（pi-lazy-tools 剥离注入，description 仅在 `skill_search` 命中时按需出现在工具结果里）；启用时 SKILL.md 13KB ≈ 4k token + 按需 `methodology/`（64K）、`extractors/`（24K）等 |
-| `goutoujunshi`（狗头军师） | `git clone github.com/shengjidaguai-china/goutoujunshi`（2026-10-21 安装，HEAD `6db7354`） | 恋爱军师与情绪支持：心动/暧昧/追求/聊天记录或截图分析/多人选择/冲突/分手复合（Codex 社区标准 SKILL.md，pi 兼容，description 692 字符 < 1024 上限）。本地 sqlite 长期记忆（`scripts/memory_store.py`，仅标准库，按需召回压缩摘要，不存整份聊天） | 常驻 0（pi-lazy-tools 剥离注入）；启用时 SKILL.md 9.4KB ≈ 5k token + 按需 1–3 份 references（每份 2–8k） |
-
-```bash
-# 安装（示例源在 /tmp，实际自 git clone）：
-mkdir -p ~/.pi/agent/skills/goutoujunshi
-mkdir -p ~/.pi/agent/skills/goutoujunshi
-cp -r <repo>/SKILL.md <repo>/references <repo>/scripts ~/.pi/agent/skills/goutoujunshi/
-
-# cangjie-skill：
-mkdir -p ~/.pi/agent/skills/cangjie-skill
-cp -r <repo>/SKILL.md <repo>/methodology <repo>/extractors <repo>/templates <repo>/scripts <repo>/schemas ~/.pi/agent/skills/cangjie-skill/
-```
-
-自查：目录含 `SKILL.md`（frontmatter `name` + 非空 `description`）即被发现；`pi list` 不显示 skill。使用：`/skill:goutoujunshi`、`/skill:cangjie-skill` 显式加载；或明确要求「使用 XX skill」→ 模型经 `skill_search` 按关键词检索 name/description/路径后 `read` SKILL.md。⚠ 注入剥离后**模糊描述自动路由已移除**（模型看不到 description），skill 发现依赖用户点名或给出可匹配关键词。
-
-## 安装与配置
-
-> **本轮（2026-09-22）实测环境**：Pi 0.87.0、npm 12.0.2（注意 README 中 `npm install-scripts approve` 属 npm 12 子命令；旧 `allowScripts` 字段引用了已卸载包的旧版本号，`npm install-scripts approve` 报 `Nothing to approve` 不重跑已批脚本 → 改用 `npm rebuild better-sqlite3` 重建原生依赖成功，`prebuilds/win32-x64.node` 平台 prebuilt 亦可用；computer-use 的 `setup-helper.mjs --postinstall` 手动重跑输出 `[pi-computer-use] Windows helper already up to date` 即就位）。
-
-> **警：逐条串行安装，勿并行。** 多进程 `pi install` 会竞写 `~/.pi/agent/settings.json` 丢注册（实测 17 项仅剩 5 项留存），且并发操作同一 `~/.pi/agent/npm` 目录会触发 `ENOENT: Cannot cd into .../node_modules/<pkg>`（实测 `typebox`）。
->
-> `pi install` 一次只接受单个 source，故直接串行跑循环：
-
-```bash
-for p in pi-cache-guardian pi-tps pi-one-ui \
-         pi-web-access @injaneity/pi-computer-use @tian.zuo/pi-find \
-         pi-edit-guard @trycedar/pi-mdiff pi-undo-redo \
-         pi-mcp-adapter pi-agent-browser-native \
-         @agenticup/pi-loop \
-         @zhushanwen/pi-smart-context \
-         pi-prefix-stabilizer pi-compaction-cache \
-         pi-warm-cache pi-footer-template \
-         @nguyenquangthai/pi-ask \
-         @ssk_dev/rpiv-todo-lean; do
-  pi install "npm:$p" || echo "[失败] $p"
-done
-```
-
-> **末 4 个包的顺序有硬约束（2026-09-28）**：`pi-compaction-cache` 必须排在 `@zhushanwen/pi-smart-context` **之后**（两者都接 `session_before_compact`，靠后拿到的接管权；反过来 smart-context 的 same-model 先给摘要，压缩调用命中就退回 1.6%），`pi-prefix-stabilizer` 排在 `pi-compaction-cache` **之前**（先稳前缀再谈复用）。`pi-warm-cache`/`pi-footer-template`/`@nguyenquangthai/pi-ask` 顺序不限（pi-ask 只在 `session_start` 里按需摘除自己，不抢任何 hook）。末尾的 `@ssk_dev/rpiv-todo-lean`（2026-09-28 加）同样顺序不限——它只接 `session_compact`/`session_tree`，不碰 `session_before_compact`。`pi install` 一次只写一条注册，照序跑即可。
-
-> **升级（2026-09-27 复核）**：`pi update --extensions` 只升扩展、不动 pi 本体（`--all` 会连 pi 一起升）；升完**必须重跑 `node fix-browser-native-compat.mjs`**（`pi-agent-browser-native` 0.8.1 仍调 `buildSessionProjection`），并且若家目录 `~/node_modules` 已清理，需确认 `~/.pi/agent/node_modules/@earendil-works/*` 还在（lazy 执行层地基，见[lazy 执行层失效与修复](#lazy-执行层失效与修复2026-09-27)）。
-
-> git 源无法并入 npm 循环，单独装（`pi-lazy-tools` fork）：
-
-```bash
-pi install git:github.com/qq458249269/pi-lazy-tools
-```
-
-> **更新（2026-09-24 起）**：扩展升级**勿用 `pi install`**——实测对已装包命中 npm 缓存不升版本，须带 `@latest` 才到位；直接走专门升级命令，一条即可：
->
-> ```bash
-> pi update --extension <source>   # 单包，如 pi update --extension pi-web-access
-> pi update --all                  # pi + 全部扩展
-> ```
->
-> ⚠ `@injaneity/pi-computer-use` 的 postinstall（`node scripts/setup-helper.mjs --postinstall`，生成平台桥接 helper）会被 npm `allowScripts` 默认拦截。装完后再批：
->
-> ```bash
-> cd "%USERPROFILE%\.pi\agent\npm" && npm install-scripts approve @injaneity/pi-computer-use
-> ```
->
-> 批准后 helper 需重跑一次（`npm install-scripts` 无 run 子命令，直接手动执行）：
->
-> ```bash
-> cd "%USERPROFILE%\.pi\agent\npm\node_modules\@injaneity\pi-computer-use" \
->   && node scripts/setup-helper.mjs --postinstall   # 输出 [pi-computer-use] ...helper already up to date 即就位
-> ```
-
-> ~~⚠ `pi-mcp-adapter`/`pi-agent-browser-native` 共享原生依赖 `better-sqlite3`……`npm install-scripts approve better-sqlite3`~~ **此步骤 2026-09-23 起作废（2026-09-24 随 pi-subagents 卸载改称两包）**：两包新版（pi-mcp-adapter 2.37.0 / pi-agent-browser-native 0.7.1）均已移除 `better-sqlite3` 依赖，approve 会报 `ENOMATCH: No installed packages match`，依赖树中亦无该包（实测 `find` 无目录）。`allowScripts` 里的旧条目 `better-sqlite3@13.0.3: true` 为历史残留，无害可留。详见[全量重装实录](#全量重装实录与问题修复2026-09-23)问题 2。
-
-装完自查（`pi list`，不并行）：应见 **20 个扩展**——19 个 npm（`pi-web-access`、`pi-tps`、`@injaneity/pi-computer-use`、`pi-one-ui`、`pi-cache-guardian`、`@tian.zuo/pi-find`、`pi-edit-guard`、`@trycedar/pi-mdiff`、`pi-undo-redo`、`pi-mcp-adapter`、`pi-agent-browser-native`、`@agenticup/pi-loop`、`@zhushanwen/pi-smart-context`、`pi-prefix-stabilizer`、`pi-compaction-cache`、`pi-warm-cache`、`pi-footer-template`、`@nguyenquangthai/pi-ask`、`@ssk_dev/rpiv-todo-lean`）+ 1 个 git（`git:github.com/qq458249269/pi-lazy-tools`）。若少于 19（并行竞写伤痕），重跑上述循环补漏；git 源安装命令见上方 npm 循环后附注。
-
-pi-lazy-tools 配置（fork `git:github.com/qq458249269/pi-lazy-tools`；写入 `~/.pi/lazy-tools.json`，用户级；`<cwd>/.pi/lazy-tools.json` 项目级整体覆盖用户级）。**2026-09-22 起执行默认五工具常驻策略**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`，由项目 `.pi/settings.json` 的 `defaultTools` 显式声明）与 `load_tools`/`call_tool` 常驻 active 集，其余扩展工具全部列入 lazy 名单，见下方[全量懒加载策略](#全量懒加载策略)。**2026-09-28 三次优化后本机实际取值如下**（`shell` 取代 `bash`/`powershell`，其余非 resident 工具全懒）：
-
-
-```json
-{ "resident": ["read", "write", "edit", "shell"] }
-```
-
-> **2026-09-28 三次订正**：本机 `defaultTools` 已改为 `["read","edit","write"]`（`bash`/`powershell` 退出默认集，由本地扩展 `pi-shell` 注册的 `shell` 顶替），resident 也只剩上面 4 个名字。**`load_tools`/`call_tool`/`skill_search` 现在都是 lazy**（不是 active 集成员）——fork 代码里唯一硬编码的 resident 例外是 `omnify`（`const resident = new Set([OMNIFY_NAME])`），所以 active 集实测 = 4 resident + `omnify` = **5 个工具**；要临时拿回旧的 `load_tools` 两步门，把名字加回 `resident` 即可。
-
-> **2026-09-28 订正**：本节早期版本写的是 `"lazy": [...]` 名单数组，那是上游 `@wolido/pi-lazy-tools` 的格式；**当前 fork（`git:github.com/qq458249269/pi-lazy-tools`）用的是 resident 例外制**——`resident` 列常驻例外，**其余一切默认全 lazy**，所以本机 `~/.pi/lazy-tools.json` 里只剩上表这 4 个名字（`~/.pi/lazy-tools.json` 不在 `~/.pi/agent` 下）。
->
-> **2026-09-28 新增四包对懒加载策略的影响：零**。`pi-prefix-stabilizer`/`pi-compaction-cache`/`pi-warm-cache`/`pi-footer-template` 均无 `registerTool`/`setActiveTools`，不新增任何工具名，`activeTools` 仍 8，不需改 `lazy-tools.json`。
->
-> **2026-09-27 新增 `@nguyenquangthai/pi-ask` 同样不改配置**：只注册 `ask_user_question`，不在 `resident` 即默认 lazy。但**「被 lazy」≠「能用」**——本轮实测发现 lazy 的**执行层**（`call_tool` 加载目标扩展的 `execute`）早已全线失效，且启动期零报错，详见[lazy 执行层失效与修复](#lazy-执行层失效与修复2026-09-27)。
-
-
-> **默认五工具常驻 + 扩展全懒策略（2026-09-22 拍板，长期执行）**：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`）与 `load_tools`/`call_tool` 承载工具常驻 active 集，其余扩展工具一律 lazy，低频不设门槛、默认全懒。理由：写代码主链路（读/写/编辑/shell）零 `load_tools` 往返；各扩展 description/schema 不常驻上下文，按需 `load_tools` 注入，注入量与首请求 token 最低。代价：搜索/网页/UI/子代理每次使用多一轮 `load_tools` 往返（含用户点名确认），`grep`/`find` 亦需先激活。**安装任何新扩展后，把其注册的工具名补进下方 lazy 名单，保证新扩展工具同样默认全懒。** 需查当前已注册工具：`pi list` 或新会话启动 `ctx.ui.notify` 打印的 lazy 名单。
->
-> ⚠ 五工具（`read`/`write`/`edit`/`bash`/`powershell`）常驻即随叫随用，写代码前无需激活；`grep`/`find`（@tian.zuo/pi-find）等扩展工具仍需 `load_tools` 激活（两步确认门），确认门只在用户点名要求时通过。`--tools` 白名单必须保留 lazy 工具（注册与隐藏是两件事），当前无 `--tools` 字段、默认全注册，安全。
-
-
-> 该表为首轮 `session_start` 实测基线（安装 `pi-cache-guardian` 前）。`pi-cache-guardian` 不注入工具，`activeTools` 数不变；system prompt 内容受其 reorder/压缩影响（长度基本持平，压缩仅在 skill>4 时生效），属 `before_agent_start` 阶段内部改写，不影响首请求注入量与基线对比结论。
->
-> **2026-09-17 追加 4 个扩展后基线结论不变**：`pi-cache-guardian` 不注入工具；`alps-pi` 纯 TUI 零工具注入（`activeTools` 仍 7，首请求注入量不变）。
->
-> **2026-09-22 换装后基线结论仍不变**：`@wolido/pi-tool-search` 下架 → `@wolido/pi-lazy-tools` 承接（常驻 `load_tools`/`call_tool` 两工具不变）；`alps-pi` 移除 → `pi-one-ui` 加入。`pi-one-ui` 唯一直改面为**同名覆盖内建 `write`**（Diff 元数据，`activeTools` 仍 7），其余零工具注入、零 `before_agent_start` 干预，首请求注入量不变。本机 Node 24.16.0 满足其 `>=22.19` 要求。
->
-> `pi-tps` 与 `pi-one-ui`（继任者，前身 `alps-pi`）是纯 UI/运行时监控扩展，不注册新的 agent 工具名（`pi-one-ui` 仅同名覆盖内建 `write`），因此**不增加首次请求 token**（相对基线仅 +~150 chars 的 `pi-tps` 策略文字，`pi-one-ui` 为 0）。其余扩展工具列入 lazy 名单的，需要时 `load_tools` 注入用法，不占首次请求 token。
->
-> **2026-09-18 追加 `pi-edit-guard`/`@trycedar/pi-mdiff` 后基线亦不变**：`pi-edit-guard` **同名覆盖** `edit`（属核心 6，不新增激活项），额外 `undo` 为非核心（被隐藏）；`pi-mdiff` 的 `md_inspect`/`md_diff`/`md_edit` 均为非核心（被隐藏）。`activeTools` 仍 7，不增首请求注入量。
->
-> **2026-09-21 追加 5 个扩展后基线仍不变**：`pi-undo-redo` 零工具注入；`pi-hermes-memory`（6 工具，**2026-09-22 已卸载**）/`pi-subagents`（`subagent`、`contact_supervisor`，**2026-09-24 已卸载**）/`pi-mcp-adapter`（`mcp`）/`pi-agent-browser-native`（`agent_browser`）共 10 个工具**全部列入 lazy 名单**，从 active 集剔除，`activeTools` 仍 7，不增首请求注入量。
->
-> **2026-09-22（二轮）策略回调后基线不变**：自带五工具（`read`/`write`/`edit`/`bash`/`powershell`）经 `.pi/settings.json` 的 `defaultTools` 显式常驻，`edit` 移出 lazy 名单；`grep`/`find` 等扩展工具仍懒加载。`activeTools` 仍 7，首请求注入量不变。
-
-## 安装后操作
-
-### 一键配置脚本（幂等，可重复执行）
-
-| 脚本 | 用途 |
-|---|---|
-| `fix-tps-theme.ps1` | `pi-tps` 颜色跟随系统主题（`theme` -> `light/dark`，`colorPreset` -> `theme`） |
-| `fix-browser-native-compat.mjs` | `pi-agent-browser-native` 在 **pi 0.85.x** 下的加载期兼容补丁（`sessionManager.buildSessionProjection` 是 0.86+ API），修掉启动即报的 `buildSessionProjection is not a function` |
-| `install-local-extensions.mjs` | 把仓库 `extensions/*.ts` 同步到 `~/.pi/agent/extensions/`（`pi-lean-prompt`/`pi-shell`），内容一致不写盘；`--check` 有漂移 exit 1 |
-| `fix-lazy-tools-notes.mjs` | 修 lazy-tools fork 的 `DOCS_NOTE` 死路径（`D:\Agent\pi\` → 按 pi 安装目录实测填入）并把文案里的 `bash` 措辞改为 `shell`（装了 `pi-shell` 时） |
-
-```bash
-powershell -ExecutionPolicy Bypass -File fix-tps-theme.ps1
-node fix-browser-native-compat.mjs
-node install-local-extensions.mjs
-node fix-lazy-tools-notes.mjs
-```
-
-`fix-tps-theme.ps1` 为 UTF-8 BOM 保存，PowerShell 5.1 / 7 均可正确解析中文；`fix-browser-native-compat.mjs` 用 node 跑（**别改回 .ps1**：无 BOM 的中文 .ps1 在 Windows PowerShell 5.1 下按 ANSI 读会 ParserError）。四个脚本都幂等：已打过输出 `[skip]`/`无需改动`，不会覆盖你改过的值；`pi update`/重装丢了前两个里的补丁，重跑一次即可。
-
-1. **重启 Pi** 使扩展生效。
-2. 新会话里对主智能体说「激活 X」：`load_tools` 先返回挑战文本（`confirm:false` 零副作用），用户点名确认后 `confirm:true` 激活、`call_tool` 调用。**自带四工具（`read`/`write`/`edit`/`shell`）默认常驻，无需激活**；扩展工具（`grep`/`find`/网页/UI/子代理）才需激活。启动时 `ctx.ui.notify` 打印当前 lazy 名单与配置文件路径。
-3. `pi-tps`：运行 `fix-tps-theme.ps1` 让颜色跟随系统主题。`pi-one-ui`：`/oneui` 打开设置面板、`/context` 查看上下文、`/theme` 切换内置主题（`cc-dark`/`cc-light`）；配置存 `~/.pi/agent/pi-one-ui.json`，`/reload` 后 Features 生效（组件开关即时生效）。`@injaneity/pi-computer-use`：先完成上面的 postinstall 批准与 helper 重跑，首次运行时再授予平台权限。
-4. `pi-cache-guardian`：装上即用（golden freeze + `PI_CACHE_RETENTION=long` 自动生效），`/cache-guardimizer` 查看每轮缓存统计；可选开启会话结束命中率报警：`PI_CACHE_GUARD=1`（阈值 `PI_CACHE_GUARD_THRESHOLD`，默认 90）。autocompact 后是新 session，会重新捕获 golden，无需干预；`/compact` 后首轮命中低属结构性，判定与处置见[压缩与缓存](#压缩与缓存)。
-5. **`pi-edit-guard`**：装上即用，**同名接管内建 `edit`**。`undo` 在 resident 例外制下**默认已全懒**（不在 `resident` 即 lazy），要让它常驻才需把它加进 `~/.pi/lazy-tools.json` 的 `resident`。⚠ 若启动报 node 版本相关错误，需将 Node 升到 `>=24.18.0`（本机 24.16.0 实测仅安装告警、运行正常）。
-6. **`@trycedar/pi-mdiff`**：装上即用，编辑 `.md` 时按需 `load_tools` 激活 `md_inspect`/`md_diff`/`md_edit`（三个工具默认已全懒，无需改配置）。**旧包名 `pi-mdiff` 已弃用，务必用 `npm:@trycedar/pi-mdiff`**（bare 名会触发弃用告警甚至 ECONNRESET 失败）。
-7. **`pi-undo-redo`**：装上即用，纯命令扩展（`/undo`、`/redo`、`/undo-cleanup`），默认存储 `~/.pi/agent/state/pi-undo-redo`，无需配置。可选调整 settings.json 的 `undoRedo`（`storageDir`/`largeFileLimitBytes`）。git 仓库自动走影子 git 快照，非 git 目录只覆盖 `write`/`edit` 显式路径。
-8. **`pi-mcp-adapter`**：装上重启后自动读 `.mcp.json`/`~/.config/mcp/mcp.json`；无配置时 `/mcp setup` 导入宿主配置或脚手架。`mcp` 工具默认已全懒，`load_tools` 激活后按需代理调用 MCP 服务器，服务器首次使用时才启动。
-9. **`pi-agent-browser-native`**：装上即用，`agent_browser` 默认已全懒，`load_tools` 激活后可直接驱动真实浏览器（需本机有 `agent-browser` CLI，首次运行时自动按需启动）。⚠ **pi 0.85.x 需先跑 `node fix-browser-native-compat.mjs`**，否则启动即报 `buildSessionProjection is not a function`（见[pi-agent-browser-native 兼容补丁](#pi-agent-browser-native-兼容补丁2026-09-28)）。
-10. **`@agenticup/pi-loop`**：装上即用，无需配置（resident 例外制下 `loop` 默认 lazy，不改 `~/.pi/lazy-tools.json`）。显式点名触发：「Use loop: <复杂任务>」→ 5 阶段流水线实时输出，结束给执行摘要；子智能体并发与深度按 `concurrency`/`maxDepth` 控制，简单任务勿用（token/延迟 5–8x）。
-11. **`@zhushanwen/pi-smart-context`**：装上即用，先写 `~/.pi/agent/config/smart-context-ext-config.json`（本机取值见[压缩与缓存](#压缩与缓存)的「smart-context 配置」小节——**默认 400K/500K/600K 三档对本机 100K 窗模型永不触发，须下调**）。`compact_context` 默认全懒、无需改配置；阈值提醒静默注入（只进 LLM 上下文、不触发新 turn、不进对话流）。排障加 `TAIJI_AGENT_DEBUG=1` 看 `~/.pi/agent/logs/smart-context-*.log`。
-12. **`pi-prefix-stabilizer`**：装上即用，无需配置。默认只做 tools 数组排序 + system 文本 sha1 漂移检测（**本机路径改写是 no-op，别去改 `packagePathSuffix`**，Windows 路径原理上不生效）。排障日志：设 `PI_PREFIX_STABILIZER_LOG=<文件路径>`，`{"first_rewrite":true,"replacements":1,"roots":[]}` = 只排序了 tools；`{"drift":true,"from":…,"to":…}` = 前缀漂移（此时本轮命中会掉，等下轮回升）。
-13. **`pi-compaction-cache`**：**必须先写** `~/.pi/agent/compaction-cache.json`（本机取值见[压缩与缓存](#压缩与缓存)「四包实测」小节：`{"models":["1","1/1"],"scope":"boundary","logPath":"…","debug":false}`）——**`models` matcher 漏了会直接 decline**（本机模型无 cost 元数据，走 zero-cost heuristic 拒绝接管）。装上即用；`/compaction-cache-status` 看逐次判定，日志落 `logPath`。⚠ 须在 smart-context 之后加载，否则拿不到接管权。
-14. **`pi-warm-cache`**：装上即用、无需配置，**但本机不生效**（本地代理属未注册路由，`automaticWarm:false`、永不装定时器）。换到已注册 provider（Anthropic/OpenAI/Azure/Codex/xAI 4.5+/OpenCode Go/OpenRouter）即自动启用；想确认 `/warm status` 里 `automaticWarm` 是 true 还是 false。
-15. **`pi-footer-template`**：装上即用，**默认模板已含 `CH{latestCacheHitRate}%`**（最后一条 assistant 的命中率），无需配置即在底栏显示。要改模板写 `footerTemplate`（项目 `.pi/settings.json` 或用户 settings）。⚠ 必须先让 `pi-one-ui` 让出 footer 槽：`~/.pi/agent/pi-one-ui.json` 设 `{"components":{"footer":{"style":"native"}}}`，否则两者抢同一个 `ctx.ui.setFooter` 槽、谁后加载谁赢。
-16. **`@nguyenquangthai/pi-ask`**：装上即用，**无需任何配置**（`ask_user_question` 不在 `resident`，默认全懒）。⚠ 三个注意点：① **非 TUI 模式自动摘除自己**（print/JSON/RPC 下模型看不到该工具，直接调用返回 `unavailable`），所以在 `pi -p`/`--mode rpc` 里做自动化验证时它等于不存在，别误判成没装上；② 它是**提问工具**，走 lazy 就多一道手续：模型得先 `load_tools` 拿用法、再由用户点名确认（两步门）才 `call_tool` 调得到——如果希望它随手可用，就把 `ask_user_question` 加进 `~/.pi/lazy-tools.json` 的 `resident`（代价是其 description 约 986 字符常驻上下文）；③ 答案落在会话 JSONL 的 `toolResult.details` 里，`/tree`、`/fork` 会自动跟对分支。
-17. **`@ssk_dev/rpiv-todo-lean`**：装上即用，**无需任何配置**（`todo` 不在 `resident`，默认全懒；要它随手可用就把 `todo` 加进 `~/.pi/lazy-tools.json` 的 `resident`，代价是 119 字符描述常驻）。⚠ 四个注意点：① **lazy 两步门的手续成本**——模型得先 `load_tools` 拿用法、再由用户点名确认才 `call_tool` 得调得到，`/todos` 命令和 `ctrl+shift+t` 快捷键则是**直接可用、不经这道门**；② **overlay 只在 TUI 出现**，print/JSON/RPC 模式下 `todo` 工具照常工作但没有可视化（`index.ts` 里所有 `ctx.mode === "rpc"` 分支仅做 overlay 转发，非 TUI 直接透传给上游）；③ **不可与另一个 rpiv-todo 包装同载**，重复注册同名 `todo`，本机只把它当依赖装、未单独装 `@juicesharp/rpiv-todo`；④ 想调 overlay 行数/折叠键写 `~/.config/rpiv-todo/config.json`（`maxWidgetLines`/`collapseKey`/`guidance`），**逐渲染现读**、无需 `/reload`。
-18. **`pi-shell`（本地扩展，非 `pi install` 清单项）**：仓库 `extensions/pi-shell.ts` → `~/.pi/agent/extensions/pi-shell.ts`，装法 `node install-local-extensions.mjs` + `/reload`（**不用重启**）。把 `bash` 与 `powershell` 合成 1 个 `shell` 工具（省 450B 工具定义），execute/render 全程**委托内建** `createBashToolDefinition`/`createPowerShellToolDefinition`，功能不打折。⚠ **必须把 `shell` 写进 `~/.pi/lazy-tools.json` 的 `resident`**（resident 例外制下不写就自动 lazy），并把 `defaultTools` 里的 `bash`/`powershell` 删掉；`session_start` 还会再过滤一次双 shell 兼顶，三处不依赖事件先后顺序。排障：`shell` 返回 `Shell must be "bash" or "powershell"` = 参数 schema 写错了；需要 PowerShell 时模型传 `{"shell":"powershell"}`。
-19. **`pi-lean-prompt`（本地扩展，非 `pi install` 清单项）**：同上装法，装上即用、**无需任何配置**。压系统提示词里的 `Guidelines`/`Pi documentation` 两段 + 裁 `edit`/`read` 的 description/schema 样板，共省 3432B 静态前缀（-37%）。看节省量：`/lean-stats`（只统计首请求，改完工具定义要开新会话才见效）；`PI_LEAN_DEBUG=1` 会把整个 `tools` JSON dump 到 stderr。⚠ **只在 pi 0.85.x 上启用**：检测到 `systemPromptOptions.sections` 存在（0.86+ 的 fork 压缩路径）就自动让路、不动手，两套压缩不会叠加。
-
-## 全量懒加载策略
-
-**2026-09-22 起长期执行：自带五个工具（`read`/`write`/`edit`/`bash`/`powershell`）默认常驻 active 集，扩展工具一律 lazy，低频不设门槛。** 首请求上下文保留五个内置工具 + `load_tools`/`call_tool` 两个承载工具，其余全部从 LLM 可见 active 集剔除；需要时由 `load_tools` 纯文本注入用法、`call_tool` 代理执行（两步确认门：`confirm:false` 零副作用挑战文本 → 用户点名后 `confirm:true` 激活，会话级记忆、会话开始清空）。
-
-> **2026-09-28 三次调整**：① 双 shell 合一，active 集里的 `bash`/`powershell` 换成单一 `shell`（省 450B 工具定义 + 一整条 snippet）；② `load_tools`/`call_tool`/`skill_search` 不再常驻（fork 只硬编码放行 `omnify` 一个例外），即今日常驻的是 **4 resident + `omnify` = 5 个**；③ `pi-lean-prompt` 把 `Guidelines`/`Pi documentation` 两段压掉 1366B。策略本身（扩展工具全懒、低频不设门槛）不变。详见[首字 token 三步优化](#首字-token-三步优化2026-09-28-三次)。
-
-### 工具归属
-
-| 扩展 | 工具 | lazy 名单位 |
-|---|---|---|
-| 自带三工具 | `read`、`write`、`edit` | ✗ 内建常驻（`defaultTools` 显式声明：项目 `.pi/settings.json` + 用户 `~/.pi/agent/settings.json` **两处都要有**） |
-| pi-shell（本地扩展） | `shell`（**bash + powershell 二合一**） | ✗ 内建常驻（resident 例外制下**必须**显式列 `shell`，否则自动 lazy） |
-| pi-lean-prompt（本地扩展） | （无工具，仅 `/lean-stats` 命令） | — |
-| pi-edit-guard | `edit`、`undo` | `undo` ✓；`edit` ✗ 同名覆盖内建，归核心常驻 |
-| @trycedar/pi-mdiff | `md_inspect`、`md_diff`、`md_edit` | ✓ |
-| @tian.zuo/pi-find | `grep`、`find` | ✓ |
-| pi-web-access | `web_search`、`source_check`、`fetch_content`、`get_search_content` | ✓ |
-| @injaneity/pi-computer-use | `observe_ui`、`search_ui`、`expand_ui`、`inspect_ui`、`act_ui`、`read_text`、`wait_for`、`find_roots`、`launch_browser`、`navigate_browser`、`evaluate_browser` | ✓ |
-| pi-mcp-adapter | `mcp` | ✓ |
-| pi-agent-browser-native | `agent_browser`、**`agent_browser_code`/`agent_browser_action`/`agent_browser_qa`/`agent_browser_electron`/`agent_browser_source`/`agent_browser_network_source`/`agent_browser_tools`** | ✓ 全部 8 个（后 7 个是 **0.8.1 新增**，非 resident 即自动全懒） |
-| @agenticup/pi-loop | `loop` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
-| @zhushanwen/pi-smart-context | `compact_context` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
-| `@ssk_dev/rpiv-todo-lean` | `todo` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
-| pi-undo-redo | （无工具，仅 `/undo` `/redo` `/undo-cleanup` 命令） | — |
-| pi-prefix-stabilizer | （无工具，纯 `before_provider_request` 改写） | — |
-| pi-compaction-cache | （无工具，仅 `/compaction-cache-status` 命令） | — |
-| pi-warm-cache | （无工具，仅 `/warm …` 命令系列） | — |
-| pi-footer-template | （无工具，走 `ctx.ui.setFooter`） | — |
-| @nguyenquangthai/pi-ask | `ask_user_question` | ✓（resident 例外制下不在 `resident` 即默认 lazy，无需改配置） |
-| pi-lazy-tools（`git:github.com/qq458249269/pi-lazy-tools`） | `load_tools`、`call_tool`、`skill_search` | ✗ 承载者（工具懒加载 + skill 动态发现），常驻；`skill_search` promptSnippet 限仅用户明确要求使用 skill 时调用 |
-| pi-one-ui | （无新工具名；**同名覆盖内建 `write`**，如 edit-guard 之于 `edit`） | ✗ 同名替换，归核心 |
-| 用户自定义 | `deploy_tool` | ✓ |
-
-### 执行纪律
-
-1. **安装任何新扩展 → 确认其注册的工具名都不在 `~/.pi/lazy-tools.json` 的 `resident` 里**（本 fork 是 resident 例外制：不在 `resident` 即默认全懒，**不需要**、也**不支持**往里加 `lazy` 名单；升级扩展后新出现的工具名同样自动 lazy）。唯一例外：`skill_search`（pi-lazy-tools）作承载者常驻——其 promptSnippet 本身就是按需门控，且系统提示词单行说明直接引用该工具名，剔除会导致说明指向不存在的 active 工具。⚠ 但名单只是**策略快照**：fork 在 `session_start` 一次性取 `getAllTools()` 过滤，**会话中途才注册的工具（如 `pi-mcp-adapter` 2.38 的 MCP 直连工具）不在快照内、会直接进 active 集**；本机无任何 `.mcp.json`，暂不受影响。
-2. **`--tools` 白名单必须保留 lazy 工具**：注册与隐藏是两件事，只加 lazy 名单不进 `--tools`，`load_tools` 会报「未找到工具元数据」。
-3. 激活是会话级记忆，会话开始清空；`load_tools` 只在用户主动点名时才 `confirm:true`，不自行加载。
-4. 开新会话生效（扩展在会话启动时加载）。
-5. **勿把 `defaultTools` 置空**：**2026-09-28 三次优化后本机取值为 `["read","edit","write"]`**（双 shell 已合为 `shell`，故只剩三个）。改 `[]` 会退回零内置工具（只留扩展工具）。`shell` 靠 `~/.pi/lazy-tools.json` 的 `resident` 常驻（不看 `defaultTools`），所以**双 shell 隐藏靠三处同时生效**：① `defaultTools` 去掉 `bash`/`powershell`、② `resident` 列出 `shell`、③ `pi-shell` 的 `session_start` 再过滤一次——不依赖事件先后顺序。
-
-### 权衡
-
-- 得：四个核心工具（`read`/`write`/`edit`/`shell`）零成本常驻、写代码主链路随叫随用；扩展工具说明书不常驻上下文、注入量与 token 低；首请求静态前缀已从 9183B 压到 5751B（-37%）。
-- 失：搜索/网页/UI/子代理等扩展工具每次使用多一轮 `load_tools` 往返（含用户确认），`grep`/`find`（@tian.zuo/pi-find）亦需先激活。
-- `edit` 常驻即原始能力（同名覆盖内建行为保留）；`grep`/`find` 仍 lazy，激活后即恢复。
-
-### 缓存纪律（web_search 等大输出工具）
-
-**实测（2026-09-21 会话）**：web_search 默认把原始 HTML/CSS/热榜 JSON 全文（21KB+）写入会话历史，该轮前缀命中率从 96%+ 骤降至 **50.5%**；load_tools 注入大 schema 文本同理（55.7%）。前缀缓存从请求开头匹配，命中只到上一请求末尾——**一次性注入大文本的轮次命中率必然崩，看累计命中率（~90%）而非单轮**。
-
-执行约定：
-
-1. **web_search 一律用 `workflow:"auto-summary"`**（返回精简摘要 + sources，实测无原始 HTML 入历史）或 `includeContent:false`；确需全文时才显式开 `includeContent:true`。
-2. 大工具输出轮命中率低是结构性必然，评估看 `/cache-guardimizer` 累计值，`PI_CACHE_GUARD_THRESHOLD` 报警阈值勿按单轮瞬间判定。
-3. cacheWrite 全程为 0 时（OpenAI 兼容端点不报写侧缓存），长输出对前缀缓存是净负债，能不进历史就不进。
-
-## 压缩与缓存
-
-**结论先行：压缩后首轮命中不可能 100%，「命中 0」才是故障。** 分清两种「低」，处置完全不同。**（2026-09-28 补：唯一能被修的「低」是压缩调用自身，本机已由 `pi-compaction-cache` 从 1.6% 拉到 98.8%，见本节末「四个新包实测」。）**
-
-**根因（结构性，非 bug）**：Pi 压缩后重建的上下文是 `system | summary | firstKeptEntryId 之后的消息`（`docs/compaction.md`）——被摘要替换掉的那段历史对 provider 是全新前缀，**任何扩展都救不回来**，这是前缀缓存的定义。且压缩请求本身走 fresh routing session id、provider 支持时禁写缓存。若命中低但非 0（例：首轮 input 71k、hit 49%），属正常，看下一轮是否回到 90%+。
-
-**唯一可修的失效点是 system prompt 那一段**：压缩时 Pi 重建 system prompt（日期、CWD、`<session-overview>` 的 RECENT COMMITS / 目录状态 / 行数等字段逐轮变字节）→ 前缀首字节即不匹配 → 整段作废，统计上就表现为 0。`pi-cache-guardian` 的 golden freeze 正是为此：首轮走完整优化链后捕获 golden 副本，此后每轮 `before_agent_start` 无条件恢复（`goldenSystemPrompt !== null` 分支直接 return golden），字节级一致；配 prompt reorder（稳定内容前置）与 `<session-overview>` 变化字段剥离，从源头断掉漂移源。
-
-**实测（2026-09-26，扫本机 `~/.pi/agent/sessions/**.jsonl` 的 `cache-guard-turn` 记录）**：4 个发生过压缩的会话，压缩后首轮 hit 依次 **49% / 98% / 95% / 99%**（cacheRead 6.7 万 ~ 495 万 token），紧随其后的下一轮 **50% / 100% / 97% / 99%**——无一为 0。扩展确实在跑（每轮都落 `cache-guard-turn` 自定义条目），不是空转。
-
-**执行约定**：
-1. 命中 0 → 查 `/cache-guardimizer stats` 的 `Golden system prompt` 是否为 `not yet captured`（`session_start` 清空、首轮才捕获）；为 0 说明本会话尚未捕获，看下一轮。
-2. 已捕获却仍 0 → golden 未生效，核对扩展版本与 pi 版本后 `/reload`。
-3. 命中低但非 0 且下轮不回升 → 查该轮是否有大工具输出（见上文「缓存纪律」一节），不是压缩问题。
-4. 想进一步保命中可开 `PI_CACHE_GUARD=1`，会话结束累计命中率低于阈值时告警。
-
-**可用性核对（2026-09-26）**：本机 `~/.pi/agent/npm/node_modules/pi-cache-guardian` 为 **v1.0.7**，与 npm `dist-tags.latest` 一致（2026-08-18 发布）；`pi list` 正常加载；`before_agent_start` golden 冻结、`agent_end` 统计、`session_start` 重置、`/cache-guardimizer` 命令四项 hook 均在源码中；**零工具注入**，与 `pi-lazy-tools` 懒加载不冲突。
-
-**同类候选（均不装）**：`pi-observational-memory` 治的是压缩后记忆断层（摘要套摘要丢决策理由），不是命中率；`pi-deepseek-cache` / `@rohaquinlop/pi-deepseek-cache` 的 cache-friendly compaction 绑定 DeepSeek；`pi-cache-optimizer` 与 guardian 在 prompt 稳定化上重叠；`@mrclrchtr/supi-cache` 只做历史取证；`@diousk/pi-warm-cache` 保空闲期 TTL，对压缩后失效无关。**均不解决 system prompt 字节漂移这个根因，装了只是多一份常驻负担**——故维持单一 `pi-cache-guardian`。
-
-### smart-context 与 billion-context 实测（2026-09-27）
-
-**测法**：必须 RPC 多轮驱动（`.sc-test/drive.mjs`、`drive-bcp.mjs`）。`pi -p` 单 turn 压缩**必被拒**：单 turn 下 pi 不填 `preparation.messagesToSummarize` → `shadowedTokens=0` → 收缩校验 `isSummaryInflated(summaryTokens, shadowedTokens) => summaryTokens >= shadowedTokens` 恒真。filler 为三份各约 13K token 的假文档，逐轮 `read` 撑大上下文，provider/model/代理变量全程锁定。
-
-**结论先行：前缀缓存自头顺序匹配，压缩＝改写历史开头＝其后全部失效。故「压缩后高命中」在结构上不可得，可比的只有压缩那一次调用自身的命中。**
-
-| 方案 | 压缩生效 | 压缩调用自身 cacheRead | 压缩后首个请求 cacheRead |
-|---|---|---|---|
-| smart-context same-model 接管 | 是（模型看全量） | **14,778 / 14,794（tokenBefore 59,703 / 19,025 时命中率 20.6% / 47.6%）** | 回落 3,074–3,110（仅 system 前缀） |
-| billion-context 就地块压缩 | 是（`▣ ACP 50.3K → 13.1K`） | 44,632 / 34,176 | **10,578**（−76%，恒定在 10–12K 的 system+tools 固定前缀；第一个被压缩块之后全部重算） |
-| pi 原生回落路径 | 是 | 2,730–5,385（cacheRead 141–2,428） | 3,074–3,110 |
-
-三者中 smart-context 的 same-model 接管最优且质量最高，故为唯一保留项。billion-context 的块/handle 机制对 KV 缓存无益。
-
-> **2026-09-28 对账**：上表 smart-context 那行（压缩调用 20.6% / 47.6%）是 same-model 接管**碰巧前缀对齐**时的读数；同日用确定性驱动复测，同样的 same-model 接管只拿到 **1.6%**（68,350 全量重发）——即**这次调用本身并不保证命中，看那一刻整段历史有多少已在缓存里**。要稳定拿到高命中，请用 `pi-compaction-cache` 接管（98.8%，见[四个新包实测](#四个新包实测2026-09-28prefix-stabilizer--compaction-cache--warm-cache--footer-template)）。
-
-**billion-context-pi 卸载原因（不只是无效，是有害）**：其 `compress`/`decompress`/`search_context`/`acp_status`/`acp_cache` 五个工具在**扩展加载期**注册（`dist/index.js` 约 23096 行；`acp_delegate*` 因在 `session_start` 内注册而幸存），而 `pi-lazy-tools` 用裸 jiti 上下文加载他扩展的 load 期工具，bcp 顶层 `import * as piModule from "@earendil-works/pi-coding-agent"` 解析失败 →
-```
-[lazy-tools] failed to load tool definition for "compress" from .../billion-context-pi/dist/index.js:
-  error: Cannot find module '@earendil-works/pi-coding-agent'
-```
-→ 模型三次正确构造 `compress` 调用全部返回 `isError: "Tool compress not found"`。而 bcp 又无条件 `session_before_compact → { cancel: true }`（非 refused 状态），**工具全废 + pi 原生压缩被取消 = 会话永不再压缩**，纯风险。规避手段（曾用）：`PI_CODING_AGENT_DIR` 指向仅装 bcp 的临时 agent 目录即可正常压缩，上表数据即在该环境取得。已 `pi remove npm:billion-context-pi`。
-
-**smart-context 配置（本机）** `~/.pi/agent/config/smart-context-ext-config.json`（热加载，无需重启）：
-```json
-{ "enabled": true, "compactModel": { "type": "ref", "ref": "" }, "reminderThresholds": [60000, 75000, 90000], "excludedModels": [] }
-```
-- `compactModel.ref` 留空 = same-model（空串亦可绕过一个判定差；等价写法 `"ref": "1"`）。改指廉价模型即 cross-model，调用 pi 原生 `compact()`，只换凭证，省的是输入/输出总量而非命中。
-- 三档阈值**必调**：默认 400K/500K/600K 对本机 contextWindow 100K 的模型永不触发。取 60K/75K/90K 配合 `.pi/settings.json` 的 `compaction.reserveTokens`（本机测试用 60000）会与 agent 自选时机重叠，压缩接管率下降，排查时先临时抬高 `reserveTokens`。
-
-**已知缺陷（可报上游）**：pi 0.85.1 下 `preparation.messagesToSummarize` 常为空 → `shadowedTokens=0` → 5 次接管被拒 3 次：
-```
-[smart-context] summary inflated, rejecting takeover {"summaryTokens":1820,"shadowedTokens":0}
-```
-判据在 `src/pure.ts:162`，计估在 `src/compact-handler.ts:307-312`。实际影响：被拒则回落原生压缩，摘要质量降为压缩前，且压缩调用无缓存命中（见上表第三行）。`pi-cache-guardian` 的 system prompt 冻结**救不了此项**（根因是历史消息改写，不是 system prompt 字节漂移）。
-
-### 四个新包实测（2026-09-28：prefix-stabilizer / compaction-cache / warm-cache / footer-template）
-
-**测法（确定性驱动，不依赖模型是否真调工具）**：`pi --mode rpc` 多轮直灌，驱动脚本 `.sc-test/drive-cache2.mjs`——8 段 ×48KB 假文档当**用户消息**直接灌进去（上下文线性增长、必过阈值、必触发真压缩；早期版本靠模型 `read` 文件撑大上下文，结果代理模型不调工具，压缩根本没触发，数据作废）。测试项目 `.sc-test/.pi/settings.json` 设 `compaction.reserveTokens: 45000`（100K 窗模型 → 阈值 55K），命中口径统一为 `cacheRead/(input+cacheRead+cacheWrite)`。环境：pi 0.85.1、node 24.16.0、npm 12.0.2、本地代理 `http://localhost:20128/v1`（provider id `1`/model id `1`）、`PI_CACHE_RETENTION=long`。
-
-**结论先行：稳态命中与压缩后首轮命中都符合前缀缓存定义（18.0%→80.9% 单调爬升，压缩后首轮 6.7% 恒定），唯一能修的是压缩调用自身——`pi-compaction-cache` 把它从 1.6% 拉到 98.8%。**
-
-同一台机器、同一驱动、只改一个变量的四组对照：
-
-| 组 | 压缩由谁接管 | 压缩调用 `input` | 压缩调用 `cacheRead` | **压缩调用自身命中** | 压缩后首轮 | 再下一轮 |
-|---|---|---|---|---|---|---|
-| C0 基线（`PI_COMPACTION_CACHE=0`） | smart-context same-model | **68,350** | 1,140 | **1.6%** | 33,793 / 2,425 = 6.7% | 76.7% |
-| C1 `scope:"full"` | **pi-compaction-cache** | **309** | 46,462 | **99.3%** | 33,869 / 2,441 = 6.7% | 76.7% |
-| C2 `scope:"boundary"`（默认） | **pi-compaction-cache** | **309** | 24,496 | **98.8%** | 33,756 / 2,425 = 6.7% | 76.7% |
-| C3 定稿（boundary + debug 关） | **pi-compaction-cache** | **309** | 24,498 | **98.8%** | 33,663 / 2,425 = 6.7% | 76.6% |
-
-压缩前的稳态曲线（四组一致）：**18.0% → 55.0% → 68.9% → 76.4% → 80.9%**（每轮新增 48KB 用户消息，前缀命中率随缓存前缀增长而爬升）。压缩后首轮恒为 **6.7%**、`cacheRead` 恒为 **2,425**——那 2.4K 就是 system+tools 固定前缀，后面全是新写的 summary 与保留区消息，**与压缩方式无关，四个扩展都救不回来，也不是故障**；下一轮立刻回到 76.6%–76.7%。
-
-**C1 vs C2 为什么选 boundary（默认）**：命中 99.3% vs 98.8% 差距微弱，但 boundary 只发到摘要边界为止（`sent_messages:6` vs `10`，日志可见），符合 Pi 自己的 `keepRecentTokens` 保留区语义，多发那 4 条是纯浪费。定稿 `~/.pi/agent/compaction-cache.json`：
-```json
-{ "models": ["1", "1/1"], "scope": "boundary", "logPath": "C:/Users/yxh/.pi/agent/logs/compaction-cache.log", "debug": false }
-```
-
-**`models` matcher 是必填项（本机踩过）**：包内 `inputTokensAreFree(model)` 要求 `model.cost.input === 0 && model.cost.cacheRead === 0`，而本机模型**没有 cost 元数据** → 不配 matcher 就走 zero-cost heuristic 直接 decline（日志 `has no cost metadata and no models matcher is configured`），接管永远轮不到它。配 `["1","1/1"]` 后走 `models matcher (1)` 分支，**实测命中率从 1.6% 变 98.8%**。日志 `logPath` 里 `{"compacted":true,…,"summary_chars":2580}` 即接管成功。
-
-**与 smart-context 的竞合（安装顺序即胜负）**：两个包都接 `session_before_compact`，**靠后加载者先给摘要**。C0 里 smart-context 的 same-model 接管先给摘要 → 压缩调用退化成 68,350 全量重发（1.6%），这正是 smart-context 已知的"压缩调用无缓存命中"问题；C1–C3 里 compaction-cache 排在 smart-context 之后拿到接管权（`fromExtension:true`），命中 98.8%——**换句话说，装上 compaction-cache 并排对顺序，顺手解掉了 smart-context 那条已知缺陷**。反例：让 compaction-cache 排在 smart-context 之前，命中会退回 1.6%。
-
-**对上表 2026-09-27 那两个读数的说明**：C0 这次 same-model 压缩调用只拿到 1.6%，而旧表记的是 20.6% / 47.6%——**同一种接管方式，两次差 10 倍以上**，因为它发的是「全量上下文 + 原 system prompt + 末尾压缩指令」，能不能命中全看那一刻整段历史有多少已经在缓存里，**它不保证命中**。compaction-cache 的做法是把请求**切到摘要边界**再拼指令，边界之前那一段必然与上一轮请求逐字节相同，才有 98.8% 这种可复现的数字。
-
-**它也会主动让路（不是每次都接管）**，日志可判读 `skip:` 开头的原因：`skip:"nothing-to-summarize"`（`messagesToSummarize` 为空，pi 0.85.1 的已知 bug，smart-context 同样中招）、`skip:"cannot-preserve-prefix", boundary:N`（边界之后找不到无 tool_calls 的完整 assistant，切不出安全切点）、`skip:"applicability:…"`（模型不匹配，多半又是 `models` 漏配）、`skip:"no-live-request"`（没捕到活的 provider 请求）。让路时回落到 smart-context / 原生压缩，行为退化但不报错。
-
-**别把 `prompt_drift_check` 当失败信号**：它每次会话只跑一次，纯粹是诊断——比对包内复制的 pi 摘要提示词与 `process.argv[1]` 指向的 pi bundle 是否还一致，只有结果为 `"DRIFTED"` 才 `ui.notify` 告警（含义是「该升级 compaction-cache 了，摘要格式可能变了」）。`"unverifiable"` = 比不了而已（`findBundleDir(process.argv[1])` 拿不到 bundle，`pi --mode rpc` 下 `argv[1]` 根本不是 pi 入口），**C1–C3 三次成功接管前它都记的是 `unverifiable`，与成败无关**。
-
-**`pi-prefix-stabilizer` 在本机只剩半条命（诚实标注）**：日志 `{"first_rewrite":true,"replacements":1,"roots":[]}`——`replacements:1` 来自 **tools 数组按名排序**，`roots:[]` 说明**路径改写一次都没发生**。原因有两条，任一条都足以让它在 Windows 上失效：① 本机 pi 是 `D:\agent\pi-windows-x64` 下的独立二进制，提示词里根本没有默认后缀 `node_modules/@earendil-works/pi-coding-agent`（探针实测 system prompt 4061 字符、`suffixHit=false`，只含 `D:\agent\pi-windows-x64\{README.md,docs,examples}` 与 cwd）；② 包内 `normalisePaths` 要求 `candidate.startsWith("/")` 且该路径真实存在，`D:\…` 永不符合。**结论：不要试图把 `packagePathSuffix` 改成 Windows 路径，原理上不生效。** 实际收益 = tools 顺序确定化 + 会话中途 system 文本 sha1 漂移告警（8 轮长会话实测无 `drift` 记录，即前缀字节稳定）。它与 `pi-cache-guardian` 互补不冲突：guardian 管 system 文本字节级冻结（`before_agent_start`），stabilizer 管发往 provider 那一份 payload 的顺序与漂移告警。
-
-**`pi-warm-cache` 本机不生效（不是故障）**：`resolveStrategy` 判 `capability.state !== "verified"` → `intervalMs: null, automaticWarm: false`，源码注释写明 *an unverified route never arms a timer*。本机模型是本地代理（`openai-completions` + localhost baseUrl），不在已注册路由表（Anthropic/OpenAI/Azure/Codex/xAI 4.5+/OpenCode Go/OpenRouter）内，**永不装定时器、一次请求都不额外发**。换 provider 即自动启用，`/warm status` 可查。不注册也**不报错**，属纯静默待命。
-
-**footer 槽位：`pi-one-ui` 主动让位（唯一干净解）**：`ctx.ui.setFooter` 是**单槽、后写者胜**，`pi-one-ui`（第 3 位加载）与 `pi-footer-template`（第 18 位）抢同一个槽。解法不是抢，而是让 one-ui 自己退出：其 `reconcile()` 里 `case "native": this.uninstall(ctx)`，注释明写 *leaving third-party ownership untouched*（不抢也不擦别人的），而 `installedKind === "starship" && ownsStatusLine(ctx)` 的早退又保证它不会在会话中途回头抢。本机 `~/.pi/agent/pi-one-ui.json`：
-```json
-{ "components": { "footer": { "style": "native" } } }
-```
-Header / Context / WorkingLine / Editor 各层照旧，footer 归 `pi-footer-template`。回滚：删掉该文件即恢复 Starship footer（config 走 `components.footer.style` → `normalizeFooter`，只认 `native`/`hidden`/其它默认 `starship`）。默认模板已含 `CH{latestCacheHitRate}%`，口径 = **最后一条 assistant** 的 `cacheRead/(input+cacheRead+cacheWrite)`，与本节各表「命中」列完全同源（`computeSessionUsage` 遍历 `getEntries()` 顺带累加 compaction 条目用量）。⚠ footer 只能目视验收：RPC 模式无 TUI，本条**尚未经界面目视确认**，下次开 TUI 请看一眼底栏 CH% 是否随命中率变动。
-
-## lazy-tools 执行层修复（2026-09-22）
-
-**现象**：`load_tools` 激活成功（注入 description/schema），但 `call_tool` 报「无法从 ...\@tian.zuo\pi-find\index.ts 加载工具 grep 的执行定义」。实测非 pi-find 特有——所有 npm 安装的 `.ts` 扩展全中招。
-
-**根因**：lazy-tools 的 `requireFn` 用 Node 原生 `createRequire` 二次加载目标扩展。Node ≥23.6 的 type stripping **明确拒绝 node_modules 下 .ts**（实测报错 `Stripping types is currently unsupported for files under node_modules`），且原生 require 转 CJS 后 `import.meta` 不可用。lazy-tools 绕开了 pi 的官方 TS 加载管线。
-
-**修复**：换 pi 同款加载器 **jiti**（`docs/extensions.md`：Extensions are loaded via jiti；`jiti@2.7.0` 已在依赖树，未声明但可从 node_modules 根解析）。三处改动（`npm/node_modules/@wolido/pi-lazy-tools/lazy-tools.ts`，备份 `lazy-tools.ts.bak`）：
-
-```diff
-- import { createRequire } from "node:module";
-+ import { createJiti } from "jiti";
-- const requireFn = typeof require !== "undefined" ? require : createRequire(import.meta.url);
-+ const requireFn = createJiti(import.meta.url);
-- const mod = requireFn(sourcePath);                      // 同步原生 require
-- const factory = mod?.default ?? mod;
-+ const factory = await requireFn.import(sourcePath.replaceAll("\\", "/"), { default: true });
-```
-
-要点：`jiti.import()` 按 ESM 语义转译（`import.meta` 可用），`default: true` 直接取 default 导出；`sourceInfo.path` 为 Windows 反斜杠绝对路径，转正斜杠后 jiti 才能正确 resolve。
-
-**验证**：独立 probe 用真实 `C:\Users\...\@tian.zuo\pi-find\index.ts` 反斜杠路径重放 factory → `REPLAY OK: grep,find`，execute 就位。
-
-**执行约定**：
-1. **生效需 `/reload` 或重启 pi**：扩展工厂闭包在会话启动时冻结，本会话内 `call_tool` 仍走旧加载器。
-2. **补丁已版本化（2026-09-23 起）**：jiti 修复并入 fork `git:github.com/qq458249269/pi-lazy-tools`（commit `b2a7d75`）随 `pi install` 更新保留；npm 源与 `lazy-tools.ts.bak` 手工补丁流程作废。
-3. 修复后缓存实验对齐基线：激活注入（grep schema ~180 token）对前缀命中约零影响（对照 T1 消息 14 注入 7,084 token → 单轮 44%、下轮即恢复 96%+），看累计值而非单轮。
-
-## 本轮实录：装 pi-ask + 升级全部扩展（2026-09-27）
-
-**三件事**：① 装 `@nguyenquangthai/pi-ask@0.2.0` 并按 lazy 策略处理；② 全量升级扩展（`pi update --extensions`）；③ 升级后体检时撞上 lazy 执行层全线失效，顺手修掉。
-
-### 装 pi-ask
-
-```bash
-pi install npm:@nguyenquangthai/pi-ask
-```
-
-零依赖（`npm view` 显示 `deps: none`）、`engines.node >=22.19.0`（本机 24.16.0 满足，安装无 EBADENGINE 告警）、`files` 只含 `src/`（2092 行 TS，无 dist、无 tests）。**只注册 1 个工具 `ask_user_question`**（`src/index.ts:74`），无 `registerCommand`。
-
-**lazy 判定：什么都不用改。** fork 是 resident 例外制，`resident` 里只有五工具 + `load_tools`/`call_tool`/`skill_search` 八项，`ask_user_question` 不在其中 → 会话启动即被剔除出 active 集，**默认全懒**。核对方式：探针 `.sc-test/probe-lazy-jiti.mjs` 复刻 fork 的 factory 重放，确认 `ask_user_question` 的 `execute` 与 `prepareArguments` 都能拿到（`description` 986 字符、`label="Ask User"`）。要不要提为常驻见[安装后操作 16](#安装后操作)。
-
-**行为要点（README + 源码核对）**：`Other` 选项由组件自动加，**不要**让模型自己写；`header` ≤ 12 终端列（CJK/emoji 按 2 列算，超了截断而非报错）；`showWhen` 只支持一级；`prepareArguments` 在 Pi 校验前补全 `value`/`id`/`header`、剥转义序列、裁到 4 个选项、给重复 id/value 加 `-2` 后缀——**基本不会撞 schema 校验错误**；结果按 `questionId` 回传，`details` 里带 `selectedValues`/`customText`；**非 TUI 模式在 `session_start` 里 `setActiveTools` 把自己摘掉**（`src/index.ts:71`），print/JSON/RPC 下模型看不到它，直接调用返回 `status:"unavailable"`。
-
-⚠ 该包无宿主级测试，**TUI 里的实际键盘交互（选项高亮、Review 页回改、中文 IME）尚未目视验收**——下次开 TUI 激活它试一次再定论。
-
-### 升级全部扩展
-
-`pi update --extensions`（**只升扩展不动 pi 本体**；`--all` 会连 pi 一起升，本轮刻意不用）。19 项全部处理完，实测只有 2 个动了版本：
-
-| 扩展 | 升级前 | 升级后 | 备注 |
-|---|---|---|---|
-| `pi-mcp-adapter` | 2.37.0 | **2.38.0** | search 模式的 MCP 工具在一次成功代理调用后升级为完整直连工具；运行时注册的 keep-alive 服务器无启动服务器也能发布工具；`mcpScript` 结果更紧凑；stdio 配置支持家目录相对路径；`MCP_UI_VIEWER=orca` |
-| `pi-agent-browser-native` | 0.7.1 | **0.8.1** | ⚠ 声明 `engines.node >=24.21.0`（本机 24.16.0 → 仅 npm 告警，运行正常）；校验基线升到 pi 0.87.1、TS 7；**仍调 `buildSessionProjection` → 兼容补丁依旧要打**；**注册工具从 1 个变 8 个**（新增 `agent_browser_code`/`_action`/`_qa`/`_electron`/`_source`/`_network_source`/`_tools`），全部非 resident → 自动全懒，见[工具归属](#工具归属) |
-| 其余 16 个 npm + 1 个 git | — | 无变化 | 已是 latest（git 包 HEAD 仍 `eab1626`） |
-
-升级后必做的两件事（本轮都做了）：
-1. **重跑兼容补丁**：`node fix-browser-native-compat.mjs` → `[done]`，并在 0.8.1 的 `tool-surface.js:137` 核到双路回退已就位。
-2. **扫加载期错误**：`node .sc-test/check-ext-errors.mjs --reload` → `extension_error 总数: 0`、`stderr 命中: 0`。
-
-体检工具面时顺手发现：**`pi-agent-browser-native` 从 1 个工具变 8 个**，逐个列名写入[工具归属](#工具归属)；也顺手发现 lazy 执行层早已失效（下一节）。
-
-## 本轮实录：装 @ssk_dev/rpiv-todo-lean（2026-09-28）
-
-**一件事**：清单里长期缺 todo 类扩展（19 项里没有任何任务清单），本轮补上 `@ssk_dev/rpiv-todo-lean@2.10.3`，清单 19 → 20。选它的理由是**它是同类里唯一把「常驻 token」当卖点做的**——不是重写引擎，而是在上游外面套一层 Proxy 拦截器。
-
-```bash
-pi install npm:@ssk_dev/rpiv-todo-lean   # added 4 packages in 7s
-```
-
-**包形态**：`files` 只有 4 项（`index.ts` + `LICENSE` + 两份 README），unpacked **19.1 kB**，`engines.node >=22.19.0`（本机 24.16.0 满足，安装无 EBADENGINE 告警）。两个依赖 `@juicesharp/rpiv-todo@2.10.1` 与 `@juicesharp/rpiv-i18n@2.10.1` 都是**精确钉版**（无 `^`），所以升级 lean wrapper 不会顺手把上游拖动；`peerDependencies` 要求 `@earendil-works/pi-{ai,coding-agent,tui} >=0.84.1 <1.0.0`。
-
-**工具面**：单工具 `todo`（上游 `tool/types.ts:11` 的 `TOOL_NAME`，源码注明它同时是分支重放的持久化键与权限项，**DO NOT rename**）。六 action `create`/`update`/`list`/`get`/`delete`/`clear`，四状态 `pending`/`in_progress`/`completed`/`deleted`，任务模型带 `blockedBy: number[]` 依赖图 + `addBlockedBy`/`removeBlockedBy` + `owner`/`metadata`/`activeForm`。每次成功调用都在 `details` 里回 `TaskDetails`（`{action, params, tasks, nextId}`，字段序被跨版本重放钉死），压缩/树导航后据此重建。
-
-**lean 层到底改了什么**（读 `index.ts` 全文核对，三件事）：
-1. `removeSchemaDescriptions` 递归遍历 schema 对象删掉所有 `description` 键，但对 `properties` 映射本身例外（否则字段说明会被当 schema 元数据删掉）。
-2. `todo` 的 description 换成 119 字符单行（`action` 必填 + 各 action 的必填字段），`promptSnippet` 置空，`promptGuidelines` 从上游的多行收成 1 行。
-3. `prepareArguments` 兜底：先跑上游的 `prepareArguments`，再套 lean 层自己的 `action` 反推（模型漏给 `action` 时按字段猜：有 `id` 且带任一可变字段 → `update`，只有 `subject` → `create`；两者都没有则原样放行给上游校验报错）。
-
-**lazy 判定：什么都不用改。** `todo` 不在 `resident` 八项里 → 会话启动即被剔除出 active 集。探针实测：
-
-```
-node .sc-test/probe-lazy-jiti.mjs ~/.pi/agent/npm/node_modules/@ssk_dev/rpiv-todo-lean/index.ts todo
-factory OK，捕获工具 1 个: todo
-  todo: execute=function prepareArguments=function label=Todo descLen=119
-    execute 重放失败: Cannot read properties of undefined (reading 'getSessionId')
-```
-
-最后一行**不是故障**：探针的 fake pi 没有 `getSessionId`，与本手册里对 `pi-tps`/`pi-one-ui`/`computer-use` 的同类说明一致（假 pi 不完整），真实执行路径要靠 `load_tools` + `call_tool` 在活会话里验。另做了一次 print 模式实测（`pi -p --no-session --thinking off` 让模型自报 active 工具）→ `read, bash, edit, write, omnify`，`todo` 确实不在其中（该次 cwd 在 `/tmp`、无项目 `.pi/settings.json`，故 `powershell` 不在内）。加载期体检：`node .sc-test/check-ext-errors.mjs --reload` → **`extension_error 总数: 0`**、`stderr 命中: 0`。
-
-**TUI 侧冲突核对（本轮重点）**：
-- overlay 用 `ctx.ui.setWidget("rpiv-todos", …)` 的**具名槽**（`todo-overlay.ts:23`），`setWidget` 是按 key 的 map，不是单槽。pi-one-ui 用的是 `ccstyle-tool-mouse`（mouse interaction.ts:100）与 `compact-thinking-render-loop`（compact-thinking.ts:585），**三个 key 互不重叠** → 不抢。
-- 它不调 `setFooter`，所以 footer 槽仍归 `pi-footer-template`（one-ui 已让位）不变；`pi-tps` 的底部状态栏亦不受影响。
-- 快捷键 `ctrl+shift+t`（`config.ts:24` 的 `DEFAULT_COLLAPSE_KEY`）折叠/展开 overlay，工厂作用域解析一次、改配置要 `/reload` 才重新绑定（`"off"` 可整个关掉）；overlay 空列表时自动隐藏，此时快捷键 no-op。
-- 事件钩子用的是 `session_compact` / `session_tree`，**不是** `session_before_compact` → 与 `pi-smart-context`、`pi-compaction-cache` 抢的那条钩子不是同一条，**压缩接管权零冲突**，也无需排安装顺序。
-
-**配置**：`~/.config/rpiv-todo/config.json`（`XDG_CONFIG_HOME` 未设时的默认位置，rpiv 走自己的 XDG 层，与 `~/.pi/…` 正交）。`maxWidgetLines` 默认 12、非数字或 <3 回落默认、无上限；`collapseKey` 默认 `ctrl+shift+t`；另有 `guidance`。`maxWidgetLines`/`collapseKey` 的读取是**逐渲染现读**，改完不用 `/reload`（只有快捷键绑定是工厂级一次性）。
-
-⚠ **未目视验收**：TUI 里 overlay 的实际落位（与 pi-one-ui 的 WorkingLine/Context 层的上下关系）、`ctrl+shift+t` 的折叠效果、以及 `/todos` 的分组渲染，都还没在真 TUI 里看过——下次开 TUI 激活 `todo` 试一次再定论。另外 `/todos` 在非交互模式会返回 `ERR_REQUIRES_INTERACTIVE`。
-
-## lazy 执行层失效与修复（2026-09-27）
-
-**现象**：19 个扩展全装好、`pi list` 齐、`extension_error` 为 0、策略上低频工具也确实被剔除出了 active 集——但**整条 lazy 链是空转的**：`load_tools` 能把用法文本注入进来，真正 `call_tool` 时却拿不到执行定义。
-
-**根因（`Cannot find module`，与懒加载配置无关）**：fork 用 jiti 二次加载目标扩展入口、重跑 factory 来抓 `ToolDefinition`（2026-09-22 的修复，见上节），jiti 按**目标文件自身路径**逐级上溯找 node_modules。而绝大多数扩展在**运行期值导入** pi 的内置包（`@earendil-works/pi-tui` 的 `Text`/`Container`、`pi-ai`、`pi-coding-agent`）——`docs/packages.md` 写明这些是 pi 捆绑包，扩展只写 `peerDependencies: "*"`，**并不由 pi 装进 npm 树**（实测 `~/.pi/agent/npm/node_modules/@earendil-works/` 是**空目录**）。本机解析链上唯一能兜底的 `~/node_modules/@earendil-works/*`（2026-09-22 时还在的历史遗留）**已被清理**，pi 也**没给子进程设 `NODE_PATH`**（RPC 会话里 `echo $NODE_PATH` 实测为空）。→ `jiti.import()` 抛 `Cannot find module`，`findToolDefinition` catch 后 `return undefined`，于是**所有 npm 扩展的工具都“注册了但调不动”**。
-
-| 探针对象 | 修复前 | 修复后 |
-|---|---|---|
-| `@tian.zuo/pi-find` | `Cannot find module '@earendil-works/pi-ai'` | factory OK，`grep`/`find` 定义加载 OK |
-| `pi-agent-browser-native@0.8.1` | `Cannot find module '@earendil-works/pi-tui'` | factory OK，**8 个**工具定义全部加载 OK |
-| `@nguyenquangthai/pi-ask` | `Cannot find module '@earendil-works/pi-tui'` | factory OK，`ask_user_question` 定义 + `execute` 重放 OK（返回 `status:"unavailable"`，非 TUI 下的既定行为，不是错误） |
-
-**为什么一直没暴露**：2026-09-22 那次「`REPLAY OK: grep,find`」的验证是在家目录遗留还在时做的；遗留一清理，全站 lazy 执行层**静默归零**——启动期**没有任何报错**（`extension_error` 仍 0），只有真去 `call_tool` 才失败。所以本轮的教训是：**「工具被 lazy 隐藏」与「工具能被 lazy 调用」是两件事，后者坏掉不会自己报警**，必须用探针主动验。
-
-**修复**：把与 pi 同版本（0.85.1）的三个捆绑包装到 **`~/.pi/agent/node_modules`**——它在目标文件的解析上溯路径上（`npm/node_modules` 的父目录），但**不在 pi 托管的 npm 工程内**（`~/.pi/agent/npm/`，`pi install`/`pi update` 会重写其 `package.json` 并 prune 外来依赖，所以不能装那儿；`--legacy-peer-deps` 也不行：`@agenticup/pi-loop@0.1.4` 把 peer 钉在 `^0.78.0`）：
-
-```bash
-npm i --prefix "$HOME/.pi/agent" \
-  @earendil-works/pi-coding-agent@0.85.1 @earendil-works/pi-tui@0.85.1 @earendil-works/pi-ai@0.85.1
-```
-
-装完 `~/.pi/agent/node_modules/@earendil-works/` 下多出 `pi-coding-agent`/`pi-tui`/`pi-ai`（+ 传递依赖 `chord`/`pi-agent-core`/`pi-telemetry`）。验证：`probe-lazy-jiti.mjs` 三个对象全绿（上表右列），`check-ext-errors.mjs --reload` 仍 `extension_error 总数: 0`，`pi list` 19 项。
-
-**纪律**：
-1. **pi 升级时同步升这三个包**（`npm i --prefix "$HOME/.pi/agent" @earendil-works/{pi-coding-agent,pi-tui,pi-ai}@<新版本>`）——版本错配不报错，只会静默带进旧行为。
-2. **别删 `~/.pi/agent/node_modules`**，它现在是 lazy 执行层的地基；也别把依赖挪进 `~/.pi/agent/npm/`，会被 `pi update` prune 掉。
-3. 判据：`call_tool` 报「无法加载执行定义」+ stderr 出现 `[lazy-tools] failed to load tool definition "X" from …: Cannot find module '@earendil-works/…'` → 就是这个病，**别去改 `lazy-tools.json`**（改名单只会把症状换成「工具不在 active 集」）。
-4. 探针脚本（都放 `.sc-test/`，只读不改）：`probe-lazy-jiti.mjs <扩展入口> [工具名…]` 复刻 fork 的 jiti 基准 + factory 重放（可重放 `execute`）；`probe-all-tools.mjs` 逐个重放 19 个扩展的 factory 并列工具名，用来核对 resident/lazy 名单。`probe-all-tools.mjs` 对 `pi-tps`/`pi-one-ui`/`computer-use`/`pi-mcp-adapter` 会报 `Cannot find module …/extensions` 或 `pi.events.on is not a function`——那是探针的 fake pi 不完整（目录型入口、事件钩子），**不是这些扩展的故障**。
-5. 遗留风险：TUI 自定义组件类（如 pi-ask 的 `QuestionnaireComponent extends Container`）在 lazy 路径下用的是这份 **npm 副本**的 pi-tui，而 pi 本体内部是另一份实例；版本与 pi 对齐（0.85.1）下实测正常，**跨版本组合未验证**。
-
-## pi-agent-browser-native 兼容补丁（2026-09-28）
-
-**现象**：会话启动与 `/reload` 必报 `ctx.sessionManager.buildSessionProjection is not a function`（扩展 `session_start` 里抛出），其余扩展随后被跳过级联影响观感。
-
-**根因**：`pi-agent-browser-native@0.7.1` 的 `dist/extensions/agent-browser/lib/tool-surface.js` 调 `ctx.sessionManager.buildSessionProjection().messages` 取当前 system 消息里的 `toolsAdded`，而该 API 属 **pi 0.86+**；本机 **pi 0.85.1** 只有 `buildSessionContext()`（`docs/session-format.md`「Instance Methods - Context & Info」，返回 `{messages, thinkingLevel, model}`）。探针 `.sc-test/probe-sessionmanager.js` 实测：`hasBuildSessionProjection: false / hasBuildSessionContext: true`，不猜版本、直接验 API 面。
-
-**处置**：`fix-browser-native-compat.mjs`（本目录）打**双路回退 + try/catch** 补丁——有 `buildSessionProjection` 用新的、没有就退 `buildSessionContext()`、两者皆无或抛错则静默 return（该扩展在浏览器工具未激活时本就不该有副作用）：
-```js
-let restored = new Set();
-try {
-  const { getCurrentSystemMessage } = await import("@earendil-works/pi-ai");
-  const sm = ctx.sessionManager;
-  const messages = typeof sm?.buildSessionProjection === "function"
-    ? sm.buildSessionProjection().messages
-    : (sm?.buildSessionContext?.().messages ?? []);
-  const current = getCurrentSystemMessage(messages);
-  restored = new Set(current?.toolsAdded?.map(({ name }) => name));
-} catch (error) { return; }
-```
-脚本**幂等**（已打过则输出 `[skip]`，特征不符则提示人工核对），可直接重跑；`node --check` 通过。
-
-**验证（同一探针对照）**：补丁前 `extension_error` **1** → 补丁后 **0**；全量扩展扫描 `.sc-test/check-ext-errors.mjs --reload` 得 `extension_error 总数: 0`、stderr 命中 0。
-
-> ⚠ **`pi update` / 重装会丢这个补丁**，需重跑 `node fix-browser-native-compat.mjs`。长期解法是等上游适配 0.85.x 或升 pi 到 0.86+。
->
-> **2026-09-27 复核**：升到 `pi-agent-browser-native@0.8.1` 后**该调用依然存在**（`dist/extensions/agent-browser/lib/tool-surface.js:137`），补丁照旧要打、已重打并实测 `extension_error` 0；0.8.1 另要求 Node `>=24.21.0`（本机 24.16.0 仅告警）。
-
-> 排障教训：`extension_error` 走 **RPC 事件流**、**不出现在子进程 stderr**，只看 stderr 会得到「无错误」的假阴性。扫描扩展错误必须订阅事件流（见 `.sc-test/check-ext-errors.mjs`）。
-
-## 全量重装实录与问题修复（2026-09-23）
-
-**操作**：备份（`settings.json`、`lazy-tools.json`、`skills/` 全量拷入 `.backup-20250915/`）→ 串行 `pi uninstall` 卸全部 14 项（`pi list` 归零、settings `packages: []`）→ 删 2 个 skill → 按本文清单串行重装 13 npm + 1 git → skills 按原 HEAD 重放（`cangjie-skill` `3adf9e6`、`goutoujunshi` `6db7354`，与上轮记录一致）→ `fix-tps-theme.ps1` 幂等 `[skip]` → computer-use helper 重跑 `already up to date`。
-
-**验证通过**：`pi list` 14 项齐（13 npm + 1 git）；`~/.pi/lazy-tools.json` resident 五工具原样（`pi uninstall` 不触碰该文件）；lazy-tools fork HEAD `096ffc9`（含 jiti 修复 `b2a7d75` + `dependencies.jiti` 就位）；项目 `.pi/settings.json` `defaultTools` 五工具原样；npm `allowScripts` 批准记录跨卸载保留；13 npm 首轮全部零失败（无 ENOENT 竞写——串行纪律再次有效）。
-
-**问题 1：`[pi-web-access] Dynamic tool activation requires Pi 0.86.1 or newer` 启动告警（误报，定为不修）**
-
-- 根因：pi-web-access `tool-activation.ts` 的 `supportsDynamicTools()` 用 `import.meta.resolve("@earendil-works/pi-coding-agent")` 就近读 package.json 判版本。解析链从 `~/.pi/agent/npm/node_modules/pi-web-access` 向上，跳过空的 `~/.pi/agent/npm/node_modules/@earendil-works/`（卸载残留空目录），命中**家目录遗留** `~/node_modules/@earendil-works/pi-coding-agent@0.85.1`（`~/package.json` 里旧 `@wolido/pi-lazy-tools@0.3.0` 的 peer 依赖，与 pi 安装无关）→ 判 0.85.1 < 0.86.1 → 告警并回退 web 工具 eager。pi 实为 0.87.1，纯版本探测误报。
-- 不修的三个理由：(a) eager 回退下 web 工具仍不在 `resident` 名单，照常被 pi-lazy-tools 剔除、走 `load_tools` 激活，**最终行为与本机全懒策略一致**；(b) 反而注册 `web_enable` 第二 loader，其 `selectFromSession` 会主动把 web 工具塞回 active 集，与 lazy-tools 的剔除正面打架（双激活管理器冲突）；(c) 删家目录残留无效——`import.meta.resolve` 抛错走 `catch → false`，同样告警，且 `~/package.json` 是用户自己的 npm 项目不宜动。
-- 实际损失：仅 `web_enable` loader 不注册（本机不用它，统一走 `load_tools`），告警行每次启动打印一次，无功能影响。
-
-**问题 2：`npm install-scripts approve better-sqlite3` 报 `ENOMATCH`（步骤过时，已从流程剔除）**
-
-- 根因：pi-subagents@0.71.0 / pi-mcp-adapter@2.37.0 / pi-agent-browser-native@0.7.1 新版**已移除 `better-sqlite3` 依赖**（三包 `package.json` grep 无此依赖，`node_modules` 无此目录，`npm ls better-sqlite3` 空），依赖树里没有可批准的包。上轮记录的「共享原生依赖批准」流程基于旧版本。
-- 处置：安装后操作中的 better-sqlite3 批准段已标作废（见上），清单 B 三行的 ⚠ 依赖声明同步划掉；`allowScripts` 残留条目无害不清理。`approve @injaneity/pi-computer-use` 报 `Nothing to approve` 属正常（批准记录已存在且跨卸载保留，`pi install` 不清除），此后仅需手动重跑 `node scripts/setup-helper.mjs --postinstall` 确认 helper 就位。
-
-## 首字 token 三步优化（2026-09-28 三次）
-
-**动机**：常驻的五个内置工具定义 + 系统提示词里 `Guidelines`（10 行长句规范）与 `Pi documentation`（含「读本 md 须全文读完并循内部链接」等解释性文字）构成每轮都要重发的**静态前缀**。前缀在 provider 侧按 `cacheRead` 计费，**字节就是硬成本**——省下来的是每一轮、每一个 token 的钱。本轮只动这三处，均为 payload 级、可回退、不碰工具注册。
-
-**A/B 实测**（`.sc-test/ab-baseline.mjs`，同 driver / 同模型 / 同任务，仅切换扩展与配置）：
-
-| 项 | 基线 | 三步优化后 | Δ |
-|---|---|---|---|
-| system 提示词 | 4290B | 2859B | **-1431B（-33%）** |
-| tools 定义（wire 口径） | 4893B（6 个） | 2892B（5 个） | **-2001B（-41%）** |
-| 静态前缀合计 | 9183B | 5751B | **-3432B（-37%）** |
-| 首请求 `cacheRead` | 2604 tok | 1916 tok | **-688 tok（-26%）** |
-| active 集 | 6 工具 | 5 工具（`edit`/`read`/`shell`/`write`/`omnify`） | -1 |
-
-逐工具（wire 字节）：基线 `read 699 / bash 558 / powershell 570 / edit 2045 / write 445 / omnify 569` → 优化后 `read 533 / edit 661 / write 445 / shell 678 / omnify 569`。缓存纪律：优化后连续三轮 `input 35/125/125 + cacheRead 1916/1916/1916`，**前缀逐轮全命中、字节确定**（`pi-prefix-stabilizer` 无漂移告警）。`/lean-stats` 实测：system `4064→2700B`（rules -701 / docs -665）、tools `2744→1194B`（read -166、edit -1384）。
-
-### 第一步：压 `Guidelines` / `Pi documentation` 两段
-
-`extensions/pi-lean-prompt.ts` 在 `before_agent_start` 里改 `event.systemPrompt`：用 `RULES_RE=/\n\nGuidelines:[\s\S]*?(?=\n\n[^\n])/` 与 `DOCS_RE=/\n\nPi documentation \([^)]*\):[\s\S]*?(?=\n\n[^\n])/` 定位两段，换成 7 行压缩版 Guidelines（read/shell、**edit 全部 6 条**：精确唯一 / 尽量短 / 同文件多处与相邻改动合并 / 不重叠不嵌套 / anchor / `replaceAll`、write、omnify 两条、`PI_*`、回答纪律）与精简的 docs 段。
-
-三条边界，都是踩过的坑：
-
-1. **判定句幂等**：判据用 pi 原文里的定子 `RULES_ORIGINAL="Use read to examine files instead of cat or sed."` / `DOCS_ORIGINAL="Main documentation:"`——**原文不见了就说明已被别处压缩（fork 或别的扩展）过，直接跳过**，绝不会两层压缩叠成乱码。
-2. **让路 0.86+**：`before_agent_start` 首行 `if (event.systemPromptOptions?.sections) return;`。0.85.1 的 `BuildSystemPromptOptions` 没有 `sections`，本扩展接位；0.86+ 有 `sections` 就把活儿交回 lazy-tools fork 的 `RULES_NOTE`/`DOCS_NOTE`（那段在 0.85.1 上本来就是死代码）。
-3. **路径不硬编码**：三条文档路径（`Main documentation` / `Additional docs` / `Examples`）用 `PATH_BULLET_RE=/^- (?:Main documentation|Additional docs|Examples):[^\n]*$/` **从原段落里搬运**——pi 换安装目录不用改代码。额外保留一句「相对路径按上表根目录解析（非当前工作目录）；读 pi 相关 md 须全文读完并循内部链接。」，这是唯一丢了会真出错的语义。
-
-### 第二步：裁 `edit` / `read` 的 description 与 schema 样板
-
-在 `before_provider_request` 里改 `payload.tools`。**关键取舍：只改 payload、不重新注册同名工具**——所以 `pi-edit-guard` 的 fuzzy `edit`、`pi-one-ui` 的 write diff 元数据、`pi-undo-redo` 的路径追踪**全部不受影响**（工具定义对象还是同一个，只是发给 provider 的那份样板被裁了）。裁掉的是 pi 内建说明里的解释性文字（Examples/Notes 段、`anchor` 参数的 3 段用法展开、`replaceAll` 的多示例列举、`read` 的 `autoResizeImages` 解释等），**裁掉后仍逐字覆盖了本仓库系统提示词里那 6 条 edit 纪律**。
-
-踩过的两个坑：① 字段路径要带最外层 `properties.` 前缀（`properties.edits.items.properties.oldText.description`，少一层就删不到，`edit` 只从 1653B 降到 1261B）；② `payload.tools` 里的 `parameters` 对象是**同一引用跨轮复用**，第二轮起再量就是已瘦身值——`/lean-stats` 因此只记**首请求**。
-
-### 第三步：`bash` + `powershell` → `shell`
-
-`extensions/pi-shell.ts` 注册单一 `shell` 工具，`execute`/`renderCall`/`renderResult` **全权委托内建** `createBashToolDefinition(cwd, options)` / `createPowerShellToolDefinition(cwd)`（pi 根导出，自带输出截断、临时文件回写、`PI_*` 超时、abort、流式渲染），自研部分只有参数适配：
-
-```json
-{ "command": "…", "shell": "bash | powershell", "timeout": 120 }
-```
-
-- 手写 JSON Schema（用 `as unknown as TSchema` 强转）而不用 `Type.Union`——后者展开成 `anyOf`，模型在 `{"shell":"powershell"}` 上的选择率反而更差，还多占字节。
-- `shellPath` / `shellCommandPrefix` 从 global + project 两份 `settings.json` 透传（与 `SettingsManager.deepMergeSettings` 同序：project 覆盖 global），按 cwd 缓存。
-- 委托内建定义 ⇒ **PowerShell 路径的流式渲染也在**（实测 2 次 `tool_execution_update`），不是只传一个字符串。
-- 省下 450B（wire 1128→678B），且**少一个工具就少一条 promptSnippet**。
-
-**隐藏双 shell 靠三处同时生效**（不依赖事件先后顺序）：项目 + 用户 `settings.json` 的 `defaultTools` 都改成 `["read","edit","write"]`；`~/.pi/lazy-tools.json` 的 `resident` 列出 `shell`；扩展自己的 `session_start` 再 `setActiveTools(getActiveTools().filter(n => !["bash","powershell"].includes(n)))` 兜底。
-
-### 五合一（read/write/edit/bash/powershell → 单个 fs 工具）为什么不做
-
-评估后否决，理由三条：① **打断既有链**——`edit` 的多段 `edits[]` 语义是 `pi-edit-guard` fuzzy 匹配的载体、`write` 的 diff 元数据是 `pi-one-ui` TUI 渲染的载体、文件路径追踪是 `pi-undo-redo` 的 `/undo` 载体，合并后三者全部失效；② `edits[].oldText/newText/anchor/replaceAll` 的深层 schema 被摊平，模型填错率上升，而 `edit` 是主链路工具，一次失败代价远大于 450B 收益；③ 收益只兑现一次（bash+powershell 合一是删掉一个重复工具，收益完整；五合一砍的是语义不同的四个工具，边际收益递减）。
-
-### 两个扩展 + 两个脚本
+| `npm:pi-web-access` | 0.31.0 | 网页搜索 / 抓取 | 大输出工具，用前先看 §5 缓存纪律 |
+| `npm:pi-tps` | 1.0.1 | 底部 token/speed 状态栏 | 装后跑 `fix-tps-theme.ps1` 让配色跟随系统主题 |
+| `npm:@injaneity/pi-computer-use` | 0.5.1 | 桌面截图 / 点击 / 输入 | **唯一需批准 install 脚本的包**，见 §3.1 |
+| `npm:pi-one-ui` | 0.7.1 | TUI 统一美化（Header/Context/WorkingLine/Editor/Footer） | 取代旧 `alps-pi`；要求 Node ≥22.19、Pi ≥0.84 |
+| `npm:pi-cache-guardian` | 1.0.7 | 缓存命中巡检 + 前缀漂移告警 | 与 §6 的 prefix-stabilizer 是同一根因的两端，一并用 |
+| `npm:@tian.zuo/pi-find` | 0.6.0 | `grep` / `find` 工具 | **覆盖内建同名工具**（替换，不是并列） |
+| `npm:pi-edit-guard` | ~~0.1.5~~ | 覆盖内建 `edit` + 注册 `undo` | **已卸载**，见 §7.1 |
+| `npm:@trycedar/pi-mdiff` | 0.4.0 | `md_inspect` / `md_diff` / `md_edit` | Markdown 结构化编辑，`.md` 改动优先用它 |
+| `npm:pi-undo-redo` | 0.1.3 | 会话 / 文件撤销重做 | 纯命令扩展，零工具 |
+| `npm:pi-mcp-adapter` | 2.37.0 | 一个 `mcp` 代理工具替代成百上千个 MCP 工具定义 | 装完重启自动读 `.mcp.json` |
+| `npm:pi-agent-browser-native` | 0.7.1 | 原生 `agent_browser*` 工具（8 个） | 要求 Pi ≥0.86.1；本机 0.87.1 满足，**不需要**兼容补丁 |
+| `npm:@agenticup/pi-loop` | 0.1.4 | `loop` 递归深潜工具 | 入口是 `extensions/loop.ts`，不是 `dist/index.js` |
+| `git:github.com/qq458249269/pi-lazy-tools` | — | 按需工具加载（`load_tools` / `call_tool`） | **fork，含 jiti 加载器补丁**；npm 版 `@wolido/pi-lazy-tools` 已下架 |
+| `npm:@zhushanwen/pi-smart-context` | 0.3.4 | 智能压缩：注册 `compact_context` 交 agent 自决 | **必做配置**见 §3.2 |
+| `npm:pi-prefix-stabilizer` | 0.1.0 | 系统提示词前缀稳定 + 漂移检测 | 与 compaction-cache 有先后要求，见 §2.2 |
+| `npm:pi-compaction-cache` | 0.1.1 | 摘要调用复用已缓存前缀 | **必做配置**见 §3.3；实测把压缩调用自身命中从 1.6% 拉到 98.8% |
+| `npm:pi-warm-cache` | 0.4.0 | 空闲期按厂商 TTL 续前缀缓存 | **本机不生效**（本地代理属未注册路由），纯静默待命 |
+| `npm:@nguyenquangthai/pi-ask` | 0.2.0 | `ask_user_question` 结构化提问对话框 | 歧义时问用户，比猜省事 |
+| `npm:@ssk_dev/rpiv-todo-lean` | 2.11.0 | `todo` 任务清单工具 + TUI overlay | `ctrl+shift+t` 折叠；`/todos` 看全量 |
+| `npm:@aboutlo/pi-smart-edit` | 0.4.0 | 覆盖内建 `edit`，容忍引号/空白不匹配 | **已生效**；`edit` 归它，匹配走「精确 → NFKC 归一化行」 |
+
+### 1.2 本地扩展（不走 `pi install`，放 `~/.pi/agent/extensions/`）
+
+仓库 `extensions/` 是 canonical 源，`node install-local-extensions.mjs` 幂等同步到用户目录（`--check` 只体检、有漂移 exit 1）。
 
 | 文件 | 作用 |
 |---|---|
-| `extensions/pi-lean-prompt.ts`（9497B） | 第一步 + 第二步，零工具注入，只挂 `before_agent_start` / `before_provider_request`；`/lean-stats` 看节省量，`PI_LEAN_DEBUG=1` dump 完整 tools JSON |
-| `extensions/pi-shell.ts`（6165B） | 第三步，替换 1 个工具；`session_start` 兼顶隐藏双 shell |
-| `install-local-extensions.mjs` | 仓库 `extensions/*.ts` → `~/.pi/agent/extensions/`（内容一致不写盘，`--check` 有漂移 exit 1，并校验 `resident` 是否含 `shell`） |
-| `fix-lazy-tools-notes.mjs` | 修 fork 的 `DOCS_NOTE` 死路径 + shell 措辞（见下） |
+| `pi-shell.ts` | 把 `bash` + `powershell` 合成一个 `shell` 工具（并更新系统提示词里的工具清单） |
+| `pi-lean-prompt.ts` | 裁 `payload.tools` 里 `edit`/`read` 的 description 与 schema 样板文字（**只改文字、不动字段结构**，故与 smart-edit / one-ui / undo-redo 兼容） |
+| `pi-lean-sections.ts` | 压 wire 上 system 的 `<docs>` / `<skills>` 两块（见 §6.2） |
 
-两个扩展**拆开**是刻意的：`pi-lean-prompt` 零工具注入、纯改文本，出问题可单独禁用；`pi-shell` 替换工具，想回退就删文件 `/reload`。
+### 1.3 Skills（可选，非扩展）
 
-**`DOCS_NOTE` 路径 bug**：fork 里写死 `D:\Agent\pi\README.md`，本机根本不存在（真身在 `D:\agent\pi-windows-x64\`）。0.85.1 上该常量是死代码（`sections` 不存在），但 0.86+ 会启用。git 包是**独立 module root**，不能 runtime import 根 `node_modules` 的 `getReadmePath()`，所以由 `fix-lazy-tools-notes.mjs` **实测**填入：`PI_INSTALL_DIR` → `where pi.exe` 的 dirname → npm 包目录，**要求 `README.md` + `docs/` + `examples/` 三者齐全**才认。⚠ 别用 npm 副本的 `getReadmePath()` 去猜——它解析出的是 `C:\Users\yxh\.pi\agent\node_modules\…`（npm 安装路径），不是 pi 二进制所在目录。
+| 技能 | 安装 | 用途 |
+|---|---|---|
+| `cangjie-skill`（仓颉） | `git clone github.com/kangarooking/cangjie-skill` | 把书 / 长视频 / 播客 / 课程蒸馏成可执行 skills |
+| `goutoujunshi`（狗头军师） | `git clone github.com/shengjidaguai-china/goutoujunshi` | 恋爱军师与情绪支持 |
 
-### 回退
+> skill 不再常驻注入系统提示词（见 §6.2），需要时用 `omnify` 检索。
+
+---
+
+## 2. 安装
+
+### 2.1 顺序循环
+
+**`pi install` 一次只写一条注册，绝不能并行**（并行会竞写 `settings.json` 丢包）。照序跑：
 
 ```bash
-rm ~/.pi/agent/extensions/pi-lean-prompt.ts ~/.pi/agent/extensions/pi-shell.ts   # 一步回退两步半
-# 再把 defaultTools 改回 ["read","bash","powershell","edit","write"]、resident 改回 8 个名字
+for p in pi-web-access pi-tps @injaneity/pi-computer-use pi-one-ui pi-cache-guardian \
+         @tian.zuo/pi-find @trycedar/pi-mdiff pi-undo-redo \
+         pi-mcp-adapter pi-agent-browser-native @agenticup/pi-loop; do
+  pi install "npm:$p" || echo "[失败] $p"
+done
+
+# 有硬顺序的后续
+for p in @zhushanwen/pi-smart-context \
+         pi-prefix-stabilizer pi-compaction-cache pi-warm-cache \
+         @nguyenquangthai/pi-ask @ssk_dev/rpiv-todo-lean \
+         @aboutlo/pi-smart-edit; do
+  pi install "npm:$p" || echo "[失败] $p"
+done
+
+# git 源单独装
+pi install git:github.com/qq458249269/pi-lazy-tools
+
+# 本地扩展
+node install-local-extensions.mjs
 ```
 
-两个扩展都只是 hook，不改 pi 本体、不改包配置，删掉即回到基线 9183B。已装副本的 `.bak`（`lazy-tools.ts.bak`）在补丁目录旁。
+装完自查：`pi list` 应见 **19 个扩展**（18 npm + 1 git），`settings.json` 的 `packages` 19 条。少于 18 就是并行竞写伤痕，重跑补漏。
 
-### 待办
+### 2.2 硬顺序约束
 
-- ⚠ **未目视 TUI**：`shell` 的流式渲染、`/lean-stats` 的弹窗、`pi-shell` 与 pi-one-ui/pi-tps 的渲染叠加都只在 RPC 探针下验过，**没在真 TUI 里看过**，下次开 TUI 试一次。
-- `pi-lean-prompt` 的裁剪是**基于本仓库系统提示词**校准的（那套 6 条 edit 纪律的措辞）；若换项目、改了本仓库的系统提示词，裁剪后的 `edit` 描述可能与仓库规范措辞不一致，需重校。
-- 探针纪律：`timeout` 杀 A/B 脚本的父进程会**跳过 `finally` 里的配置恢复**，把现场留在「基线态」；下次要么别套外层 `timeout`，要么在脚本开头先做一次 `.off → live` 的自愈。
+- `pi-compaction-cache` 必须在 `@zhushanwen/pi-smart-context` **之后**：两者都接 `session_before_compact`，靠后拿到的接管权；反过来压缩调用命中会退回 1.6%。
+- `pi-prefix-stabilizer` 必须在 `pi-compaction-cache` **之前**：先稳前缀再谈复用。
+- 其余顺序不限（`pi-warm-cache` / `pi-ask` / `rpiv-todo-lean` 都不抢 `session_before_compact`）。
+
+### 2.3 升级
+
+```bash
+pi update --extensions        # 只升扩展，不动 pi 本体（--all 会连 pi 一起升）
+```
+
+**升级禁用 `pi install`**：对已装包会命中 npm 缓存、不升版本（要升必须带 `@latest`，但那会重装并可能打乱顺序）。升级后跑 §8 体检。
+
+### 2.4 卸载
+
+```bash
+pi remove npm:<包名>
+```
+
+卸载后同步删掉只为它存在的配置（例：`pi-footer-template` 卸载时连带删 `~/.pi/agent/pi-one-ui.json`），否则留下死配置。
+
+---
+
+## 3. 必做配置
+
+### 3.1 批准 install 脚本（仅 2 个包）
+
+```bash
+npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
+```
+
+`allowScripts` 里只有这两个。其余包实测均无 install 脚本。
+
+### 3.2 smart-context：`~/.pi/agent/config/smart-context-ext-config.json`
+
+```json
+{ "enabled": true, "compactModel": { "type": "ref", "ref": "" }, "reminderThresholds": [60000, 75000, 90000], "excludedModels": [] }
+```
+
+- `compactModel.ref` 空串 = 与当前会话同模型（same-model 模式）。
+- `reminderThresholds` 是 100K 窗口下的三档提醒（token 绝对数，升序）；**默认值 400K/500K/600K 对本机 100K 窗口永远不触发**，必须调低。
+- 路径是 `<agentDir>/config/`，不是 `<agentDir>/`。
+
+### 3.3 compaction-cache：`~/.pi/agent/compaction-cache.json`
+
+```json
+{ "models": ["1", "1/1"], "scope": "boundary", "logPath": "C:/Users/yinxuehao/.pi/agent/logs/compaction-cache.log", "debug": false }
+```
+
+- `models` 是 matcher，**漏了会直接 decline**（本机模型无 cost 元数据，走 zero-cost heuristic 拒绝接管）。
+- `scope: "boundary"` 让压缩请求锚在对话边界，前缀最齐。
+- `/compaction-cache-status` 看逐次判定，日志落 `logPath`。
+
+### 3.4 懒加载常驻集：`~/.pi/lazy-tools.json`
+
+```json
+{ "resident": ["read", "write", "edit", "shell", "grep", "find", "ls"] }
+```
+
+### 3.5 工具注册闸：`defaultTools`（项目 + 用户两处都要写）
+
+项目 `.pi/settings.json` 与 `~/.pi/agent/settings.json`：
+
+```json
+{ "defaultTools": ["read", "edit", "write", "ls"] }
+```
+
+> ⚠ **项目级整体覆盖用户级**，两处必须一致，否则以项目那份为准。
+
+---
+
+## 4. 工具归属（谁注册了什么）
+
+| 扩展 | 工具 |
+|---|---|
+| 内建 pi | `read` `write` `bash` `powershell` `edit` `grep` `find` `ls`（受 `defaultTools` 闸门控制） |
+| `pi-shell` | `shell`（合并 `bash`+`powershell`） |
+| `@tian.zuo/pi-find` | `grep` `find`（覆盖内建） |
+| `@aboutlo/pi-smart-edit` | `edit`（覆盖内建） | 匹配走「精确 → NFKC 归一化行」，容忍引号/空白差异 |
+| `@trycedar/pi-mdiff` | `md_inspect` `md_diff` `md_edit` |
+| `pi-undo-redo` | 无工具（`/undo` `/redo` 等命令） |
+| `@nguyenquangthai/pi-ask` | `ask_user_question` |
+| `@ssk_dev/rpiv-todo-lean` | `todo` |
+| `pi-smart-context` | `compact_context` |
+| `@agenticup/pi-loop` | `loop` |
+| `pi-mcp-adapter` | `mcp` |
+| `pi-agent-browser-native` | `agent_browser` 及 7 个配套 |
+| `pi-lazy-tools`（fork） | `load_tools` `call_tool` |
+| `pi-warm-cache` / `pi-prefix-stabilizer` / `pi-compaction-cache` / `pi-cache-guardian` / `pi-undo-redo` | 无工具（纯事件钩子或纯命令） |
+
+**两道闸（`defaultTools` 与 `resident` 必须同时满足才常驻）**：
+
+| 工具 | `defaultTools` | `resident` | 说明 |
+|---|---|---|---|
+| `read` `write` `edit` `ls` | ✅ 需在列 | ✅ 需在列 | 纯内建 |
+| `shell` | ❌ 不需要 | ✅ 需要 | 由 pi-shell 扩展注册，只受 resident 闸 |
+| `grep` `find` | ❌ 不需要 | ✅ 需要 | 由 pi-find 扩展注册 |
+| `web_enable` / `todo` / `loop` / `md_*` / `ask_user_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ | ❌ | 全部默认懒加载，用 `omnify` 按需检索 |
+
+漏了任一闸的后果（实测）：不在 `defaultTools` → **工具根本不注册**；不在 `resident` → 注册了但被 lazy 隐藏，wire 上看不到。
+
+---
+
+## 5. 使用纪律
+
+1. **首字成本**：常驻集每轮都进 prompt；非 resident 的工具靠 `omnify` 检索命中后一次性注入。
+2. **激活往返**：0.86+ 流程是 `omnify`/`load_tools` → `call_tool` → 执行，多 1–2 个模型轮次。搜索类工具建议常驻（见 §6.3）。
+3. **大输出工具**（`web_search` 等）原始 HTML/JSON 全量进历史，会把前缀命中率打崩；用前先想清楚要不要落历史。
+4. **改 `.md` 优先 `md_edit`**：散文/列表用 `md_edit`（锚定标题+块序号，不受换行重排影响），代码块用 `edit`，`.mdx` 一律用 `edit`。
+5. **不装的东西**：`pi-observational-memory`（治压缩后记忆断层，方向不同）、`pi-deepseek-cache`（绑定 DeepSeek）、`pi-cache-optimizer`（与 guardian 重叠）——都不解决本机的主要成本（system 字节），装了只是多一份常驻负担。
+
+---
+
+## 6. 首字 token 优化（全部 wire 实测）
+
+测量方式：沙箱（`PI_CODING_AGENT_DIR` 隔离 + junction 复用 npm/git/skills）+ mock OpenAI provider 抓**真实首请求字节**，再用真网关取 token 计数交叉验证。校准：**1 token ≈ 3.85B**。
+
+### 6.1 手册「三步优化」在 0.87.1 上的真实收益
+
+| 场景 | system | tools | 合计 | vs 基线 |
+|---|---|---|---|---|
+| 基线（5 工具） | 6758B | 4593B | 11351B | — |
+| 只上 `pi-lean-prompt` | 6758B | 3043B | 9801B | **−1550B** |
+| 只上 `pi-shell` | 6794B | 4713B | 11507B | **+156B**（反而变大） |
+| 手册全套（lean + shell） | 6794B | 3163B | 9957B | **−1394B / −12.3%**（≈ −362 tok/请求） |
+
+- **第一步（压 Guidelines / Pi documentation）是 no-op**：`pi-lean-prompt` 见 `sections` 存在就 return（0.86+ 让路）；且其正则找的是 0.85 版那两个独立段落，0.87 的提示词里已不存在。
+- **第三步单独是负收益**：`bash` 543B → `shell` 663B。只在与第二步叠加后才净赚。
+- **真正有效的是第二步**（`edit` 2030→646B、`read` 684→518B），且只改文字不动结构，零副作用。
+
+### 6.2 大头在 system：`<docs>` + `<skills>` 压缩（`pi-lean-sections.ts`）
+
+| 改动 | wire system |
+|---|---|
+| 基线 | 6897B |
+| 压 `<skills>`（2655B → 99B，单行改用 omnify 检索） | 4255B |
+| 压 `<docs>`（655B → 256B，从原文抽路径重排） | 5869B |
+| **两者都压（本机现状）** | **3556B（−3341B / −48%）** |
+
+> 卸掉 `pi-edit-guard`、由 smart-edit 接管 `edit` 后，`<rules>` 变短 → 实测 6897B 基线下 system 为 **3165B**，tools **4929B（9 个）**，合计 8094B ≈ 2.1k tok/请求。
+
+连续 3 轮字节完全一致（轮间稳定，不散前缀缓存）。
+
+**踩过的坑，写在这里免得重蹈**：
+
+- **`before_agent_start` 的 `sections` 只有第一个注册的 handler 改得动。** 实测：先注册的探针看到空对象且它的赋值进 wire；后注册的拿到的是**已填充的独立副本**，改它无效、`return { systemPrompt }` 也无效。`pi-lazy-tools` fork 正占着「第一个」的位置（packages 源先于用户目录加载），所以它写在 `sections` 里的压缩**从未生效**——这就是本机 system 长期 6.9KB 的根因。
+- **`before_provider_request` 的 `payload` 是共享可变的**（system 消息就在 `payload.messages` 里，`{role:"system", content:"<整串>"}`），在 wire 上改与加载顺序无关 → 本扩展走这条路。
+- **不要压 `<rules>`**：单改 rules 块时落位正确（6897→5536B），但一旦与 docs/skills 同时改，pi 会把 rules 正文挪进 agent 文件段、把工具一行式塞进 `<rules>`，条目与续行错配。基线本身也有块间重排（`<tools>`/`<rules>` 内容逐轮互换、工具一行式本来就混在 agent 段里），属 pi 侧不确定性，不去碰它。
+- **不要压 `<tools>`**：那段由 pi 按当前 active 工具动态生成，压它就得自己重建工具表，容易与实际 active 集脱节。
+
+### 6.3 搜索类工具常驻的代价
+
+| 场景 | system | tools | 合计 | vs 同基线 |
+|---|---|---|---|---|
+| 手册全套 + 常驻 grep/find/ls | 6897B | 4988B（9 个） | 11885B | **+1928B ≈ +500 tok/请求** |
+
+单工具 wire 字节：`grep` 846B、`find` 504B、`ls` 472B（合计 1822B ≈ 473 tok）。
+
+- **常驻**：每请求 +473 tok（首请求全价，之后走 cacheRead，本机本地端点基本免费），换搜索工具**直接可调、0 额外往返**。
+- **懒加载**：0 upfront；要用时多 1–2 个模型轮次，并把同样的字节永久注入历史。
+- **结论**：`grep` + `find` 常驻划算（编码任务几乎每轮要用，省的是往返不是 token）；`ls` 在有 `shell` 时可省，但走「shell 替 bash」路线后 `shell` 只执行命令不做列举，`ls` 仍建议留着（+472B）。
+
+### 6.4 优化后的静态前缀总账
+
+`system 3165B + tools 4929B = 8094B ≈ 2.1k tok/请求`，相比优化前 `6897 + 4929 = 11826B ≈ 3.1k tok`。
+
+---
+
+## 7. 已知冲突与遗留
+
+### 7.1 `edit` 工具槽位：已定为 `@aboutlo/pi-smart-edit`
+
+`pi` 不允许两个扩展注册同名工具。`pi-edit-guard` 与 `@aboutlo/pi-smart-edit` 都想覆盖内建 `edit`，同时装必报：
+
+```
+Error: Failed to load extension ".../@aboutlo/pi-smart-edit/src/index.ts":
+Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
+```
+
+**决定：卸载 `pi-edit-guard`，由 `@aboutlo/pi-smart-edit` 独占 `edit`。**
+
+| | `pi-edit-guard` 0.1.5（已卸） | `@aboutlo/pi-smart-edit` 0.4.0（在用） |
+|---|---|---|
+| 匹配策略 | 14 趟分级匹配 + 锚点窗口 + 自修复 | 精确 → NFKC 归一化行匹配 |
+| 附加能力 | 注册 `undo`、越界 cwd 提示、`.env`/secret 提示、锚点与诊断报告 | 无 |
+| 代价 | edit 描述更长（+59B/请求） | **失去 `undo` 与全部 guard 提示** |
+
+`undo` 的替代：会话级用 `pi-undo-redo`；文件级靠 git（或改前先 `read` 留底）。这与本机「有 git、改动走 `md_edit`/`edit` 精确替换」的习惯相容。
+
+> 若哪天要回退：装回 `pi-edit-guard` 并卸 smart-edit 即可；或给 edit-guard 写 `~/.pi/agent/extensions/edit-guard-config.json` 的 `{"editOverrideEnabled": false}`（**必须是 `extensions/` 子目录，放 `~/.pi/agent/` 根下不生效**——已实测），让它只让出 `edit`、保留 `undo`。
+
+### 7.2 其它遗留（未清理，等定夺）
+
+- `settings.json` 里的 `alps-pi` 死配置块（已被 pi-one-ui 取代）。
+- `~/.pi/agent/pi-hermes-memory/`（`pi-hermes-memory` 早已卸载）。
+- `~/node_modules/@earendil-works*@0.85.1`：旧版本残留，是 pi-web-access 报 "Dynamic tool activation requires Pi 0.86.1 or newer" 告警的来源；0.87.1 上属误报，**不影响功能**。
+- `.backup-20250915/`（历史备份）与若干 `settings.json.bak-*`。
+
+---
+
+## 8. 体检与排障
+
+```bash
+# 加载期体检：扫 RPC 事件流里的 extension_error + stderr
+node .sc-test/check-ext-errors.mjs
+```
+
+| 症状 | 原因 | 处置 |
+|---|---|---|
+| 扩展报 `Tool "x" conflicts with ...` | 两个扩展抢同一工具名 | 二选一卸载（见 §7.1） |
+| 懒加载报 `Cannot find module` | lazy 执行层地基缺失 | `npm i --prefix ~/.pi/agent @earendil-works/{pi-coding-agent,pi-tui,pi-ai}@<与 pi 同版本>` |
+| 工具调用不到、wire 上也没有 | 不在 `defaultTools`（不注册）或不在 `resident`（被 lazy） | 对照 §4 的两道闸 |
+| 会话/文件撤销 | `pi-edit-guard` 已卸载，其 `undo` 工具随之消失 | 会话级用 `pi-undo-redo`（`/undo` `/redo`）；文件级靠 git 或改前先 `read` |
+| agent 没有 shell | `defaultTools` 里没有 `bash`、又没装 pi-shell | 装 `pi-shell` 并把 `shell` 写进 `resident`；或把 `bash` 写回 `defaultTools` |
+| 压缩后首轮命中低 | 正常现象 | 只有「命中 0」才是故障；压缩调用自身用 `pi-compaction-cache` 兜（1.6%→98.8%） |
+| `pi-warm-cache` 没反应 | 本地代理属未注册路由 | 不是故障，`/warm status` 里 `automaticWarm:false` 即预期 |
+| pi-agent-browser-native 报 `buildSessionProjection is not a function` | Pi < 0.86 | 本机 0.87.1 不会发生；若真发生跑 `node fix-browser-native-compat.mjs` |
+
+**磁盘布局速查**
+
+| 路径 | 内容 |
+|---|---|
+| `~/.pi/agent/settings.json` | `packages` 注册表 + `defaultTools` |
+| `~/.pi/agent/extensions/` | 本地扩展副本 + 各扩展的全局配置（如 `edit-guard-config.json`，**只放这里，放 agent 根下不生效**） |
+| `~/.pi/agent/git/` | git 源扩展（lazy-tools fork） |
+| `~/.pi/agent/npm/node_modules/` | npm 源扩展 |
+| `~/.pi/agent/config/` | smart-context 配置 |
+| `~/.pi/lazy-tools.json` | 常驻工具集（用户级） |
+| `<项目>/.pi/settings.json` | 项目级，**整体覆盖**用户级 |
+| `<项目>/.pi/lazy-tools.json` | 项目级，**整体覆盖**用户级 |
+| `~/.pi/agent/sessions/**/*.jsonl` | 会话历史，算命中率的原始数据 |
+
+**生效方式**：改配置或扩展后 `/reload`（不重启会话、不丢历史）。
+
+---
+
+## 9. 怎么复测（结论过期了就自己重跑）
+
+沙箱在 `.sc-test/bench/`（已 gitignore），不污染真实配置：
+
+```bash
+# 单场景：搭沙箱 → 起 mock provider → 抓首请求真实字节
+node .sc-test/bench/run.mjs <标签> \
+  userDefaultTools=read,edit,write,ls defaultTools=read,edit,write,ls \
+  resident=read,write,edit,shell,grep,find,ls local=1
+
+# 看结果：各块字节 + 关键内容判定
+node .sc-test/bench/inspect.mjs <标签>
+
+# 变体：local=lean|lean-shell|1|<逗号分隔文件名>  stripPkg=<子串>  provider=probe|real|realshape
+```
+
+沙箱要点：`PI_CODING_AGENT_DIR` 指向沙箱 agent 目录，`npm`/`git`/`node_modules`/`skills` 用 `mklink /J` junction 指向真实目录（**必须是反斜杠绝对路径**），项目级 `.pi/` 两份配置现写现用；mock 端口默认 18080（8799 在本机被占）。

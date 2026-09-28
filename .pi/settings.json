@@ -2,6 +2,7 @@
   "defaultTools": [
     "read",
     "edit",
-    "write"
+    "write",
+    "ls"
   ]
 }
