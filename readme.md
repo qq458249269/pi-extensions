@@ -45,9 +45,10 @@
 
 | 文件 | 作用 |
 |---|---|
-| `pi-shell.ts` | 把 `bash` + `powershell` 合成一个 `shell` 工具（并更新系统提示词里的工具清单） |
 | `pi-lean-prompt.ts` | 裁 `payload.tools` 里 `edit`/`read` 的 description 与 schema 样板文字（**只改文字、不动字段结构**，故与 smart-edit / one-ui / undo-redo 兼容） |
 | `pi-lean-sections.ts` | 压 wire 上 system 的 `<docs>` / `<skills>` 两块（见 §6.2） |
+
+> 曾经的 `pi-shell.ts`（把 `bash`+`powershell` 合成 `shell`）**已删除**：它不是 pi 内置也不是 npm 包，纯本仓库自写；它带的 `-156B` 收益抵不上维护成本，改用内建 `bash`（见 §6.1）。注意它在 `session_start` 里会无条件隐藏 `bash`/`powershell`，所以 `shell` 与 `bash` 只能二选一。
 
 ### 1.3 Skills（可选，非扩展）
 
@@ -147,7 +148,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 ### 3.4 懒加载常驻集：`~/.pi/lazy-tools.json`
 
 ```json
-{ "resident": ["read", "write", "edit", "shell", "grep", "find", "ls"] }
+{ "resident": ["read", "write", "edit", "bash", "find", "grep", "omnify"] }
 ```
 
 ### 3.5 工具注册闸：`defaultTools`（项目 + 用户两处都要写）
@@ -155,10 +156,10 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 项目 `.pi/settings.json` 与 `~/.pi/agent/settings.json`：
 
 ```json
-{ "defaultTools": ["read", "edit", "write", "ls"] }
+{ "defaultTools": ["read", "edit", "write", "bash"] }
 ```
 
-> ⚠ **项目级整体覆盖用户级**，两处必须一致，否则以项目那份为准。
+> **`grep` 只需写进 `resident`**，不必加 `defaultTools`——它由 `@tian.zuo/pi-find` 注册，不受内建闸门约束。`bash` 则两处都要写。
 
 ---
 
@@ -167,9 +168,8 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 扩展 | 工具 |
 |---|---|
 | 内建 pi | `read` `write` `bash` `powershell` `edit` `grep` `find` `ls`（受 `defaultTools` 闸门控制） |
-| `pi-shell` | `shell`（合并 `bash`+`powershell`） |
 | `@tian.zuo/pi-find` | `grep` `find`（覆盖内建） |
-| `@aboutlo/pi-smart-edit` | `edit`（覆盖内建） | 匹配走「精确 → NFKC 归一化行」，容忍引号/空白差异 |
+| `@aboutlo/pi-smart-edit` | `edit`（覆盖内建），匹配走「精确 → NFKC 归一化行」，容忍引号/空白差异 |
 | `@trycedar/pi-mdiff` | `md_inspect` `md_diff` `md_edit` |
 | `pi-undo-redo` | 无工具（`/undo` `/redo` 等命令） |
 | `@nguyenquangthai/pi-ask` | `ask_user_question` |
@@ -179,16 +179,17 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | `pi-mcp-adapter` | `mcp` |
 | `pi-agent-browser-native` | `agent_browser` 及 7 个配套 |
 | `pi-lazy-tools`（fork） | `load_tools` `call_tool` |
-| `pi-warm-cache` / `pi-prefix-stabilizer` / `pi-compaction-cache` / `pi-cache-guardian` / `pi-undo-redo` | 无工具（纯事件钩子或纯命令） |
+| `pi-warm-cache` / `pi-prefix-stabilizer` / `pi-compaction-cache` / `pi-cache-guardian` | 无工具（纯事件钩子） |
 
 **两道闸（`defaultTools` 与 `resident` 必须同时满足才常驻）**：
 
 | 工具 | `defaultTools` | `resident` | 说明 |
 |---|---|---|---|
-| `read` `write` `edit` `ls` | ✅ 需在列 | ✅ 需在列 | 纯内建 |
-| `shell` | ❌ 不需要 | ✅ 需要 | 由 pi-shell 扩展注册，只受 resident 闸 |
-| `grep` `find` | ❌ 不需要 | ✅ 需要 | 由 pi-find 扩展注册 |
+| `read` `write` `edit` `bash` | ✅ 需在列 | ✅ 需在列 | 纯内建 |
+| `find` `grep` | ❌ 不需要 | ✅ 需要 | 由 pi-find 扩展注册，只受 resident 闸 |
+| `ls` `powershell` | ✅/❌ | ❌ 未列 → 懒加载 | 需要时 `omnify` 按名 load 回来（或用 `bash ls`） |
 | `web_enable` / `todo` / `loop` / `md_*` / `ask_user_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ | ❌ | 全部默认懒加载，用 `omnify` 按需检索 |
+| `omnify` | ❌ | 写不写都一样 | pi 核心无条件注册，**不受 resident 闸管辖**，常驻只是为了读起来清楚 |
 
 漏了任一闸的后果（实测）：不在 `defaultTools` → **工具根本不注册**；不在 `resident` → 注册了但被 lazy 隐藏，wire 上看不到。
 
@@ -214,11 +215,11 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 |---|---|---|---|---|
 | 基线（5 工具） | 6758B | 4593B | 11351B | — |
 | 只上 `pi-lean-prompt` | 6758B | 3043B | 9801B | **−1550B** |
-| 只上 `pi-shell` | 6794B | 4713B | 11507B | **+156B**（反而变大） |
+| 只上 `pi-shell`（**已删除**） | 6794B | 4713B | 11507B | **+156B**（反而变大） |
 | 手册全套（lean + shell） | 6794B | 3163B | 9957B | **−1394B / −12.3%**（≈ −362 tok/请求） |
 
 - **第一步（压 Guidelines / Pi documentation）是 no-op**：`pi-lean-prompt` 见 `sections` 存在就 return（0.86+ 让路）；且其正则找的是 0.85 版那两个独立段落，0.87 的提示词里已不存在。
-- **第三步单独是负收益**：`bash` 543B → `shell` 663B。只在与第二步叠加后才净赚。
+- **第三步单独是负收益**：`bash` 543B → `shell` 663B。只在与第二步叠加后才净赚 → **结论：这一步不做**，`pi-shell.ts` 已删（2026-09-28 五次），改用内建 `bash`。
 - **真正有效的是第二步**（`edit` 2030→646B、`read` 684→518B），且只改文字不动结构，零副作用。
 
 ### 6.2 大头在 system：`<docs>` + `<skills>` 压缩（`pi-lean-sections.ts`）
@@ -230,7 +231,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 压 `<docs>`（655B → 256B，从原文抽路径重排） | 5869B |
 | **两者都压（本机现状）** | **3556B（−3341B / −48%）** |
 
-> 卸掉 `pi-edit-guard`、由 smart-edit 接管 `edit` 后，`<rules>` 变短 → 实测 6897B 基线下 system 为 **3165B**，tools **4929B（9 个）**，合计 8094B ≈ 2.1k tok/请求。
+> **本机现状（2026-09-28 五次变更后）**：卸 `pi-edit-guard` 交 smart-edit 接管 `edit`，再卸 `pi-shell` 改用内建 `bash` 并精简常驻集 → wire 上 **8 个工具** `bash edit find grep omnify read web_enable write`，system **3050B** + tools **4336B** = **7386B ≈ 1918 tok/请求**（vs 优化前 11351B ≈ 2948 tok，**累计 −3965B ≈ −1030 tok / −35%**）。
 
 连续 3 轮字节完全一致（轮间稳定，不散前缀缓存）。
 
@@ -246,16 +247,19 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 场景 | system | tools | 合计 | vs 同基线 |
 |---|---|---|---|---|
 | 手册全套 + 常驻 grep/find/ls | 6897B | 4988B（9 个） | 11885B | **+1928B ≈ +500 tok/请求** |
+| **本机现状**（`grep`+`find` 常驻，`ls` 懒加载，改用内建 `bash`） | 3050B | 4336B（8 个） | 7386B | — |
 
 单工具 wire 字节：`grep` 846B、`find` 504B、`ls` 472B（合计 1822B ≈ 473 tok）。
 
 - **常驻**：每请求 +473 tok（首请求全价，之后走 cacheRead，本机本地端点基本免费），换搜索工具**直接可调、0 额外往返**。
 - **懒加载**：0 upfront；要用时多 1–2 个模型轮次，并把同样的字节永久注入历史。
-- **结论**：`grep` + `find` 常驻划算（编码任务几乎每轮要用，省的是往返不是 token）；`ls` 在有 `shell` 时可省，但走「shell 替 bash」路线后 `shell` 只执行命令不做列举，`ls` 仍建议留着（+472B）。
+- **本机取舍（最终：方案 B）**：`grep` + `find` **都留常驻**（查内容 + 查文件名都是编码高频操作，省的是 1–2 个往返轮次而非 token）；`ls` 改用 `bash ls`、懒加载。
+  - 对比过「砍掉 `grep`」的方案 A：6497B ≈ 1688 tok，比方案 B 少 889B ≈ 231 tok/请求。代价是**每次搜代码内容都要付 omnify 检索 + load + call 三步**，而那 846B 字节照样会永久进历史 → **不划算，故选 B**。
+  - 反向开关：想再省那 231 tok，从 `~/.pi/lazy-tools.json` 的 `resident` 里删 `"grep"` 即可（不必动 `defaultTools`）。
 
 ### 6.4 优化后的静态前缀总账
 
-`system 3165B + tools 4929B = 8094B ≈ 2.1k tok/请求`，相比优化前 `6897 + 4929 = 11826B ≈ 3.1k tok`。
+`system 3050B + tools 4336B = 7386B ≈ 1.9k tok/请求`，相比优化前 `6758 + 4593 = 11351B ≈ 2.9k tok`，**累计 −35%**。
 
 ---
 
@@ -304,7 +308,7 @@ node .sc-test/check-ext-errors.mjs
 | 懒加载报 `Cannot find module` | lazy 执行层地基缺失 | `npm i --prefix ~/.pi/agent @earendil-works/{pi-coding-agent,pi-tui,pi-ai}@<与 pi 同版本>` |
 | 工具调用不到、wire 上也没有 | 不在 `defaultTools`（不注册）或不在 `resident`（被 lazy） | 对照 §4 的两道闸 |
 | 会话/文件撤销 | `pi-edit-guard` 已卸载，其 `undo` 工具随之消失 | 会话级用 `pi-undo-redo`（`/undo` `/redo`）；文件级靠 git 或改前先 `read` |
-| agent 没有 shell | `defaultTools` 里没有 `bash`、又没装 pi-shell | 装 `pi-shell` 并把 `shell` 写进 `resident`；或把 `bash` 写回 `defaultTools` |
+| agent 没有 shell | `defaultTools` 里没有 `bash` | 写 `bash` 进两处 `defaultTools` + `resident`；若 `extensions/pi-shell.ts` 被装回来，它会在 `session_start` 无条件隐藏 `bash` |
 | 压缩后首轮命中低 | 正常现象 | 只有「命中 0」才是故障；压缩调用自身用 `pi-compaction-cache` 兜（1.6%→98.8%） |
 | `pi-warm-cache` 没反应 | 本地代理属未注册路由 | 不是故障，`/warm status` 里 `automaticWarm:false` 即预期 |
 | pi-agent-browser-native 报 `buildSessionProjection is not a function` | Pi < 0.86 | 本机 0.87.1 不会发生；若真发生跑 `node fix-browser-native-compat.mjs` |
@@ -334,8 +338,8 @@ node .sc-test/check-ext-errors.mjs
 ```bash
 # 单场景：搭沙箱 → 起 mock provider → 抓首请求真实字节
 node .sc-test/bench/run.mjs <标签> \
-  userDefaultTools=read,edit,write,ls defaultTools=read,edit,write,ls \
-  resident=read,write,edit,shell,grep,find,ls local=1
+  userDefaultTools=read,edit,write,bash defaultTools=read,edit,write,bash \
+  resident=read,write,edit,bash,find,omnify local=1
 
 # 看结果：各块字节 + 关键内容判定
 node .sc-test/bench/inspect.mjs <标签>

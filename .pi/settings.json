@@ -3,6 +3,6 @@
     "read",
     "edit",
     "write",
-    "ls"
+    "bash"
   ]
 }

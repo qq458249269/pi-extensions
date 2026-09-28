@@ -46,14 +46,37 @@ for (const f of files) {
 	console.log(`[chg ] ${f} → ${to}（${a.length}B）`);
 }
 
-/** 三处配置一致性提醒：扩展同步了但工具集没跟上，shell 就不在 active 集里。 */
-const resident = path.join(os.homedir(), ".pi", "lazy-tools.json");
+/** 配置一致性提醒：内建 shell 在两道闸里缺位时，agent 就没有可用的 shell。
+ *  （extensions/pi-shell.ts 已删，故只认内建 bash/powershell；bash 需同时在 defaultTools 与 resident） */
+const residentPath = path.join(os.homedir(), ".pi", "lazy-tools.json");
+const userSettings = path.join(os.homedir(), ".pi", "agent", "settings.json");
+const projSettings = path.join(process.cwd(), ".pi", "settings.json");
+const readList = (p) => {
+	try {
+		return JSON.parse(fs.readFileSync(p, "utf8"));
+	} catch {
+		return null;
+	}
+};
 try {
-	const list = JSON.parse(fs.readFileSync(resident, "utf8")).resident ?? [];
-	if (!list.includes("shell")) console.warn(`[hint] ${resident} 的 resident 里没有 "shell"，shell 会被 lazy 掉`);
-	if (list.includes("bash") || list.includes("powershell")) console.warn(`[hint] ${resident} 的 resident 仍含 bash/powershell，会与 shell 同时常驻`);
+	const list = readList(residentPath)?.resident ?? [];
+	// 项目级 .pi/settings.json 整体覆盖用户级，两边都要查
+	const layers = [
+		["用户级", readList(userSettings)?.defaultTools],
+		["项目级", readList(projSettings)?.defaultTools],
+	];
+	const hasShell = layers.some(([, t]) => Array.isArray(t) && ["bash", "powershell"].some((s) => list.includes(s) && t.includes(s)));
+	if (!hasShell) {
+		console.warn(`[hint] 没有可用的 shell：resident=${JSON.stringify(list)} × defaultTools=${JSON.stringify(layers)}`);
+		console.warn(`[hint]   → "bash" 需同时写进 ~/.pi/lazy-tools.json 的 resident 与 settings.json 的 defaultTools（项目级会整体覆盖用户级）`);
+	}
+	for (const [name, t] of layers) {
+		if (!Array.isArray(t)) continue;
+		if (t.includes("bash") && !list.includes("bash")) console.warn(`[hint] ${name} defaultTools 有 bash 但 resident 没有 → bash 会注册却被 lazy 掉`);
+		if (list.includes("bash") && !t.includes("bash")) console.warn(`[hint] ${name} defaultTools 没有 bash 但 resident 有 → bash 根本不会注册`);
+	}
 } catch {
-	console.warn(`[hint] 读不到 ${resident}，请确认 resident 含 shell`);
+	console.warn(`[hint] 读不到 ${residentPath}，请确认 resident 含 "bash"`);
 }
 
 if (checkOnly && drift > 0) {
