@@ -42,7 +42,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:pi-prefix-stabilizer` | 系统提示词前缀稳定 + 漂移检测 | 与 compaction-cache 有先后要求，见 §2.2 |
 | `npm:pi-compaction-cache` | 摘要调用复用已缓存前缀 | **必做配置**见 §3.3；实测把压缩调用自身命中从 1.6% 拉到 98.8% |
 | `npm:pi-warm-cache` | 空闲期按厂商 TTL 续前缀缓存 | **本机不生效**（本地代理属未注册路由），纯静默待命 |
-| `npm:@nguyenquangthai/pi-ask` | `ask_user_question` 结构化提问对话框 | 歧义时问用户，比猜省事 |
+| `npm:@henryqw/pi-ask-question` | `ask_question` 交互式提问（单题，1–3 选项 + 自定义答案，首项为推荐） | 歧义时问用户，比猜省事 |
 | `npm:@ssk_dev/rpiv-todo-lean` | `todo` 任务清单工具 + TUI overlay | `ctrl+shift+t` 折叠；`/todos` 看全量 |
 | `npm:@aboutlo/pi-smart-edit` | 覆盖内建 `edit`，容忍引号/空白不匹配 | **已生效**；`edit` 归它，匹配走「精确 → NFKC 归一化行」 |
 
@@ -84,7 +84,7 @@ done
 # 有硬顺序的后续
 for p in @zhushanwen/pi-smart-context \
          pi-prefix-stabilizer pi-compaction-cache pi-warm-cache \
-         @nguyenquangthai/pi-ask @ssk_dev/rpiv-todo-lean \
+         @henryqw/pi-ask-question @ssk_dev/rpiv-todo-lean \
          @aboutlo/pi-smart-edit; do
   pi install "npm:$p" || echo "[失败] $p"
 done
@@ -160,6 +160,8 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 { "resident": ["read", "write", "edit", "bash", "find", "grep", "omnify"] }
 ```
 
+> **本文件是常驻集的唯一手写处**。新装扩展**不要**往里加（硬规则，见 §5 第 0 条）——默认值就对了。
+
 ### 3.5 工具注册闸：`defaultTools`（项目 + 用户两处都要写）
 
 项目 `.pi/settings.json` 与 `~/.pi/agent/settings.json`：
@@ -181,7 +183,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | `@aboutlo/pi-smart-edit` | `edit`（覆盖内建），匹配走「精确 → NFKC 归一化行」，容忍引号/空白差异 |
 | `@trycedar/pi-mdiff` | `md_inspect` `md_diff` `md_edit` |
 | `pi-undo-redo` | 无工具（`/undo` `/redo` 等命令） |
-| `@nguyenquangthai/pi-ask` | `ask_user_question` |
+| `@henryqw/pi-ask-question` | `ask_question` |
 | `@ssk_dev/rpiv-todo-lean` | `todo` |
 | `pi-smart-context` | `compact_context` |
 | `@agenticup/pi-loop` | `loop` |
@@ -197,7 +199,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | `read` `write` `edit` `bash` | ✅ 需在列 | ✅ 需在列 | 纯内建 |
 | `find` `grep` | ❌ 不需要 | ✅ 需要 | 由 pi-find 扩展注册，只受 resident 闸 |
 | `ls` `powershell` | ✅/❌ | ❌ 未列 → 懒加载 | 需要时 `omnify` 按名 load 回来（或用 `bash ls`） |
-| `web_enable` / `todo` / `loop` / `md_*` / `ask_user_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ | ❌ | 全部默认懒加载，用 `omnify` 按需检索 |
+| `web_enable` / `todo` / `loop` / `md_*` / `ask_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ | ❌ | 全部默认懒加载，用 `omnify` 按需检索 |
 | `omnify` | ❌ | 写不写都一样 | pi 核心无条件注册，**不受 resident 闸管辖**，常驻只是为了读起来清楚 |
 
 漏了任一闸的后果（实测）：不在 `defaultTools` → **工具根本不注册**；不在 `resident` → 注册了但被 lazy 隐藏，wire 上看不到。
@@ -206,6 +208,11 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 ## 5. 使用纪律
 
+0. **新装扩展一律不进常驻集**（硬规则）。装完只保证**能加载**、不报 conflict，**不要**顺手把它加进 `~/.pi/lazy-tools.json` 的 `resident`，也**不要**加进 `defaultTools`。它的工具默认就是懒加载状态，靠 `omnify` 检索 → `call_tool` 按需激活。
+   - 理由：常驻集每轮都进 prompt（`grep`+`find` 就要 +1350B ≈ 350 tok），而多数扩展一天用不到几次。
+   - **只有这三类才加常驻**：① 高频工具（见 §6.3 的取舍）；② 覆盖内建工具的（`grep`/`find`/`edit` 需先过 `defaultTools` 闸）；③ 缺失后 agent 会“瘫”的（如 `bash`）。
+   - 例外：`bash` 因为 `defaultTools` 闸必须显式写；`grep`/`find` 只需写 `resident`（扩展注册，不过内建闸）。
+   - 验证新装扩展是否真的零开销：`node .sc-test/bench/run.mjs <标签> ...` 看 `toolsBytes` 是否与基线一致（§9）。
 1. **首字成本**：常驻集每轮都进 prompt；非 resident 的工具靠 `omnify` 检索命中后一次性注入。
 2. **激活往返**：0.86+ 流程是 `omnify`/`load_tools` → `call_tool` → 执行，多 1–2 个模型轮次。搜索类工具建议常驻（见 §6.3）。
 3. **大输出工具**（`web_search` 等）原始 HTML/JSON 全量进历史，会把前缀命中率打崩；用前先想清楚要不要落历史。
