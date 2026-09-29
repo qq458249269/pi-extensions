@@ -3,8 +3,6 @@
     "read",
     "edit",
     "write",
-    "bash",
-    "grep",
-    "fd"
+    "bash"
   ]
 }

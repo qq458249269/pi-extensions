@@ -119,7 +119,7 @@ node .sc-test/check-ext-errors.mjs     # 加载期体检：extension_error 应�
 
 > 首次安装（§2.1）同样不带版本号，npm 自动解析 latest；**本仓库任何位置都不写死扩展版本号**。
 
-**升级前扫一眼 breaking**：本机唯一 fork（`pi-lazy-tools`）会在 major 版本动**配置源**。2026-09-29 升到 0.4.0 就撞上——旧的 `~/.pi/lazy-tools.json` 变成死配置（只告警不读取），常驻名单改由 `settings.json` 的 `defaultTools` 决定。**处理办法见 §3.4；升完必跑一次 bench 确认 wire 工具集没变**（本次实测未变：8 个工具 / 8317B / `extension_error` 0）。
+**处理办法见 §3.4；升完必跑一次 bench 确认 wire 工具集没变**（本次实测未变：升完是 8 个工具 / 8317B，`extension_error` 0；随后按「只保留默认工具」收敛为 6 个 / 6010B）。
 
 ### 2.4 卸载
 
@@ -167,17 +167,18 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 ```jsonc
 // ~/.pi/agent/settings.json 与 <项目>/.pi/settings.json
-{ "defaultTools": ["read", "write", "edit", "bash", "grep", "fd"] }
+{ "defaultTools": ["read", "edit", "write", "bash"] }
 ```
 
+> **本机就选 pi 的内置默认 4 个**（`dist/core/sdk.js:140` 的 `defaultActiveToolNames`），一个扩展工具都不加：搜文件名/目录、搜内容全部交给 `omnify` 按需激活。换来 `8317B → 6010B`（**−2307B ≈ −641 tok/请求**，见 §6.3），代价是每次搜索多 1–2 个往返轮次。
 > **`omnify` 不写进 `defaultTools`**：它由 lazy-tools 在 `session_start` 无条件写进 active 集（`setActiveTools`），写不写都一样。
-> **`grep` / `fd` 不写也会注册**（扩展注册不过内建闸），但**不写就会被 lazy 掉**——这正是本机把两个高频搜索工具钉在常驻的原因（§6.3）。
-> **`~/.pi/lazy-tools.json` 已删除**（2026-09-29，`pi-lazy-tools` 0.4.0 起只告警不读取；旧副本留在 `lazy-tools.json.bak` / `.bak2`）。新装扩展**不要**往常驻集里加（硬规则，见 §5 第 0 条）。
+> **`grep` / `fd` 不写也会注册**（扩展注册不过内建闸），只是被 lazy 隐藏；`omnify` 能把它们搜出来并执行（已实测）。**但内建的 `ls` / `powershell` 搜得出、却执行不了**（fork 用 `sourceInfo.path` 重新 import 源码，内建工具那是合成标记 `<builtin:ls>`）→ 这类需求一律 `bash ls`。
+> **`~/.pi/lazy-tools.json` 已删除**（2026-09-29，`pi-lazy-tools` 0.4.0 起只告警不读取；旧副本留在 `lazy-tools.json.bak` / `.bak2`）。新装扩展**不要**往 `defaultTools` 里加（硬规则，见 §5 第 0 条）。
 > 改完 `/reload` 生效（不必重启会话）。
 
 ### 3.5 工具注册闸：`defaultTools`（项目 + 用户两处都要写）
 
-项目 `.pi/settings.json` 与 `~/.pi/agent/settings.json` 都要写上一节那份名单，否则进了某项目就被整体覆盖成内建默认（`read bash edit write`，`grep`/`fd` 当场被 lazy 掉）。
+项目 `.pi/settings.json` 与 `~/.pi/agent/settings.json` 都要写上一节那份名单，否则进了某项目就被整体覆盖成内建默认（`read bash edit write`）。本机两处写的正是这份默认名单，所以项目间切换不会有差异。
 
 > ⚠️ 0.4.0 之前这里确实是「两道闸」（`defaultTools` 管注册 + `lazy-tools.json` 的 `resident` 管常驻），**现在合并成一道**，只查 `defaultTools`。
 
@@ -189,7 +190,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 |---|---|
 | 内建 pi | `read` `write` `bash` `powershell` `edit` `grep` `find` `ls`（受 `defaultTools` 闸门控制） |
 | `@tian.zuo/pi-find` | `grep` `find`（覆盖内建） |
-| `pi-fd`（本地 `extensions/pi-fd.ts`） | `fd`（取代 `find` 的常驻位，见 §4.1） |
+| `pi-fd`（本地 `extensions/pi-fd.ts`） | `fd`（能力上取代 pi-find 的 `find`，见 §4.1；本机懒加载） |
 | `@aboutlo/pi-smart-edit` | `edit`（覆盖内建），匹配走「精确 → NFKC 归一化行」，容忍引号/空白差异 |
 | `@trycedar/pi-mdiff` | `md_inspect` `md_diff` `md_edit` |
 | `pi-undo-redo` | 无工具（`/undo` `/redo` 等命令） |
@@ -206,17 +207,17 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 | 工具 | 在 `defaultTools` 里？ | 后果 |
 |---|---|---|
-| `read` `write` `edit` `bash` | ✅ 必须在列 | 纯内建：不在列就不注册 |
-| `grep` | ✅ 在列 | pi-find 注册（扩展不占注册闸），在列才不被 lazy 掉 |
-| `fd` | ✅ 在列 | 本地 `pi-fd` 注册，同上 |
-| `find` | ❌ 故意不列 → 懒加载 | 同一底层（fd）但只认 glob；`omnify` 按名可拾回兜底 |
+| `read` `write` `edit` `bash` | ✅ 在列 | 纯内建：不在列就不注册；本机就到这四个为止 |
+| `grep` | ❌ 未列 → 懒加载 | pi-find 注册（扩展不占注册闸）；`omnify` 可搜出并执行 |
+| `fd` | ❌ 未列 → 懒加载 | 本地 `pi-fd` 注册，同上 |
+| `find` | ❌ 未列 → 懒加载 | 同一底层（fd）但只认 glob，作为 `fd` 的兜底 |
 | `ls` `powershell` | ❌ 未列 → 懒加载 | 需要时 `omnify` 按名 load 回来（或用 `bash ls`） |
 | `web_enable` / `todo` / `loop` / `md_*` / `ask_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ 未列 | 全部默认懒加载，用 `omnify` 按需检索（`web_enable` 例外：pi-web-access 自己在 `session_start` 写进 active 集，实测 wire 上可见） |
 | `omnify` | ❌ 写不写都一样 | pi 核心无条件注册，**不需进名单**，写进去只是读起来清楚 |
 
 漏了的后果（实测）：`defaultTools` 是内建工具的**注册闸**（不在列 → 根本注册），对扩展工具则是**常驻名单**（不在列 → 注册了但被 lazy 隐藏，wire 上看不到；要它时 `omnify` 一步拾回）。
 
-### 4.1 常驻位 `find` → `fd`（本仓库 `extensions/pi-fd.ts`）
+### 4.1 `find` → `fd`（本仓库 `extensions/pi-fd.ts`）
 
 `@tian.zuo/pi-find` 的 `find` **底层本来就是 fd**（`lib/tools.ts` 里 exec `fd`），但只开了 glob 模式的一层薄壳：`pattern` + `path` 两个参数。于是这些都做不到，而它们在 fd 里都是一行参数：
 
@@ -228,16 +229,16 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 正则匹配路径 | 做不到（只有 glob） | pattern 即正则，且 smart case |
 | 限深度 | 做不到 | `{maxDepth:2}` |
 
-**接线**：`defaultTools` 里加 `"fd"`（顶替原来的 `"find"`）；项目级与用户级两处都写（项目级整体覆盖）。`pi-find` 仍在装（要它的 `grep`），它的 `find` 只是不再常驻，需要时 `omnify` 仍能按名拾回。
+**接线**：`fd` 不写进 `defaultTools`（与 `grep` 一样走懒加载，需要时 `omnify` 一步激活）；项目级与用户级两处都只保留内建默认 4 个。`pi-find` 仍在装（提供 `grep`），它的 `find` 作为 `fd` 的 glob 版兜底。
 
-**代价（实测）**：`find` 504B → `fd` 1280B，system 因多一行工具简介 + 一条 guideline 从 3050B → 3205B，合计 `7386B → 8317B`（**+931B ≈ +242 tok/请求**，见 §6.3）。买的是上面那五行能力 + 少 1–2 个往返轮次。
+**常驻 vs 懒加载的代价（实测）**：`fd` 若常驻，单它就 1280B + system 多一行简介与 guideline；若懒加载，0 upfront。**本机选懒加载**（`fd` 与 `grep` 都不在名单里），见 §3.4 / §6.3。
 
 **fd 的两个反直觉点（已踩，代码里有注释）**：
 
 1. **省略 pattern 时必须显式传空串**。否则唯一的 position 会被 fd 当成 pattern（`fd -t d .git` 返回空，`fd -t d "" .git` 才出结果）——「列出全部」是这个工具的主卖点。
 2. **`--glob` 是「把 pattern 换成 glob」，不是额外过滤器**。glob 模式下再传位置 pattern 会被 fd 当成第二个搜索路径（报 `Search path 'capture' is not a directory`）。故工具里 `glob` 与 `pattern` 互斥。
 
-验证：`node .sc-test/probe-fd.mjs`（13 个 case，含上面两个回归）、`node .sc-test/measure-fd.mjs`（wire 字节）、`/fd-check`（fd 可执行文件解析）。回退：`defaultTools` 里的 `"fd"` 换回 `"find"`，删 `extensions/pi-fd.ts` 再 `/reload`。
+验证：`node .sc-test/probe-fd.mjs`（13 个 case，含上面两个回归）、`node .sc-test/measure-fd.mjs`（wire 字节）、`/fd-check`（fd 可执行文件解析）。回退：删 `extensions/pi-fd.ts` 再 `/reload`（`fd` 懒加载与否都不影响其余工具）。
 
 ---
 
@@ -246,7 +247,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 0. **新装扩展一律不进常驻集**（硬规则）。装完只保证**能加载**、不报 conflict，**不要**顺手把它的工具名加进 `defaultTools`。它们默认就是懒加载状态，靠 `omnify` 检索 → 按需激活。
    - 理由：常驻集每轮都进 prompt（`grep`+`find` 就要 +1350B ≈ 350 tok），而多数扩展一天用不到几次。
    - **只有这三类才加常驻**：① 高频工具（见 §6.3 的取舍）；② 覆盖内建工具的（`grep`/`find`/`edit` 需先过 `defaultTools` 闸）；③ 缺失后 agent 会“瘫”的（如 `bash`）。
-   - 例外：`grep` / `fd` 是本机刻意留在名单里的高频搜索工具（§6.3），其余扩展工具一律不写。
+   - 例外：无。`grep` / `fd` 也只是「需要时 `omnify` 激活」，不进名单（§6.3）。
    - 验证新装扩展是否真的零开销：`node .sc-test/bench/run.mjs <标签> ...` 看 `toolsBytes` 是否与基线一致（§9）。
 1. **首字成本**：常驻集每轮都进 prompt；不在名单的工具靠 `omnify` 检索命中后一次性注入。
 2. **激活往返**：0.86+ 流程是 `omnify`/`load_tools` → `call_tool` → 执行，多 1–2 个模型轮次。搜索类工具建议常驻（见 §6.3）。
@@ -282,7 +283,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 压 `<docs>`（655B → 256B，从原文抽路径重排） | 5869B |
 | **两者都压（本机现状）** | **3556B（−3341B / −48%）** |
 
-> **本机现状（2026-09-29 六次变更后）**：卸 `pi-edit-guard` 交 smart-edit 接管 `edit`，卸 `pi-shell` 改用内建 `bash`，再把常驻的 `find` 换成 `fd`（§4.1）→ wire 上 **8 个工具** `bash edit fd grep omnify read web_enable write`，system **3205B** + tools **5112B** = **8317B ≈ 2160 tok/请求**（vs 优化前 11351B ≈ 2948 tok，**累计 −3034B ≈ −788 tok / −27%**）。同日升 `pi-lazy-tools` 0.4.0（配置源迁移，见 §3.4）后复测，**字节与工具集不变**。
+> **本机现状（2026-09-29 六次变更后）**：卸 `pi-edit-guard` 交 smart-edit 接管 `edit`，卸 `pi-shell` 改用内建 `bash`，最后把常驻集收回 pi 内置默认 4 个（§3.4）→ wire 上 **6 个工具** `bash edit omnify read web_enable write`，system **3026B** + tools **2984B** = **6010B ≈ 1669 tok/请求**（vs 优化前 11351B ≈ 2948 tok，**累计 −5341B ≈ −1279 tok / −47%**）。`grep` / `fd` 仍注册，按需 `omnify` 激活。
 
 连续 3 轮字节完全一致（轮间稳定，不散前缀缓存）。
 
@@ -298,20 +299,21 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 场景 | system | tools | 合计 | vs 同基线 |
 |---|---|---|---|---|
 | 手册全套 + 常驻 grep/find/ls | 6897B | 4988B（9 个） | 11885B | **+1928B ≈ +500 tok/请求** |
-| 常驻 grep+find（`ls` 懒加载，内建 `bash`） | 3050B | 4336B（8 个） | 7386B | — |
-| **本机现状**（`find` 换成 `fd`，见 §4.1） | 3205B | 5112B（8 个） | 8317B | vs 上行 **+931B ≈ +242 tok/请求** |
+| 常驻 grep+find（`ls` 懒加载，内建 `bash`） | 3050B | 4336B（8 个） | 7386B | vs 本机 **+1376B ≈ +358 tok/请求** |
+| 常驻 grep+fd | 3205B | 5112B（8 个） | 8317B | vs 本机 **+2307B ≈ +641 tok/请求** |
+| **本机现状**（只留内建默认 4 个） | 3026B | 2984B（6 个） | 6010B | — |
 
 单工具 wire 字节：`grep` 846B、`fd` 1280B、`ls` 472B（`find` 若常驻是 504B）。
 
 - **常驻**：每请求 +473 tok（首请求全价，之后走 cacheRead，本机本地端点基本免费），换搜索工具**直接可调、0 额外往返**。
 - **懒加载**：0 upfront；要用时多 1–2 个模型轮次，并把同样的字节永久注入历史。
-- **本机取舍（最终：方案 B）**：`grep` + `fd` **都留常驻**（查内容 + 查文件名都是编码高频操作，省的是 1–2 个往返轮次而非 token）；`ls` 改用 `bash ls`、懒加载。`find` 已换成 `fd`（§4.1，代价 +931B ≈ +242 tok/请求）。
-  - 对比过「砍掉 `grep`」的方案 A：6497B ≈ 1688 tok，比方案 B 少 889B ≈ 231 tok/请求。代价是**每次搜代码内容都要付 omnify 检索 + load + call 三步**，而那 846B 字节照样会永久进历史 → **不划算，故选 B**。
-  - 反向开关：想再省那 231 tok，从 `defaultTools` 里删 `"grep"` 即可（不必动别处）；删 `"fd"` 同理（代价是查文件名要付 1–2 个往返轮次）。
+- **本机取舍（最终：只留内建默认 4 个）**：`defaultTools` 就是 `read edit write bash`，`grep` / `fd` / `ls` / `find` 全部懒加载，搜文件先 `omnify` 一步激活。**省 2307B ≈ 641 tok/请求**，代价是每次搜索多 1–2 个往返轮次（本机本地端点，这些轮次几乎不花钱，只花时间）。
+  - 曾经选过方案 B（`grep` + `fd` 都常驻，8317B）：那时判断「搜索是编码高频操作，省轮次比省字节值」；现按「只保留默认」收敛，**要回退就把 `"grep"` / `"fd"` 加回两处 `defaultTools` 即可**（+2307B）。
+  - 无论常驻与否，`fd` 的能力都远胜 pi-find 的 `find`（§4.1 五项），常驻与否只影响字节与往返，不影响能力。
 
 ### 6.4 优化后的静态前缀总账
 
-`system 3205B + tools 5112B = 8317B ≈ 2.2k tok/请求`，相比优化前 `6758 + 4593 = 11351B ≈ 2.9k tok`，**累计 −27%**（其中 §4.1 的 `find`→`fd` 是主动加回去的 +931B）。
+`system 3026B + tools 2984B = 6010B ≈ 1.7k tok/请求`，相比优化前 `6758 + 4593 = 11351B ≈ 2.9k tok`，**累计 −47%**。
 
 ---
 

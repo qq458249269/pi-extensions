@@ -1,0 +1,1 @@
+{ "resident": ["read", "bash", "edit", "write", "powershell"] }

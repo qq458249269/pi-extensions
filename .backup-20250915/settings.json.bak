@@ -1,0 +1,109 @@
+{
+  "defaultModel": "1",
+  "defaultProvider": "1",
+  "defaultThinkingLevel": "high",
+  "lastChangelogVersion": "0.87.1",
+  "theme": "light/dark",
+  "quietStartup": false,
+  "tuiMode": "fullscreen",
+  "defaultProjectTrust": "always",
+  "collapseChangelog": true,
+  "showCacheMissNotices": true,
+  "markdown": {
+    "mermaid": "streaming"
+  },
+  "httpIdleTimeoutMs": 0,
+  "showHardwareCursor": true,
+  "images": {
+    "blockImages": true
+  },
+  "compaction": {
+    "enabled": true
+  },
+  "terminal": {
+    "showTerminalProgress": true,
+    "clearOnShrink": true
+  },
+  "hideThinkingBlock": false,
+  "doubleEscapeAction": "tree",
+  "treeFilterMode": "default",
+  "whimsical": {
+    "enabled": true,
+    "weights": {
+      "A": 15,
+      "B": 10,
+      "C": 10,
+      "D": 15,
+      "E": 0,
+      "F": 25,
+      "G": 25
+    },
+    "spinnerPreset": "sleekOrbit"
+  },
+  "fullscreenCopyOnSelect": false,
+  "packages": [
+    "npm:pi-cache-guardian",
+    "npm:pi-tps",
+    "npm:pi-one-ui",
+    "npm:pi-web-access",
+    "npm:@injaneity/pi-computer-use",
+    "npm:@tian.zuo/pi-find",
+    "npm:pi-edit-guard",
+    "npm:@trycedar/pi-mdiff",
+    "npm:pi-undo-redo",
+    "npm:pi-subagents",
+    "npm:pi-mcp-adapter",
+    "npm:pi-agent-browser-native",
+    "git:github.com/qq458249269/pi-lazy-tools",
+    "npm:@agenticup/pi-loop"
+  ],
+  "alps-pi": {
+    "chromeFrame": {
+      "enabled": true,
+      "assistantFrame": true,
+      "toolCompactMode": "collapsed",
+      "compactEditTool": true
+    },
+    "fixedBottomEditor": {
+      "enabled": true
+    },
+    "beautifiedInput": {
+      "enabled": false
+    },
+    "inputMetrics": {
+      "inputTokens": true,
+      "outputTokens": true,
+      "cacheHit": true,
+      "tokenSpeed": true,
+      "elapsedTime": true
+    },
+    "footer": {
+      "enabled": false
+    },
+    "animations": {
+      "enabled": false,
+      "randomMode": true,
+      "working": "neon-bounce",
+      "thinking": "plasma-wave",
+      "tool": "pi-pulse",
+      "width": "default",
+      "fps": 8
+    },
+    "shortcuts": {
+      "stashEditor": "alt+s",
+      "copyEditor": "ctrl+alt+c",
+      "cutEditor": "ctrl+alt+x",
+      "scrollChatUp": "super+up",
+      "scrollChatDown": "super+down",
+      "editorStart": "super+shift+up",
+      "editorEnd": "super+shift+down",
+      "jumpPreviousUserMessage": "ctrl+shift+u",
+      "jumpNextUserMessage": "ctrl+shift+i",
+      "jumpPreviousAssistantMessage": "ctrl+alt+,",
+      "jumpNextAssistantMessage": "ctrl+alt+.",
+      "jumpChatBottom": "ctrl+shift+g"
+    },
+    "_storageVersion": 1
+  },
+  "cacheWarming": "streaming"
+}
