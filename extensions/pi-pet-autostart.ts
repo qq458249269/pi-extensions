@@ -1068,7 +1068,11 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 			notify(
 				ctx,
 				`pi-dsh-pet autostart=${runtime.autostart} size=${runtime.size} delayMs=${runtime.delayMs} ` +
-					`maxPets=${runtime.maxPets} bridge=${runtime.bridge ? "on" : "off"} 本进程已弹=${fired}` +
+				`maxPets=${runtime.maxPets} bridge=${runtime.bridge ? "on" : "off"} ` +
+					// 这两个不是一个东西，分开写：fired 是**本模块实例**开没开过（/reload 会重置），
+					// alreadyFiredThisProcess() 是 pid 记账说本进程开没开过（跨 /reload 仍在）。
+					// 合成一个「本进程已弹」会自相矛盾：/reload 后 fired=false，而窗明明是本进程开的。
+					`本实例已开=${fired} 记账命中=${alreadyFiredThisProcess()}` +
 					`\n宠物包=${petInstalled() ? "已装" : "未装"} 扫进程=${shot.ok ? "ok" : "失败(保证降级)"}` +
 					` 活窗=${wins.length}/${runtime.maxPets}` +
 					(wins.length > 0 ? `（${wins.map((w) => `pid ${w.pid}:${w.port}`).join(" / ")}）` : "") +
