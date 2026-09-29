@@ -8,9 +8,9 @@
 
 ---
 
-## 1. 清单（在用 19 个扩展 = 18 npm + 1 git）
+## 1. 清单（在用 20 个扩展 = 19 npm + 1 git）
 
-> 下表 20 行里 `pi-edit-guard` 已卸载（删除线保留作决策记录，见 §7.1），**实际在用 19 个**。
+> 下表 21 行里 `pi-edit-guard` 已卸载（删除线保留作决策记录，见 §7.1），**实际在用 20 个**。
 
 **不锁版本**：安装命令一律不带 `@版本号`（取 npm 最新），本清单不维护版本矩阵。要查本机实际装的版本：
 
@@ -45,6 +45,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:@henryqw/pi-ask-question` | `ask_question` 交互式提问（单题，1–3 选项 + 自定义答案，首项为推荐） | 歧义时问用户，比猜省事 |
 | `npm:@ssk_dev/rpiv-todo-lean` | `todo` 任务清单工具 + TUI overlay | `ctrl+shift+t` 折叠；`/todos` 看全量 |
 | `npm:@aboutlo/pi-smart-edit` | 覆盖内建 `edit`，容忍引号/空白不匹配 | **已生效**；`edit` 归它，匹配走「精确 → NFKC 归一化行」 |
+| `npm:pi-dsh-pet` | 桌面宠物：Electron 透明浮窗 + 91 个 WebM 动画，随 agent 状态（思考/写代码/空闲）切换 | **纯命令扩展**（`/pet` `/pet-stop`），零工具、零 wire 开销。**必须 `pi install`**，光 `npm i -g` pi 不加载（见 §3.6）；解包 48MB，首次 `/pet` 另下 Electron ≈100MB |
 
 ### 1.2 本地扩展（不走 `pi install`，放 `~/.pi/agent/extensions/`）
 
@@ -56,6 +57,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `pi-lean-sections.ts` | 压 wire 上 system 的 `<docs>` / `<skills>` 两块（见 §6.2） |
 | `pi-fd.ts` | 注册 `fd` 工具（fd 原生接口），**取代 pi-find 那个只认 glob 的 `find`**（见 §4.1） |
 | `no-find.ts` | **不注册工具**，只挂 `tool_call` 钩子：命令行里出现 `find` 就 block，并提示改用 `fd`（见 §4.2） |
+| `pi-pet-autostart.ts` | 让 `pi-dsh-pet` **默认常驻**：TUI 会话一开就派发 `/pet`（一个 pi 进程只弹一次）。不注册工具，只挂 `session_start` + `/pet-auto` 开关。配置见 §3.6 |
 
 > 曾经的 `pi-shell.ts`（把 `bash`+`powershell` 合成 `shell`）**已删除**：它不是 pi 内置也不是 npm 包，纯本仓库自写；它带的 `-156B` 收益抵不上维护成本，改用内建 `bash`（见 §6.1）。注意它在 `session_start` 里会无条件隐藏 `bash`/`powershell`，所以 `shell` 与 `bash` 只能二选一。
 
@@ -87,24 +89,25 @@ done
 for p in @zhushanwen/pi-smart-context \
          pi-prefix-stabilizer pi-compaction-cache pi-warm-cache \
          @henryqw/pi-ask-question @ssk_dev/rpiv-todo-lean \
-         @aboutlo/pi-smart-edit; do
+         @aboutlo/pi-smart-edit pi-dsh-pet; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 
 # git 源单独装
 pi install git:github.com/qq458249269/pi-lazy-tools
 
-# 本地扩展
+# 本地扩展（含 pi-pet-autostart.ts，宠物默认启用就靠它）
 node install-local-extensions.mjs
 ```
 
-装完自查：`pi list` 应见 **19 个扩展**（18 npm + 1 git），`settings.json` 的 `packages` 19 条。少于 18 就是并行竞写伤痕，重跑补漏。
+装完自查：`pi list` 应见 **20 个扩展**（19 npm + 1 git），`settings.json` 的 `packages` 20 条。少于 19 就是并行竞写伤痕，重跑补漏。
 
 ### 2.2 硬顺序约束
 
 - `pi-compaction-cache` 必须在 `@zhushanwen/pi-smart-context` **之后**：两者都接 `session_before_compact`，靠后拿到的接管权；反过来压缩调用命中会退回 1.6%。
 - `pi-prefix-stabilizer` 必须在 `pi-compaction-cache` **之前**：先稳前缀再谈复用。
 - 其余顺序不限（`pi-warm-cache` / `pi-ask` / `rpiv-todo-lean` 都不抢 `session_before_compact`）。
+- `pi-dsh-pet` 放哪都行：纯 UI 扩展，只广播事件不改 prompt；它的 `tool_call` 钩子只 `broadcast` 不 block，与 `no-find.ts` 的拦截钩子可共存（实测 `extension_error` 0）。
 
 ### 2.3 升级
 
@@ -119,6 +122,7 @@ node .sc-test/check-ext-errors.mjs     # 加载期体检：extension_error 应�
 **升级禁用 `pi install`**：对已装包会命中 npm 缓存、不升版本。升级一律走 `pi update --extensions`（不带版本号 = 取各包 npm 最新）。升级后跑 §8 体检。
 
 > 首次安装（§2.1）同样不带版本号，npm 自动解析 latest；**本仓库任何位置都不写死扩展版本号**。
+> `pi-dsh-pet` 也会被这条命令带着升（它带 48MB 动画资源，弱网下别反复升）；升完第一次 `/pet` 若要重下 Electron，等它跑完即可。
 
 **处理办法见 §3.4；升完必跑一次 bench 确认 wire 工具集没变**（本次实测未变：升完是 8 个工具 / 8317B，`extension_error` 0；随后按「只保留默认工具」收敛为 6 个 / 6010B）。
 
@@ -183,6 +187,32 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 > ⚠️ 0.4.0 之前这里确实是「两道闸」（`defaultTools` 管注册 + `lazy-tools.json` 的 `resident` 管常驻），**现在合并成一道**，只查 `defaultTools`。
 
+### 3.6 桌面宠物：默认启用配置
+
+上游 `pi-dsh-pet` **没有任何自动启动开关**（只注册 `/pet` `/pet-stop`），装完还得每次手敲 `/pet`。本机用本地扩展 `extensions/pi-pet-autostart.ts` 补这一层：TUI 会话一开就派发 `/pet`，**一个 pi 进程只弹一次**（切会话 / 树跳转 / `/reload` 都不叠第二只）。
+
+配置 `~/.pi/agent/extensions/pi-dsh-pet.json`（**默认启用**，本机已写）：
+
+```json
+{ "autostart": true, "size": "normal", "delayMs": 400 }
+```
+
+- `autostart: false` → 不自动弹（仍可手敲 `/pet`）；**只认显式 `false`**，写错类型（如 `"false"`）仍按启用算，避免宠物莫名消失。
+- `size`：`small`(260) / `normal`(400) / `large`(540)，非法值按 `normal`（档位表在上游 `pi/assets/pet.js` 的 `SIZE_MAP`）。
+- `delayMs`：等上游 HTTP 服务（随机端口 10240–49151）就绪的延时。上游 handler 自己也能补起服务，这一步纯稳态。
+- 文件缺失 / 读坏 = 按**启用**处理（读坏会 `notify` 一次），与 `no-find.json` 同一套约定。
+- 会话内随手切：`/pet-auto on|off|size <档位>|status`，改动写回同一个 json。
+
+**为什么是「派发命令」而不是自己 spawn Electron**：端口是上游在 `session_start` 里现找的空闲端口，外部拿不到；派发 `/pet` 则由它自己的 handler 决定「开窗 / 已开则加一只 / 未起则先起服务」，连 Windows 自动切 npmmirror 镜像都走它自己的代码。派发路径是 pi 官方的 `sendUserMessage(..., { expandPromptTemplates: true })` → 命令执行完直接 `return`，**不进 prompt、不起 LLM 轮次**。
+
+**零 token 成本（实测）**：`pi-dsh-pet` 与 `pi-pet-autostart` **都不注册工具**，不进 `defaultTools`（§3.4 硬规则）。装完跑 bench：system 3026B + tools 2984B（6 个）= **6010B，与装之前逐字节一致**。
+
+**安装路径的坑**：上游 README 写的是 `npm install -g pi-dsh-pet`，但 **pi 不扫全局 `node_modules`**——只全局装的话 `/pet` 根本不存在。必须在 pi 里注册一次（`pi install npm:pi-dsh-pet`），本机两份都装了，加载的是 `~/.pi/agent/npm/node_modules` 那份（`pi update --extensions` 也能升它）。想只留一份可把全局那份当本地源：`{ "source": "D:/resp/npm/npm-global/node_modules/pi-dsh-pet" }`（不复制，但就不再跟 `pi update` 走了）。
+
+**首次开窗会下 Electron ≈100MB**（上游在 Windows 自动设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）；包里 91 个透明 WebM，`assets/thumb` 解包 48MB。
+
+验证：`node .sc-test/probe-pet-autostart.mjs`（20 个 case：配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回）。回退：`pi remove npm:pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
+
 ---
 
 ## 4. 工具归属（谁注册了什么）
@@ -195,6 +225,8 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | `@aboutlo/pi-smart-edit` | `edit`（覆盖内建），匹配走「精确 → NFKC 归一化行」，容忍引号/空白差异 |
 | `@trycedar/pi-mdiff` | `md_inspect` `md_diff` `md_edit` |
 | `pi-undo-redo` | 无工具（`/undo` `/redo` 等命令） |
+| `pi-dsh-pet` | 无工具（`/pet` `/pet-stop`；HTTP+WS 服务只把 agent 事件转发给 Electron） |
+| `pi-pet-autostart`（本地 `extensions/pi-pet-autostart.ts`） | 无工具（`session_start` 钩子 + `/pet-auto` 命令） |
 | `@henryqw/pi-ask-question` | `ask_question` |
 | `@ssk_dev/rpiv-todo-lean` | `todo` |
 | `pi-smart-context` | `compact_context` |
@@ -280,6 +312,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 3. **大输出工具**（`web_search` 等）原始 HTML/JSON 全量进历史，会把前缀命中率打崩；用前先想清楚要不要落历史。
 4. **改 `.md` 优先 `md_edit`**：散文/列表用 `md_edit`（锚定标题+块序号，不受换行重排影响），代码块用 `edit`，`.mdx` 一律用 `edit`。
 5. **不装的东西**：`pi-observational-memory`（治压缩后记忆断层，方向不同）、`pi-deepseek-cache`（绑定 DeepSeek）、`pi-cache-optimizer`（与 guardian 重叠）——都不解决本机的主要成本（system 字节），装了只是多一份常驻负担。
+6. **纯 UI 类扩展可以放心装**：`pi-tps` / `pi-one-ui` / `pi-dsh-pet` / `pi-pet-autostart` 这类只挂事件钩子、只注册命令的扩展，**不注册任何工具**，不进 `defaultTools`，wire 字节不变（§3.6 有 bench 实测：装宠物前后都是 6010B）。反过来，任何**注册工具**的扩展都要重新算 §6.3 那笔账。
 
 ---
 
@@ -340,6 +373,8 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 ### 6.4 优化后的静态前缀总账
 
 `system 3026B + tools 2984B = 6010B ≈ 1.7k tok/请求`，相比优化前 `6758 + 4593 = 11351B ≈ 2.9k tok`，**累计 −47%**。
+
+> 2026-09-29 装 `pi-dsh-pet` + `pi-pet-autostart` 后重跑 bench：**仍是 3026B + 2984B = 6010B、6 个工具、`extension_error` 0**，字节没动（两者都不注册工具，见 §3.6）。
 
 ---
 
@@ -404,13 +439,16 @@ node .sc-test/check-ext-errors.mjs
 | 压缩后首轮命中低 | 正常现象 | 只有「命中 0」才是故障；压缩调用自身用 `pi-compaction-cache` 兜（1.6%→98.8%） |
 | `pi-warm-cache` 没反应 | 本地代理属未注册路由 | 不是故障，`/warm status` 里 `automaticWarm:false` 即预期 |
 | pi-agent-browser-native 报 `buildSessionProjection is not a function` | Pi < 0.86 | 本机 0.87.1 不会发生；若真发生跑 `node fix-browser-native-compat.mjs` |
+| `/pet` 提示命令不存在 | 只 `npm i -g` 装过，pi 不扫全局 `node_modules` | `pi install npm:pi-dsh-pet` → `/reload`（见 §3.6） |
+| 宠物窗口不弹 | 首次要下 Electron ≈100MB；或自动启动被关了 | 看启动提示；`/pet-auto status` 看当前开关；`/pet small` 换小号试；关掉了就写回 `{"autostart": true}` |
 
 **磁盘布局速查**
 
 | 路径 | 内容 |
 |---|---|
 | `~/.pi/agent/settings.json` | `packages` 注册表 + `defaultTools` |
-| `~/.pi/agent/extensions/` | 本地扩展副本 + 各扩展的全局配置（如 `edit-guard-config.json`，**只放这里，放 agent 根下不生效**） |
+| `~/.pi/agent/extensions/` | 本地扩展副本 + 各扩展的全局配置（如 `edit-guard-config.json`、`no-find.json`、`pi-dsh-pet.json`，**只放这里，放 agent 根下不生效**） |
+| `~/.pi/agent/state/` | 跨会话记账（如 `pi-pet-autostart.json` 记「本 pid 已弹过窗」，防 `/reload` 叠宠物） |
 | `~/.pi/agent/git/` | git 源扩展（lazy-tools fork） |
 | `~/.pi/agent/npm/node_modules/` | npm 源扩展 |
 | `~/.pi/agent/config/` | smart-context 配置 |
@@ -444,6 +482,9 @@ node .sc-test/check-ext-errors.mjs
 # fd 工具单独体检（不起 pi）：13 个行为 case + wire 字节对比
 node .sc-test/probe-fd.mjs            # 行为（改过 fd 调用就要跑）
 node .sc-test/measure-fd.mjs          # 字节（改了 description/schema 就要跑）
+
+# 宠物自动启动体检（不起 pi、不弹窗）：20 个 case（配置解析 + 派发时机 + 幂等）
+node .sc-test/probe-pet-autostart.mjs
 ```
 
 沙箱要点：`PI_CODING_AGENT_DIR` 指向沙箱 agent 目录，`npm`/`git`/`node_modules`/`skills` 用 `mklink /J` junction 指向真实目录（**必须是反斜杠绝对路径**），项目级 `.pi/` 两份配置现写现用；mock 端口默认 18080（8799 在本机被占）。
