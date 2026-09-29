@@ -8,9 +8,9 @@
 
 ---
 
-## 1. 清单（在用 20 个扩展 = 19 npm + 1 git）
+## 1. 清单（在用 19 个扩展 = 18 npm + 1 git）
 
-> 下表 21 行里 `pi-edit-guard` 已卸载（删除线保留作决策记录，见 §7.1），**实际在用 20 个**。
+> 下表 21 行里 `pi-edit-guard`、`pi-undo-redo` 已卸载（前者的删除线保留作决策记录，见 §7.1），**实际在用 19 个**。
 
 **不锁版本**：安装命令一律不带 `@版本号`（取 npm 最新），本清单不维护版本矩阵。要查本机实际装的版本：
 
@@ -33,7 +33,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:@tian.zuo/pi-find` | `grep` / `find` 工具 | **覆盖内建同名工具**（替换，不是并列）。本机只用它的 `grep`；`find` 已降为懒加载兜底（见 §4.1） |
 | `npm:pi-edit-guard` | 覆盖内建 `edit` + 注册 `undo` | **已卸载**，见 §7.1（要装的话注意与 smart-edit 争 `edit` 槽） |
 | `npm:@trycedar/pi-mdiff` | `md_inspect` / `md_diff` / `md_edit` | Markdown 结构化编辑，`.md` 改动优先用它 |
-| `npm:pi-undo-redo` | 会话 / 文件撤销重做 | 纯命令扩展，零工具 |
+| ~~`npm:pi-undo-redo`~~ | 会话 / 文件撤销重做 | **已卸载**（`pi remove npm:pi-undo-redo`），本机有 git + `edit` 精确替换，撤销走 git / 编辑历史；会话级撤销暂缺 |
 | `npm:pi-mcp-adapter` | 一个 `mcp` 代理工具替代成百上千个 MCP 工具定义 | 装完重启自动读 `.mcp.json` |
 | `npm:pi-agent-browser-native` | 原生 `agent_browser*` 工具（8 个） | 要求 Pi ≥0.86.1；本机 0.87.1 满足，**不需要**兼容补丁 |
 | `npm:@agenticup/pi-loop` | `loop` 递归深潜工具 | 入口是 `extensions/loop.ts`，不是 `dist/index.js` |
@@ -80,7 +80,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 
 ```bash
 for p in pi-web-access pi-tps @injaneity/pi-computer-use pi-one-ui pi-cache-guardian \
-         @tian.zuo/pi-find @trycedar/pi-mdiff pi-undo-redo \
+         @tian.zuo/pi-find @trycedar/pi-mdiff \
          pi-mcp-adapter pi-agent-browser-native @agenticup/pi-loop; do
   pi install "npm:$p" || echo "[失败] $p"
 done
@@ -100,7 +100,7 @@ pi install git:github.com/qq458249269/pi-lazy-tools
 node install-local-extensions.mjs
 ```
 
-装完自查：`pi list` 应见 **20 个扩展**（19 npm + 1 git），`settings.json` 的 `packages` 20 条。少于 19 就是并行竞写伤痕，重跑补漏。
+装完自查：`pi list` 应见 **19 个扩展**（18 npm + 1 git），`settings.json` 的 `packages` 19 条。少于 18 就是并行竞写伤痕，重跑补漏。
 
 ### 2.2 硬顺序约束
 
@@ -231,7 +231,9 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 **首次开窗会下 Electron ≈100MB**（上游在 Windows 自动设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）；包里 91 个透明 WebM，`assets/thumb` 解包 48MB。
 
-验证：`node .sc-test/probe-pet-autostart.mjs`（44 个 case：配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回，以及**单只限制**：已有窗→复用、`maxPets`、锁抢占/陈旧锁、`cleanup`/`restart`、ws 钩子真起服务验证 `add_pet` 被丢、末条还查真实机器上是否只剩一只）。探针用 `globalThis.__piPetScanWindows` / `__piPetKillWindow` 顶掉扫进程与 taskkill，不会误动真实宠物。回退：`pi remove npm:pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
+验证：`node .sc-test/probe-pet-autostart.mjs`（**64 个 case**，探针默认测**仓库里的源文件**并在开头报「仓库 vs 已装副本」的漂移——不同步时 pi 跑的根本不是你刚改的代码）。覆盖配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回、**单只限制**（已有窗→复用、`maxPets`、锁抢占/陈旧锁、`cleanup`/`restart`、ws 钩子真起服务验证 `add_pet` 被丢），以及 2026-09-29 补的 5 组回归：**端口验活**（`dead` 判孤儿并收掉 / `unknown` 保守放过）、**事件桥端到端**（真起 ws 服务，验证 `thinking`/`tool_call` 真的发得出去）、**`/reload` 后桥仍在**、**扫不动 ≠ 没有窗**、**status 摊开活窗/孤儿/桥状态**。探针用 `globalThis.__piPetScanWindows` / `__piPetKillWindow` / `__piPetProbePort` 顶掉扫进程、taskkill、端口探测，不会误动真实宠物。末条 case 查真实机器上是否只剩一只（**红了就说明机器上真有多只，跑 `/pet-auto cleanup`**）。回退：`pi remove npm:pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
+
+**已知残留**：上游 `pet-electron.cjs` **没有** `app.requestSingleInstanceLock()`，即窗口层零单例保护，且 `electronProc` 是进程内变量、看不见别的进程的窗。所以「整机一只」完全是本扩展在**外面**兜的；一旦本扩展没跑起来（`autostart:false`、非 tui 模式、配置坏到读不出）而有人手敲 `/pet`，就可能多一扇。**这也是当初评估「要不要 fork 上游」的唯一真实理由**——本次先把扩展侧四个成因修完，fork 留作备选。
 
 ---
 
@@ -244,7 +246,6 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | `pi-fd`（本地 `extensions/pi-fd.ts`） | `fd`（能力上取代 pi-find 的 `find`，见 §4.1；本机懒加载） |
 | `@aboutlo/pi-smart-edit` | `edit`（覆盖内建），匹配走「精确 → NFKC 归一化行」，容忍引号/空白差异 |
 | `@trycedar/pi-mdiff` | `md_inspect` `md_diff` `md_edit` |
-| `pi-undo-redo` | 无工具（`/undo` `/redo` 等命令） |
 | `pi-dsh-pet` | 无工具（`/pet` `/pet-stop`；HTTP+WS 服务只把 agent 事件转发给 Electron） |
 | `pi-pet-autostart`（本地 `extensions/pi-pet-autostart.ts`） | 无工具（`session_start` 钩子 + `/pet-auto` 命令） |
 | `@henryqw/pi-ask-question` | `ask_question` |
@@ -417,18 +418,17 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 | 附加能力 | 注册 `undo`、越界 cwd 提示、`.env`/secret 提示、锚点与诊断报告 | 无 |
 | 代价 | edit 描述更长（+59B/请求） | **失去 `undo` 与全部 guard 提示** |
 
-`undo` 的替代：会话级用 `pi-undo-redo`；文件级靠 git（或改前先 `read` 留底）。这与本机「有 git、改动走 `md_edit`/`edit` 精确替换」的习惯相容。
+`undo` 的替代：文件级靠 git（或改前先 `read` 留底）。会话级的 `pi-undo-redo` 也已卸载（2026-09-29），暂缺替代。这与本机「有 git、改动走 `md_edit`/`edit` 精确替换」的习惯相容。卸载连带清了 `~/.pi/agent/state/pi-undo-redo/`（13 个 worktree、52MB 死数据）。
 
 > 若哪天要回退：装回 `pi-edit-guard` 并卸 smart-edit 即可；或给 edit-guard 写 `~/.pi/agent/extensions/edit-guard-config.json` 的 `{"editOverrideEnabled": false}`（**必须是 `extensions/` 子目录，放 `~/.pi/agent/` 根下不生效**——已实测），让它只让出 `edit`、保留 `undo`。
 
-### 7.2 其它遗留（2026-09-28 六次清理后只剩备份）
+### 7.2 其它遗留
 
-- `~/.pi/lazy-tools.json`（常驻名单旧位置）→ **已删**（2026-09-29，`pi-lazy-tools` 0.4.0 起只告警不读取）；内容已进 `settings.json` 的 `defaultTools`，历史副本 `~/.pi/lazy-tools.json.bak`（旧 `lazy` 名单）与 `.bak2`（旧 `resident` 名单）同日删除。
-- `settings.json` 里的 `alps-pi` 死配置块（已被 pi-one-ui 取代）→ **已删**（2026-09-28 六次），删后 pi 启动与体检均正常。
-- `~/.pi/agent/pi-hermes-memory/`（`pi-hermes-memory` 早已卸载）→ **已删**（19MB 死数据）。
-- `~/node_modules/@earendil-works*@0.85.1`：**故意保留**。那是一棵自洽的 0.85.1 生态，且 `@wolido/pi-lazy-tools` 依赖它，删了会连带坏掉。pi 自身的扩展从 `~/.pi/agent/node_modules`（0.87.1）解析，**不会走到家目录那份**；pi-web-access 报的 "Dynamic tool activation requires Pi 0.86.1 or newer" 属误报，不影响功能。
-- `.backup-20250915/`（105 个文件，旧配置/旧扩展/旧 skills 的快照）→ **已删**（2026-09-29；内容全部在 git 历史里，要找回：`git checkout <commit> -- .backup-20250915`，例如 `git checkout bb9a6ae -- .backup-20250915`）。
-- `~/.pi/agent/settings.json.bak-*` ×4 + `~/.pi/lazy-tools.json.bak` / `.bak2` → **已删**（2026-09-29，共 6 个文件、约 11KB；现役 `settings.json` 只剩 1607B 且已在 git 里）。删完 `check-ext-errors` 的 `extension_error` 仍为 0。
+**已清理的死配置/死数据**（细节都在 git 历史里）：`~/.pi/lazy-tools.json`（含 `.bak`/`.bak2`，常驻名单已进 `settings.json` 的 `defaultTools`）、`settings.json` 里的 `alps-pi` 块、`~/.pi/agent/pi-hermes-memory/`（19MB）、`.backup-20250915/`（105 个文件，要找回：`git checkout bb9a6ae -- .backup-20250915`）、`settings.json.bak-*`、`state/pi-undo-redo/`（52MB）、`pi-better-toolcalls-undo-store.jsonl`（4MB）。共约 76MB。
+
+**故意保留**：
+
+- `~/node_modules/@earendil-works*@0.85.1`：一棵自洽的 0.85.1 生态，`@wolido/pi-lazy-tools` 依赖它，删了会连带坏掉。pi 自身的扩展从 `~/.pi/agent/node_modules`（0.87.1）解析，**不会走到家目录那份**；pi-web-access 报的 "Dynamic tool activation requires Pi 0.86.1 or newer" 属误报。
 
 ### 7.3 `omnify` 的两个 fork 修复（2026-09-29，`e972047`，已 push）
 
@@ -454,7 +454,7 @@ node .sc-test/check-ext-errors.mjs
 | 懒加载报 `Cannot find module` | lazy 执行层地基缺失（版本要与 pi 本体一致，别写死） | `npm i --prefix ~/.pi/agent @earendil-works/{pi-coding-agent,pi-tui,pi-ai}@$(pi --version \| grep -oE '[0-9]+\.[0-9]+\.[0-9]+')` |
 | 工具调用不到、wire 上也没有 | 内建工具不在 `defaultTools`（不注册），扩展工具不在其中（被 lazy） | 改 `defaultTools`（§3.4），`/reload` |
 | `fd` 报 “fd executable not found” | pi 自带副本与 PATH 都没有 fd | 跑 `/fd-check` 看解析结果；或 `npm i -g fd-find` |
-| 会话/文件撤销 | `pi-edit-guard` 已卸载，其 `undo` 工具随之消失 | 会话级用 `pi-undo-redo`（`/undo` `/redo`）；文件级靠 git 或改前先 `read` |
+| 会话/文件撤销 | `pi-edit-guard` 已卸载，其 `undo` 工具随之消失 | 文件级靠 git 或改前先 `read`；**会话级 `pi-undo-redo` 也已卸载**（2026-09-29），暂无可用替代，需要时再装回 |
 | agent 没有 shell | `defaultTools` 里没有 `bash` | 写 `bash` 进两处 `defaultTools`（§3.4）；若 `extensions/pi-shell.ts` 被装回来，它会在 `session_start` 无条件隐藏 `bash` |
 | 压缩后首轮命中低 | 正常现象 | 只有「命中 0」才是故障；压缩调用自身用 `pi-compaction-cache` 兜（1.6%→98.8%） |
 | `pi-warm-cache` 没反应 | 本地代理属未注册路由 | 不是故障，`/warm status` 里 `automaticWarm:false` 即预期 |
@@ -503,7 +503,7 @@ node .sc-test/check-ext-errors.mjs
 node .sc-test/probe-fd.mjs            # 行为（改过 fd 调用就要跑）
 node .sc-test/measure-fd.mjs          # 字节（改了 description/schema 就要跑）
 
-# 宠物自动启动体检（不起 pi、不弹窗）：20 个 case（配置解析 + 派发时机 + 幂等）
+# 宠物自动启动体检（不起 pi、不弹窗）：64 个 case（配置/派发时机/幂等 + 端口验活 + 事件桥端到端）
 node .sc-test/probe-pet-autostart.mjs
 ```
 
