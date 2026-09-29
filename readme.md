@@ -174,7 +174,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 > **本机就选 pi 的内置默认 4 个**（`dist/core/sdk.js:140` 的 `defaultActiveToolNames`），一个扩展工具都不加：搜文件名/目录、搜内容全部交给 `omnify` 按需激活。换来 `8317B → 6010B`（**−2307B ≈ −641 tok/请求**，见 §6.3），代价是每次搜索多 1–2 个往返轮次。
 > **`omnify` 不写进 `defaultTools`**：它由 lazy-tools 在 `session_start` 无条件写进 active 集（`setActiveTools`），写不写都一样。
 > **`grep` / `fd` 不写也会注册**（扩展注册不过内建闸），只是被 lazy 隐藏；`omnify` 能把它们搜出来并执行（已实测）。**内建的 `ls` / `powershell` 搜得出、却执行不了**（pi 用内部工厂造它们，`sourceInfo` 是合成标记 `<sdk:ls>`，没有可 import 的源码）→ 这类需求一律 `bash ls`。fork 已把这个原因写进 omnify 的失败文案（见 §7.3）。
-> **`~/.pi/lazy-tools.json` 已删除**（2026-09-29，`pi-lazy-tools` 0.4.0 起只告警不读取；旧副本留在 `lazy-tools.json.bak` / `.bak2`）。新装扩展**不要**往 `defaultTools` 里加（硬规则，见 §5 第 0 条）。
+> **`~/.pi/lazy-tools.json` 已删除**（2026-09-29，`pi-lazy-tools` 0.4.0 起只告警不读取；旧副本 `lazy-tools.json.bak` / `.bak2` 同日一并删掉，内容已进 `defaultTools`）。新装扩展**不要**往 `defaultTools` 里加（硬规则，见 §5 第 0 条）。
 > 改完 `/reload` 生效（不必重启会话）。
 
 ### 3.5 工具注册闸：`defaultTools`（项目 + 用户两处都要写）
@@ -368,11 +368,12 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 
 ### 7.2 其它遗留（2026-09-28 六次清理后只剩备份）
 
-- `~/.pi/lazy-tools.json`（常驻名单旧位置）→ **已删**（2026-09-29，`pi-lazy-tools` 0.4.0 起只告警不读取）；内容已进 `settings.json` 的 `defaultTools`，历史副本留在 `~/.pi/lazy-tools.json.bak` / `.bak2`。
+- `~/.pi/lazy-tools.json`（常驻名单旧位置）→ **已删**（2026-09-29，`pi-lazy-tools` 0.4.0 起只告警不读取）；内容已进 `settings.json` 的 `defaultTools`，历史副本 `~/.pi/lazy-tools.json.bak`（旧 `lazy` 名单）与 `.bak2`（旧 `resident` 名单）同日删除。
 - `settings.json` 里的 `alps-pi` 死配置块（已被 pi-one-ui 取代）→ **已删**（2026-09-28 六次），删后 pi 启动与体检均正常。
 - `~/.pi/agent/pi-hermes-memory/`（`pi-hermes-memory` 早已卸载）→ **已删**（19MB 死数据）。
 - `~/node_modules/@earendil-works*@0.85.1`：**故意保留**。那是一棵自洽的 0.85.1 生态，且 `@wolido/pi-lazy-tools` 依赖它，删了会连带坏掉。pi 自身的扩展从 `~/.pi/agent/node_modules`（0.87.1）解析，**不会走到家目录那份**；pi-web-access 报的 "Dynamic tool activation requires Pi 0.86.1 or newer" 属误报，不影响功能。
-- `.backup-20250915/`（105 个文件，旧配置/旧扩展/旧 skills 的快照）→ **已删**（2026-09-29；内容全部在 git 历史里，要找回：`git checkout <commit> -- .backup-20250915`，例如 `git checkout bb9a6ae -- .backup-20250915`）。`~/.pi/agent/settings.json.bak-*` ×4 **仍在**（用户目录、git 管不到，要删自己动手）。
+- `.backup-20250915/`（105 个文件，旧配置/旧扩展/旧 skills 的快照）→ **已删**（2026-09-29；内容全部在 git 历史里，要找回：`git checkout <commit> -- .backup-20250915`，例如 `git checkout bb9a6ae -- .backup-20250915`）。
+- `~/.pi/agent/settings.json.bak-*` ×4 + `~/.pi/lazy-tools.json.bak` / `.bak2` → **已删**（2026-09-29，共 6 个文件、约 11KB；现役 `settings.json` 只剩 1607B 且已在 git 里）。删完 `check-ext-errors` 的 `extension_error` 仍为 0。
 
 ### 7.3 `omnify` 的两个 fork 修复（2026-09-29，`e972047`，已 push）
 
