@@ -4,5 +4,6 @@
     "edit",
     "write",
     "bash"
-  ]
+  ],
+  "hideThinkingBlock": true
 }
