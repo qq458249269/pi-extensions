@@ -45,7 +45,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:@henryqw/pi-ask-question` | `ask_question` 交互式提问（单题，1–3 选项 + 自定义答案，首项为推荐） | 歧义时问用户，比猜省事 |
 | `npm:@ssk_dev/rpiv-todo-lean` | `todo` 任务清单工具 + TUI overlay | `ctrl+shift+t` 折叠；`/todos` 看全量 |
 | `npm:@aboutlo/pi-smart-edit` | 覆盖内建 `edit`，容忍引号/空白不匹配 | **已生效**；`edit` 归它，匹配走「精确 → NFKC 归一化行」 |
-| `npm:pi-dsh-pet` | 桌面宠物：Electron 透明浮窗 + 91 个 WebM 动画，随 agent 状态（思考/写代码/空闲）切换 | **纯命令扩展**（`/pet` `/pet-stop`），零工具、零 wire 开销。**必须 `pi install`**，光 `npm i -g` pi 不加载（见 §3.6）；解包 48MB，首次 `/pet` 另下 Electron ≈100MB |
+| `npm:pi-dsh-pet` | 桌面宠物：Electron 透明浮窗 + 91 个 WebM 动画，随 agent 状态（思考/写代码/空闲）切换 | **纯命令扩展**（`/pet` `/pet-stop`），零工具、零 wire 开销。**必须 `pi install`**，光 `npm i -g` pi 不加载（见 §3.6）；解包 48MB，首次 `/pet` 另下 Electron ≈100MB。常驻与「整机只留一只」由本仓库的 `pi-pet-autostart.ts` 接管 |
 
 ### 1.2 本地扩展（不走 `pi install`，放 `~/.pi/agent/extensions/`）
 
@@ -57,7 +57,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `pi-lean-sections.ts` | 压 wire 上 system 的 `<docs>` / `<skills>` 两块（见 §6.2） |
 | `pi-fd.ts` | 注册 `fd` 工具（fd 原生接口），**取代 pi-find 那个只认 glob 的 `find`**（见 §4.1） |
 | `no-find.ts` | **不注册工具**，只挂 `tool_call` 钩子：命令行里出现 `find` 就 block，并提示改用 `fd`（见 §4.2） |
-| `pi-pet-autostart.ts` | 让 `pi-dsh-pet` **默认常驻**：TUI 会话一开就派发 `/pet`（一个 pi 进程只弹一次）。不注册工具，只挂 `session_start` + `/pet-auto` 开关。配置见 §3.6 |
+| `pi-pet-autostart.ts` | 让 `pi-dsh-pet` **默认常驻且整机只留一只**：TUI 会话一开就派发 `/pet`，已有宠物窗就复用不新开，跨会话/多开 pi 也只一只。不注册工具，只挂 `session_start` + `/pet-auto` 开关。配置见 §3.6 |
 
 > 曾经的 `pi-shell.ts`（把 `bash`+`powershell` 合成 `shell`）**已删除**：它不是 pi 内置也不是 npm 包，纯本仓库自写；它带的 `-156B` 收益抵不上维护成本，改用内建 `bash`（见 §6.1）。注意它在 `session_start` 里会无条件隐藏 `bash`/`powershell`，所以 `shell` 与 `bash` 只能二选一。
 
@@ -189,21 +189,41 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 ### 3.6 桌面宠物：默认启用配置
 
-上游 `pi-dsh-pet` **没有任何自动启动开关**（只注册 `/pet` `/pet-stop`），装完还得每次手敲 `/pet`。本机用本地扩展 `extensions/pi-pet-autostart.ts` 补这一层：TUI 会话一开就派发 `/pet`，**一个 pi 进程只弹一次**（切会话 / 树跳转 / `/reload` 都不叠第二只）。
+上游 `pi-dsh-pet` **没有任何自动启动开关**（只注册 `/pet` `/pet-stop`），装完还得每次手敲 `/pet`。本机用本地扩展 `extensions/pi-pet-autostart.ts` 补这一层：TUI 会话一开就派发 `/pet`，**整机只留一只**（切会话 / 树跳转 / `/reload` / 多开 pi / 已有别的会话的宠物窗，都不叠第二只）。
 
 配置 `~/.pi/agent/extensions/pi-dsh-pet.json`（**默认启用**，本机已写）：
 
 ```json
-{ "autostart": true, "size": "normal", "delayMs": 400 }
+{ "autostart": true, "size": "normal", "delayMs": 400, "maxPets": 1, "bridge": true }
 ```
 
 - `autostart: false` → 不自动弹（仍可手敲 `/pet`）；**只认显式 `false`**，写错类型（如 `"false"`）仍按启用算，避免宠物莫名消失。
 - `size`：`small`(260) / `normal`(400) / `large`(540)，非法值按 `normal`（档位表在上游 `pi/assets/pet.js` 的 `SIZE_MAP`）。
 - `delayMs`：等上游 HTTP 服务（随机端口 10240–49151）就绪的延时。上游 handler 自己也能补起服务，这一步纯稳态。
+- `maxPets`：**同时最多几只**（1–8，默认 1）。已经超了就 `/pet-auto cleanup` 收掉多余的。
+- `bridge`：复用别人的窗时是否把本会话事件转发过去（默认开）。
 - 文件缺失 / 读坏 = 按**启用**处理（读坏会 `notify` 一次），与 `no-find.json` 同一套约定。
-- 会话内随手切：`/pet-auto on|off|size <档位>|status`，改动写回同一个 json。
+- 会话内随手切：`/pet-auto on|off|size <档位>|max <只数>|bridge on|off|status|cleanup|restart`，改动写回同一个 json。
 
-**为什么是「派发命令」而不是自己 spawn Electron**：端口是上游在 `session_start` 里现找的空闲端口，外部拿不到；派发 `/pet` 则由它自己的 handler 决定「开窗 / 已开则加一只 / 未起则先起服务」，连 Windows 自动切 npmmirror 镜像都走它自己的代码。派发路径是 pi 官方的 `sendUserMessage(..., { expandPromptTemplates: true })` → 命令执行完直接 `return`，**不进 prompt、不起 LLM 轮次**。
+#### 3.6.1 「只许一只」是怎么限住的
+
+只做自动启动必然越弹越多，原因是两个**跨进程**的口子（按 pid 记账根本拦不住，实测本机一度开到 9 扇窗）：
+
+| 口子 | 现象 | 闸 |
+|---|---|---|
+| 每个会话一扇窗 | 换会话 / `/reload` / 多开一个 pi = 新 pid = 又一扇窗 | **窗口闸**：`session_start` 先扫全机宠物窗（`pet-electron.cjs <port>` 主进程，wmic ≈0.4s，PowerShell CIM 兜底），已有 ≥ `maxPets` 扇就**复用**不派发；再叠一个 `mkdir` 原子锁挡住「两个会话同时开」的竞态 |
+| 一扇窗里 `add_pet` | 上游 `/pet` 在窗已开时不是新开窗，而是广播 `add_pet:<size>` 让窗里**再加一只** | **数量闸**：在 `WebSocket.prototype.send` 上挂钩子，`maxPets=1` 时丢掉 `add_pet*` 帧，其余原样放行 |
+
+两个容易踩的细节：
+
+- 扫进程要认 **`pet-electron.cjs`** 这个特征，不能认 `pi-dsh-pet`——上游那一条启动链有 `cmd.exe`→`node.exe`(npx)→`electron.exe` 三个进程的命令行都带 `pi-dsh-pet`，只有主进程带 `pet-electron.cjs <port>`。认错了会把一只数成三只。
+- 钩子必须**从上游自己的入口文件起算 `require('ws')`**（`pi.getCommands()` 里 `/pet` 的 `sourceInfo.path`）。这机器上 `agent/node_modules/ws` 与 `agent/npm/node_modules/ws` 是两份不同实例，打在错的实例上等于没打。
+
+**复用时的事件桥**：复用的窗连的是**别的** pi 进程的服务，只听那个进程的广播。扩展会再连一条 WS 当转接头，把本会话的 `agent_start` / `thinking`（2s 节流，与上游同）/ `tool_call` / `agent_idle` 用同样的消息格式转发过去，于是「一只宠物」照样跟着**每个**会话的思考、敲代码动。没有 ws 依赖就静默跳过（宠物照常呼吸，只是不跟本会话联动）。
+
+`/pet-auto` 常用：`status`（当前几只 / 上限 / 拦下几次 add_pet / 钩子装没装）、`cleanup`（关掉多余的、保留最老的一只）、`restart`（全关掉再在本会话开一扇新的）、`max 2`（允许多只）。
+
+**为什么是「派发命令」而不是自己 spawn Electron**：端口是上游在 `session_start` 里现找的空闲端口，外部拿不到；派发 `/pet` 则由它自己的 handler 决定「开窗 / 未起则先起服务」，连 Windows 自动切 npmmirror 镜像都走它自己的代码。派发路径是 pi 官方的 `sendUserMessage(..., { expandPromptTemplates: true })` → 命令执行完直接 `return`，**不进 prompt、不起 LLM 轮次**。
 
 **零 token 成本（实测）**：`pi-dsh-pet` 与 `pi-pet-autostart` **都不注册工具**，不进 `defaultTools`（§3.4 硬规则）。装完跑 bench：system 3026B + tools 2984B（6 个）= **6010B，与装之前逐字节一致**。
 
@@ -211,7 +231,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 **首次开窗会下 Electron ≈100MB**（上游在 Windows 自动设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）；包里 91 个透明 WebM，`assets/thumb` 解包 48MB。
 
-验证：`node .sc-test/probe-pet-autostart.mjs`（20 个 case：配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回）。回退：`pi remove npm:pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
+验证：`node .sc-test/probe-pet-autostart.mjs`（44 个 case：配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回，以及**单只限制**：已有窗→复用、`maxPets`、锁抢占/陈旧锁、`cleanup`/`restart`、ws 钩子真起服务验证 `add_pet` 被丢、末条还查真实机器上是否只剩一只）。探针用 `globalThis.__piPetScanWindows` / `__piPetKillWindow` 顶掉扫进程与 taskkill，不会误动真实宠物。回退：`pi remove npm:pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
 
 ---
 
@@ -448,7 +468,7 @@ node .sc-test/check-ext-errors.mjs
 |---|---|
 | `~/.pi/agent/settings.json` | `packages` 注册表 + `defaultTools` |
 | `~/.pi/agent/extensions/` | 本地扩展副本 + 各扩展的全局配置（如 `edit-guard-config.json`、`no-find.json`、`pi-dsh-pet.json`，**只放这里，放 agent 根下不生效**） |
-| `~/.pi/agent/state/` | 跨会话记账（如 `pi-pet-autostart.json` 记「本 pid 已弹过窗」，防 `/reload` 叠宠物） |
+| `~/.pi/agent/state/` | 跨会话记账（如 `pi-pet-autostart.json` 记「本 pid 已弹过窗 + 落在哪只宠物上」，`pi-pet-autostart.json.lock/` 是跨进程开窗锁） |
 | `~/.pi/agent/git/` | git 源扩展（lazy-tools fork） |
 | `~/.pi/agent/npm/node_modules/` | npm 源扩展 |
 | `~/.pi/agent/config/` | smart-context 配置 |
