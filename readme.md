@@ -510,3 +510,84 @@ node .sc-test/probe-pet-autostart.mjs
 ```
 
 沙箱要点：`PI_CODING_AGENT_DIR` 指向沙箱 agent 目录，`npm`/`git`/`node_modules`/`skills` 用 `mklink /J` junction 指向真实目录（**必须是反斜杠绝对路径**），项目级 `.pi/` 两份配置现写现用；mock 端口默认 18080（8799 在本机被占）。
+
+---
+
+## 10. 本轮实录：换包 + 升级 + 环境补齐（2026-09-29，`USERPROFILE=C:\Users\yxh`）
+
+在另一台机器上照本清单完整走一遍。**配置值与 §1–§7 全部一致，唯一差异是路径前缀**（本机 `yxh`，原记录机 `yinxuehao`；`compaction-cache.json` 的 `logPath` 已是本机路径）。
+
+### 10.1 拉代码：未提交改动先备份再 fast-forward
+
+`git fetch` 后本地落后 17 个提交，工作区有两处未提交改动：
+
+| 文件 | 改动 | 处置 |
+|---|---|---|
+| `extensions/pi-lean-prompt.ts` | +146 行，在 `before_provider_request` 里压 wire system 的 `<rules>`/`<docs>`/`<skills>` | 还原（已备份） |
+| `readme.md` | 旧的 118KB 长版 | 还原（已备份） |
+
+那 146 行不是「还没提交的新活」，而是**已被远端推翻的旧路线**：远端把 wire 压缩拆成独立的 `pi-lean-sections.ts`（只压 `<docs>` + `<skills>`），且 §3.2 明确「**不要压 `<rules>`**」（与 docs/skills 同改会让 pi 把 rules 正文挪位、条目与续行错配）。仓库是 canonical 源，直接还原即正确。备份留在 `/tmp/pi-ext-backup/`（`local-work.patch` + 两个原文件）。`e1758d3 → 16c8951` fast-forward 成功。
+
+### 10.2 照清单换包：卸 3 装 3，仍是 19 个
+
+| 操作 | 包 | 版本 | 依据 |
+|---|---|---|---|
+| 卸 | `pi-edit-guard` | 0.1.5 | §7.1，与 smart-edit 争 `edit` 槽 |
+| 卸 | `pi-undo-redo` | 0.1.2 | 已弃用，连带清 `state/pi-undo-redo/`（22M 影子 worktree） |
+| 卸 | `@nguyenquangthai/pi-ask` | 0.2.0 | 换包（`ask_user_question` → `ask_question`） |
+| 装 | `@henryqw/pi-ask-question` | 2.0.3 | §1.1 |
+| 装 | `@aboutlo/pi-smart-edit` | 0.4.0 | §7.1 独占 `edit` |
+| 装 | `pi-dsh-pet` | 0.0.2 | §3.6 桌面宠物 |
+
+`pi list` 实测 **19 项 = 18 npm + 1 git**，`settings.json` 的 `packages` 19 条。全程串行（§2.1 的硬规矩）。
+
+### 10.3 升级：只有 mcp-adapter 动了，fork 带上了两个修复
+
+`pi update --extensions`：
+
+- `pi-mcp-adapter` **3.1.0 → 3.2.0**（唯一升版的 npm 包，其余已是 latest）
+- fork `54bf2f2 → e972047` —— §7.3 那两个 omnify 修复已在上游，随 `git reset --hard` 一并带下来
+
+⚠ 代价照旧：`reset --hard` + `clean -fdx` 把 `fix-lazy-tools-notes.mjs` 打的 `DOCS_NOTE` 路径补丁冲掉了，`--check` 报「待修补：docs 路径」，重打即恢复（幂等，复跑 `无需改动`）。实测命中 `D:\agent\pi-windows-x64`。**该机已无 `pi-shell.ts`，脚本第 2 段（bash→shell 措辞）自动跳过。**
+
+### 10.4 配置同步
+
+| 项 | 动作 |
+|---|---|
+| 本地扩展 | 5 个全量重同步（`pi-lean-prompt` / `pi-lean-sections` / `pi-fd` / `no-find` / `pi-pet-autostart`），`--check` 复跑全 `[ok]` |
+| `extensions/pi-shell.ts` | **删**。仓库已删；留在用户目录里会 `setActiveTools` 无条件隐藏 `bash`/`powershell`，与 §3.4 直接冲突 |
+| `~/.pi/lazy-tools.json` | **删**（0.4.0 死配置，只触发迁移告警） |
+| 用户级 `defaultTools` | 补 `bash`：`["read","edit","write"]` → `["read","edit","write","bash"]`，与项目级对齐（§3.5 两处必须一致） |
+| `extensions/pi-dsh-pet.json` | 新建 `{"autostart":true,"size":"normal","delayMs":400,"maxPets":1,"bridge":true}` |
+| `smart-context` / `compaction-cache` | 已合规，未动 |
+| computer-use | `allowScripts` 早已批准；`setup-helper.mjs --postinstall` → `already up to date` |
+
+> `npm install-scripts approve better-sqlite3` 报 `ENOMATCH` —— **属预期**，该依赖早被两包移除；§3.1 那行命令在本机实际等于只批准 computer-use。
+
+### 10.5 体检结果
+
+| 检查 | 结果 |
+|---|---|
+| `check-ext-errors.mjs` | `extension_error` **0**、stderr 命中 **0**（smart-edit 与 edit-guard 的 `edit` 冲突已随卸载消失） |
+| `install-local-extensions.mjs --check` | 5 个全 `[ok]`，exit 0 |
+| `fix-browser-native-compat.mjs` | `[skip]`（双路回退仍在，0.87.1 本就不需要） |
+| `fix-lazy-tools-notes.mjs --check` | 重打后 `无需改动` |
+
+### 10.6 本机新发现
+
+**① `.sc-test/` 零跟踪，§6/§8/§9 的复测脚本拉不下来。**
+`.gitignore` 第 1 行就是 `.sc-test/`，且 `git ls-files .sc-test` 计数 **0** —— 整个目录没有任何文件被跟踪。于是 §9 列的 `versions.mjs` / `probe-fd.mjs` / `measure-fd.mjs` / `probe-pet-autostart.mjs` / `probe-no-find.mjs` / `bench/` **只存在于原作者那台机器**。本轮手里唯一的 `check-ext-errors.mjs` 属历史遗留。
+
+**后果**：本轮**没有复测 §6 的任何 wire 字节**（6010B / 6 工具、§6.2 的 3556B system 均未重新验证），只验了加载期无错。要么把这些脚本移出 gitignore 单独提交，要么在 readme 里注明「§6 数字的复测条件不随仓库分发」。
+
+**② 中途改 `defaultTools` 而不 `/reload`，等于把自己锁在门外。**
+本轮前半段按 §3.4 往 `defaultTools` 补了 `bash`（两处都写好了）。但**本会话是在改之前启动的**，工具集在启动时定死，改完没跑 `/reload`——于是后半段要执行 `git push` 时，手上只剩 `read`/`write`/`edit`/`web_enable`/`omnify`。`omnify` 兜底调 `bash`、`powershell`、`read` 全部被拒：
+
+```
+builtin工具（sourceInfo=<builtin:bash>，由 pi 内部工厂生成、
+没有可 import 的源码）→ omnify 执行不了
+```
+
+这正是 §3.4 那条注记的实测复现（内建工具没有可 import 的源码，jiti 加载器执行不了它们）。但真正的坑在时序：**恢复 shell 的唯一动作 `/reload` 本身就需要 shell 或命令面板**。所以 §3.4「改完 `/reload` 生效」有个隐含前提——别在一个正指着 shell 干活的中途会话里改它。稳妥做法：**改 `defaultTools` 放在会话开头做，或改完立刻 `/reload` 再继续。**
+
+> 收尾：`git push` 最终由人执行。push 前用 `read` 直接读 `.git/refs/heads/master` 与 `.git/refs/remotes/origin/master`，两者同为 `16c8951`，确认是空操作——**没有 shell 也能判断有没有东西要推**。（`packed-refs` 里有条陈旧的 `8e4776b → origin/master`，loose ref 优先，不影响判定。）
