@@ -37,7 +37,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:pi-mcp-adapter` | 一个 `mcp` 代理工具替代成百上千个 MCP 工具定义 | 装完重启自动读 `.mcp.json` |
 | `npm:pi-agent-browser-native` | 原生 `agent_browser*` 工具（8 个） | 要求 Pi ≥0.86.1；本机 0.87.1 满足，**不需要**兼容补丁 |
 | `npm:@agenticup/pi-loop` | `loop` 递归深潜工具 | 入口是 `extensions/loop.ts`，不是 `dist/index.js` |
-| `git:github.com/qq458249269/pi-lazy-tools` | 按需工具加载（`load_tools` / `call_tool`） | **fork，含 jiti 加载器补丁**；npm 版 `@wolido/pi-lazy-tools` 已下架 |
+| `git:github.com/qq458249269/pi-lazy-tools` | 按需工具加载（`omnify` 一站式：搜索 / 补参 / 代理执行） | **fork，含 jiti 加载器补丁**；npm 版 `@wolido/pi-lazy-tools` 已下架。**0.4.0 是 breaking**：常驻名单从自建 `~/.pi/lazy-tools.json` 改读 pi 的 `defaultTools`（见 §3.4） |
 | `npm:@zhushanwen/pi-smart-context` | 智能压缩：注册 `compact_context` 交 agent 自决 | **必做配置**见 §3.2 |
 | `npm:pi-prefix-stabilizer` | 系统提示词前缀稳定 + 漂移检测 | 与 compaction-cache 有先后要求，见 §2.2 |
 | `npm:pi-compaction-cache` | 摘要调用复用已缓存前缀 | **必做配置**见 §3.3；实测把压缩调用自身命中从 1.6% 拉到 98.8% |
@@ -109,11 +109,17 @@ node install-local-extensions.mjs
 
 ```bash
 pi update --extensions        # 只升扩展，不动 pi 本体（--all 会连 pi 一起升）
+
+# 升完先看谁动了（fork 与 major 变更最容易出兼容问题）
+node .sc-test/versions.mjs             # 本机实际版本（升级前先留一份对比）
+node .sc-test/check-ext-errors.mjs     # 加载期体检：extension_error 应为 0
 ```
 
 **升级禁用 `pi install`**：对已装包会命中 npm 缓存、不升版本。升级一律走 `pi update --extensions`（不带版本号 = 取各包 npm 最新）。升级后跑 §8 体检。
 
 > 首次安装（§2.1）同样不带版本号，npm 自动解析 latest；**本仓库任何位置都不写死扩展版本号**。
+
+**升级前扫一眼 breaking**：本机唯一 fork（`pi-lazy-tools`）会在 major 版本动**配置源**。2026-09-29 升到 0.4.0 就撞上——旧的 `~/.pi/lazy-tools.json` 变成死配置（只告警不读取），常驻名单改由 `settings.json` 的 `defaultTools` 决定。**处理办法见 §3.4；升完必跑一次 bench 确认 wire 工具集没变**（本次实测未变：8 个工具 / 8317B / `extension_error` 0）。
 
 ### 2.4 卸载
 
@@ -155,24 +161,25 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 - `scope: "boundary"` 让压缩请求锚在对话边界，前缀最齐。
 - `/compaction-cache-status` 看逐次判定，日志落 `logPath`。
 
-### 3.4 懒加载常驻集：`~/.pi/lazy-tools.json`
+### 3.4 懒加载常驻集 = `settings.json` 的 `defaultTools`
 
-```json
-{ "resident": ["read", "write", "edit", "bash", "fd", "grep", "omnify"] }
+一个字段两用：pi 用 `defaultTools` 决定「哪些内建工具注册」，`pi-lazy-tools` 用它决定「谁不被懒加载」（项目级整体覆盖用户级）。本机两处写同一份名单：
+
+```jsonc
+// ~/.pi/agent/settings.json 与 <项目>/.pi/settings.json
+{ "defaultTools": ["read", "write", "edit", "bash", "grep", "fd"] }
 ```
 
-> **本文件是常驻集的唯一手写处**。新装扩展**不要**往里加（硬规则，见 §5 第 0 条）——默认值就对了。
-> `find` 已从常驻集移出（换成 `fd`，见 §4.1）；它仍会注册，只是不再占每轮 token。
+> **`omnify` 不写进 `defaultTools`**：它由 lazy-tools 在 `session_start` 无条件写进 active 集（`setActiveTools`），写不写都一样。
+> **`grep` / `fd` 不写也会注册**（扩展注册不过内建闸），但**不写就会被 lazy 掉**——这正是本机把两个高频搜索工具钉在常驻的原因（§6.3）。
+> **`~/.pi/lazy-tools.json` 已删除**（2026-09-29，`pi-lazy-tools` 0.4.0 起只告警不读取；旧副本留在 `lazy-tools.json.bak` / `.bak2`）。新装扩展**不要**往常驻集里加（硬规则，见 §5 第 0 条）。
+> 改完 `/reload` 生效（不必重启会话）。
 
 ### 3.5 工具注册闸：`defaultTools`（项目 + 用户两处都要写）
 
-项目 `.pi/settings.json` 与 `~/.pi/agent/settings.json`：
+项目 `.pi/settings.json` 与 `~/.pi/agent/settings.json` 都要写上一节那份名单，否则进了某项目就被整体覆盖成内建默认（`read bash edit write`，`grep`/`fd` 当场被 lazy 掉）。
 
-```json
-{ "defaultTools": ["read", "edit", "write", "bash"] }
-```
-
-> **`grep` 只需写进 `resident`**，不必加 `defaultTools`——它由 `@tian.zuo/pi-find` 注册，不受内建闸门约束。`bash` 则两处都要写。`fd` 是本地扩展注册，同理不受此闸约束。
+> ⚠️ 0.4.0 之前这里确实是「两道闸」（`defaultTools` 管注册 + `lazy-tools.json` 的 `resident` 管常驻），**现在合并成一道**，只查 `defaultTools`。
 
 ---
 
@@ -195,19 +202,19 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | `pi-lazy-tools`（fork） | `load_tools` `call_tool` |
 | `pi-warm-cache` / `pi-prefix-stabilizer` / `pi-compaction-cache` / `pi-cache-guardian` | 无工具（纯事件钩子） |
 
-**两道闸（`defaultTools` 与 `resident` 必须同时满足才常驻）**：
+**一道闸：`defaultTools`**（0.4.0 前是「`defaultTools` 管注册 + `resident` 管常驻」两道，0.4.0 起合并）：
 
-| 工具 | `defaultTools` | `resident` | 说明 |
-|---|---|---|---|
-| `read` `write` `edit` `bash` | ✅ 需在列 | ✅ 需在列 | 纯内建 |
-| `grep` | ❌ 不需要 | ✅ 需要 | 由 pi-find 扩展注册，只受 resident 闸 |
-| `fd` | ❌ 不需要 | ✅ 需要 | 由本地 `pi-fd` 扩展注册，只受 resident 闸 |
-| `find` | ❌ | ❌ 已移出 → 懒加载 | 同一底层（fd）但只认 glob；`omnify` 按名可拾回兜底 |
-| `ls` `powershell` | ✅/❌ | ❌ 未列 → 懒加载 | 需要时 `omnify` 按名 load 回来（或用 `bash ls`） |
-| `web_enable` / `todo` / `loop` / `md_*` / `ask_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ | ❌ | 全部默认懒加载，用 `omnify` 按需检索 |
-| `omnify` | ❌ | 写不写都一样 | pi 核心无条件注册，**不受 resident 闸管辖**，常驻只是为了读起来清楚 |
+| 工具 | 在 `defaultTools` 里？ | 后果 |
+|---|---|---|
+| `read` `write` `edit` `bash` | ✅ 必须在列 | 纯内建：不在列就不注册 |
+| `grep` | ✅ 在列 | pi-find 注册（扩展不占注册闸），在列才不被 lazy 掉 |
+| `fd` | ✅ 在列 | 本地 `pi-fd` 注册，同上 |
+| `find` | ❌ 故意不列 → 懒加载 | 同一底层（fd）但只认 glob；`omnify` 按名可拾回兜底 |
+| `ls` `powershell` | ❌ 未列 → 懒加载 | 需要时 `omnify` 按名 load 回来（或用 `bash ls`） |
+| `web_enable` / `todo` / `loop` / `md_*` / `ask_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ 未列 | 全部默认懒加载，用 `omnify` 按需检索（`web_enable` 例外：pi-web-access 自己在 `session_start` 写进 active 集，实测 wire 上可见） |
+| `omnify` | ❌ 写不写都一样 | pi 核心无条件注册，**不需进名单**，写进去只是读起来清楚 |
 
-漏了任一闸的后果（实测）：不在 `defaultTools` → **工具根本不注册**；不在 `resident` → 注册了但被 lazy 隐藏，wire 上看不到。
+漏了的后果（实测）：`defaultTools` 是内建工具的**注册闸**（不在列 → 根本注册），对扩展工具则是**常驻名单**（不在列 → 注册了但被 lazy 隐藏，wire 上看不到；要它时 `omnify` 一步拾回）。
 
 ### 4.1 常驻位 `find` → `fd`（本仓库 `extensions/pi-fd.ts`）
 
@@ -221,7 +228,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 正则匹配路径 | 做不到（只有 glob） | pattern 即正则，且 smart case |
 | 限深度 | 做不到 | `{maxDepth:2}` |
 
-**接线**：`~/.pi/lazy-tools.json` 的 `resident` 里 `"find"` → `"fd"`；`defaultTools` 两处**不动**（扩展注册不过内建闸）。`pi-find` 仍在装（要它的 `grep`），它的 `find` 只是不再常驻，需要时 `omnify` 仍能按名拾回。
+**接线**：`defaultTools` 里加 `"fd"`（顶替原来的 `"find"`）；项目级与用户级两处都写（项目级整体覆盖）。`pi-find` 仍在装（要它的 `grep`），它的 `find` 只是不再常驻，需要时 `omnify` 仍能按名拾回。
 
 **代价（实测）**：`find` 504B → `fd` 1280B，system 因多一行工具简介 + 一条 guideline 从 3050B → 3205B，合计 `7386B → 8317B`（**+931B ≈ +242 tok/请求**，见 §6.3）。买的是上面那五行能力 + 少 1–2 个往返轮次。
 
@@ -230,18 +237,18 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 1. **省略 pattern 时必须显式传空串**。否则唯一的 position 会被 fd 当成 pattern（`fd -t d .git` 返回空，`fd -t d "" .git` 才出结果）——「列出全部」是这个工具的主卖点。
 2. **`--glob` 是「把 pattern 换成 glob」，不是额外过滤器**。glob 模式下再传位置 pattern 会被 fd 当成第二个搜索路径（报 `Search path 'capture' is not a directory`）。故工具里 `glob` 与 `pattern` 互斥。
 
-验证：`node .sc-test/probe-fd.mjs`（13 个 case，含上面两个回归）、`node .sc-test/measure-fd.mjs`（wire 字节）、`/fd-check`（fd 可执行文件解析）。回退：删 `extensions/pi-fd.ts` + `/reload`，并把 `resident` 的 `"fd"` 换回 `"find"`。
+验证：`node .sc-test/probe-fd.mjs`（13 个 case，含上面两个回归）、`node .sc-test/measure-fd.mjs`（wire 字节）、`/fd-check`（fd 可执行文件解析）。回退：`defaultTools` 里的 `"fd"` 换回 `"find"`，删 `extensions/pi-fd.ts` 再 `/reload`。
 
 ---
 
 ## 5. 使用纪律
 
-0. **新装扩展一律不进常驻集**（硬规则）。装完只保证**能加载**、不报 conflict，**不要**顺手把它加进 `~/.pi/lazy-tools.json` 的 `resident`，也**不要**加进 `defaultTools`。它的工具默认就是懒加载状态，靠 `omnify` 检索 → `call_tool` 按需激活。
+0. **新装扩展一律不进常驻集**（硬规则）。装完只保证**能加载**、不报 conflict，**不要**顺手把它的工具名加进 `defaultTools`。它们默认就是懒加载状态，靠 `omnify` 检索 → 按需激活。
    - 理由：常驻集每轮都进 prompt（`grep`+`find` 就要 +1350B ≈ 350 tok），而多数扩展一天用不到几次。
    - **只有这三类才加常驻**：① 高频工具（见 §6.3 的取舍）；② 覆盖内建工具的（`grep`/`find`/`edit` 需先过 `defaultTools` 闸）；③ 缺失后 agent 会“瘫”的（如 `bash`）。
-   - 例外：`bash` 因为 `defaultTools` 闸必须显式写；`grep`/`find` 只需写 `resident`（扩展注册，不过内建闸）。
+   - 例外：`grep` / `fd` 是本机刻意留在名单里的高频搜索工具（§6.3），其余扩展工具一律不写。
    - 验证新装扩展是否真的零开销：`node .sc-test/bench/run.mjs <标签> ...` 看 `toolsBytes` 是否与基线一致（§9）。
-1. **首字成本**：常驻集每轮都进 prompt；非 resident 的工具靠 `omnify` 检索命中后一次性注入。
+1. **首字成本**：常驻集每轮都进 prompt；不在名单的工具靠 `omnify` 检索命中后一次性注入。
 2. **激活往返**：0.86+ 流程是 `omnify`/`load_tools` → `call_tool` → 执行，多 1–2 个模型轮次。搜索类工具建议常驻（见 §6.3）。
 3. **大输出工具**（`web_search` 等）原始 HTML/JSON 全量进历史，会把前缀命中率打崩；用前先想清楚要不要落历史。
 4. **改 `.md` 优先 `md_edit`**：散文/列表用 `md_edit`（锚定标题+块序号，不受换行重排影响），代码块用 `edit`，`.mdx` 一律用 `edit`。
@@ -275,7 +282,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 压 `<docs>`（655B → 256B，从原文抽路径重排） | 5869B |
 | **两者都压（本机现状）** | **3556B（−3341B / −48%）** |
 
-> **本机现状（2026-09-29 六次变更后）**：卸 `pi-edit-guard` 交 smart-edit 接管 `edit`，卸 `pi-shell` 改用内建 `bash`，再把常驻的 `find` 换成 `fd`（§4.1）→ wire 上 **8 个工具** `bash edit fd grep omnify read web_enable write`，system **3205B** + tools **5112B** = **8317B ≈ 2160 tok/请求**（vs 优化前 11351B ≈ 2948 tok，**累计 −3034B ≈ −788 tok / −27%**）。
+> **本机现状（2026-09-29 六次变更后）**：卸 `pi-edit-guard` 交 smart-edit 接管 `edit`，卸 `pi-shell` 改用内建 `bash`，再把常驻的 `find` 换成 `fd`（§4.1）→ wire 上 **8 个工具** `bash edit fd grep omnify read web_enable write`，system **3205B** + tools **5112B** = **8317B ≈ 2160 tok/请求**（vs 优化前 11351B ≈ 2948 tok，**累计 −3034B ≈ −788 tok / −27%**）。同日升 `pi-lazy-tools` 0.4.0（配置源迁移，见 §3.4）后复测，**字节与工具集不变**。
 
 连续 3 轮字节完全一致（轮间稳定，不散前缀缓存）。
 
@@ -300,7 +307,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 - **懒加载**：0 upfront；要用时多 1–2 个模型轮次，并把同样的字节永久注入历史。
 - **本机取舍（最终：方案 B）**：`grep` + `fd` **都留常驻**（查内容 + 查文件名都是编码高频操作，省的是 1–2 个往返轮次而非 token）；`ls` 改用 `bash ls`、懒加载。`find` 已换成 `fd`（§4.1，代价 +931B ≈ +242 tok/请求）。
   - 对比过「砍掉 `grep`」的方案 A：6497B ≈ 1688 tok，比方案 B 少 889B ≈ 231 tok/请求。代价是**每次搜代码内容都要付 omnify 检索 + load + call 三步**，而那 846B 字节照样会永久进历史 → **不划算，故选 B**。
-  - 反向开关：想再省那 231 tok，从 `~/.pi/lazy-tools.json` 的 `resident` 里删 `"grep"` 即可（不必动 `defaultTools`）；删 `"fd"` 同理（代价是查文件名要付 1–2 个往返轮次）。
+  - 反向开关：想再省那 231 tok，从 `defaultTools` 里删 `"grep"` 即可（不必动别处）；删 `"fd"` 同理（代价是查文件名要付 1–2 个往返轮次）。
 
 ### 6.4 优化后的静态前缀总账
 
@@ -333,6 +340,7 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 
 ### 7.2 其它遗留（2026-09-28 六次清理后只剩备份）
 
+- `~/.pi/lazy-tools.json`（常驻名单旧位置）→ **已删**（2026-09-29，`pi-lazy-tools` 0.4.0 起只告警不读取）；内容已进 `settings.json` 的 `defaultTools`，历史副本留在 `~/.pi/lazy-tools.json.bak` / `.bak2`。
 - `settings.json` 里的 `alps-pi` 死配置块（已被 pi-one-ui 取代）→ **已删**（2026-09-28 六次），删后 pi 启动与体检均正常。
 - `~/.pi/agent/pi-hermes-memory/`（`pi-hermes-memory` 早已卸载）→ **已删**（19MB 死数据）。
 - `~/node_modules/@earendil-works*@0.85.1`：**故意保留**。那是一棵自洽的 0.85.1 生态，且 `@wolido/pi-lazy-tools` 依赖它，删了会连带坏掉。pi 自身的扩展从 `~/.pi/agent/node_modules`（0.87.1）解析，**不会走到家目录那份**；pi-web-access 报的 "Dynamic tool activation requires Pi 0.86.1 or newer" 属误报，不影响功能。
@@ -351,10 +359,10 @@ node .sc-test/check-ext-errors.mjs
 |---|---|---|
 | 扩展报 `Tool "x" conflicts with ...` | 两个扩展抢同一工具名 | 二选一卸载（见 §7.1） |
 | 懒加载报 `Cannot find module` | lazy 执行层地基缺失（版本要与 pi 本体一致，别写死） | `npm i --prefix ~/.pi/agent @earendil-works/{pi-coding-agent,pi-tui,pi-ai}@$(pi --version \| grep -oE '[0-9]+\.[0-9]+\.[0-9]+')` |
-| 工具调用不到、wire 上也没有 | 不在 `defaultTools`（不注册）或不在 `resident`（被 lazy） | 对照 §4 的两道闸 |
+| 工具调用不到、wire 上也没有 | 内建工具不在 `defaultTools`（不注册），扩展工具不在其中（被 lazy） | 改 `defaultTools`（§3.4），`/reload` |
 | `fd` 报 “fd executable not found” | pi 自带副本与 PATH 都没有 fd | 跑 `/fd-check` 看解析结果；或 `npm i -g fd-find` |
 | 会话/文件撤销 | `pi-edit-guard` 已卸载，其 `undo` 工具随之消失 | 会话级用 `pi-undo-redo`（`/undo` `/redo`）；文件级靠 git 或改前先 `read` |
-| agent 没有 shell | `defaultTools` 里没有 `bash` | 写 `bash` 进两处 `defaultTools` + `resident`；若 `extensions/pi-shell.ts` 被装回来，它会在 `session_start` 无条件隐藏 `bash` |
+| agent 没有 shell | `defaultTools` 里没有 `bash` | 写 `bash` 进两处 `defaultTools`（§3.4）；若 `extensions/pi-shell.ts` 被装回来，它会在 `session_start` 无条件隐藏 `bash` |
 | 压缩后首轮命中低 | 正常现象 | 只有「命中 0」才是故障；压缩调用自身用 `pi-compaction-cache` 兜（1.6%→98.8%） |
 | `pi-warm-cache` 没反应 | 本地代理属未注册路由 | 不是故障，`/warm status` 里 `automaticWarm:false` 即预期 |
 | pi-agent-browser-native 报 `buildSessionProjection is not a function` | Pi < 0.86 | 本机 0.87.1 不会发生；若真发生跑 `node fix-browser-native-compat.mjs` |
@@ -368,9 +376,7 @@ node .sc-test/check-ext-errors.mjs
 | `~/.pi/agent/git/` | git 源扩展（lazy-tools fork） |
 | `~/.pi/agent/npm/node_modules/` | npm 源扩展 |
 | `~/.pi/agent/config/` | smart-context 配置 |
-| `~/.pi/lazy-tools.json` | 常驻工具集（用户级） |
-| `<项目>/.pi/settings.json` | 项目级，**整体覆盖**用户级 |
-| `<项目>/.pi/lazy-tools.json` | 项目级，**整体覆盖**用户级 |
+| `<项目>/.pi/settings.json` | 项目级 `defaultTools`，**整体覆盖**用户级（且需项目被信任） |
 | `~/.pi/agent/sessions/**/*.jsonl` | 会话历史，算命中率的原始数据 |
 
 **生效方式**：改配置或扩展后 `/reload`（不重启会话、不丢历史）。
@@ -384,13 +390,18 @@ node .sc-test/check-ext-errors.mjs
 ```bash
 # 单场景：搭沙箱 → 起 mock provider → 抓首请求真实字节
 node .sc-test/bench/run.mjs <标签> \
-  userDefaultTools=read,edit,write,bash defaultTools=read,edit,write,bash \
-  resident=read,write,edit,bash,fd,grep,omnify local=1
+  userDefaultTools=read,edit,write,bash,grep,fd defaultTools=read,edit,write,bash,grep,fd \
+  local=1
+# 注：0.4.0 起常驻名单 = defaultTools，bench 的 `resident=` 只是它的别名
 
 # 看结果：各块字节 + 关键内容判定
 node .sc-test/bench/inspect.mjs <标签>
 
 # 变体：local=lean|lean-shell|1|<逗号分隔文件名>  stripPkg=<子串>  provider=probe|real|realshape
+
+# 升级前后各跑一次：版本对比 + 加载期体检
+node .sc-test/versions.mjs
+node .sc-test/check-ext-errors.mjs
 
 # fd 工具单独体检（不起 pi）：13 个行为 case + wire 字节对比
 node .sc-test/probe-fd.mjs            # 行为（改过 fd 调用就要跑）
