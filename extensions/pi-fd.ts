@@ -198,7 +198,16 @@ export default function piFd(pi: ExtensionAPI): void {
 			const run = await runFd(bin, built.args, ctx.cwd, signal);
 			const notes: string[] = [];
 			if (run.timedOut) notes.push(`[Search timed out after ${TIMEOUT_MS / 1000}s; results are partial.]`);
-			if (run.stderr.trim()) notes.push(`[${run.stderr.trim().split(/\r?\n/).slice(0, 3).join(" ")}]`);
+			// 正则写错（最常见是把 glob 写进 pattern）时给一句能直接用的建议，并吞掉底层 rust 报错
+			const regexBroken = /regex parse error/i.test(run.stderr);
+			if (regexBroken) {
+				const bad = params.pattern ? `"${params.pattern}"` : "该 pattern";
+				notes.push(
+					`[${bad} 不是合法正则。含 * ? [] {} | 的写法请改用 glob 参数，例如 glob:"*.bak"；正则需转义，如 ".*\\.bak$" 或 "^src/.*\\.ts$"。]`,
+				);
+			} else if (run.stderr.trim()) {
+				notes.push(`[${run.stderr.trim().split(/\r?\n/).slice(0, 3).join(" ")}]`);
+			}
 
 			// fd 给目录名补了尾斜杠、给默认搜索根补 "./" 前缀；两者都去掉，结果才能直接喂给 read/edit
 			const lines = run.stdout
@@ -209,9 +218,13 @@ export default function piFd(pi: ExtensionAPI): void {
 			const shown = truncated ? lines.slice(0, RESULT_LIMIT) : lines;
 			if (truncated) notes.push(`[Result limit reached at ${RESULT_LIMIT}; narrow pattern, path, or filters.]`);
 
-			const header = shown.length
-				? `${shown.length} ${plural(TYPE_LABEL[params.type ?? "file"], shown.length)}${truncated || run.timedOut ? " (partial results)" : ""}`
-				: "No matches found.";
+			// 命令失败时不要说「无匹配」——那是另一回事，会把模型引到错误的排查方向
+			const failed = run.code !== 0;
+			const header = failed
+				? `Search failed (fd exit ${run.code}${regexBroken ? ", invalid regex" : ""}).`
+				: shown.length
+					? `${shown.length} ${plural(TYPE_LABEL[params.type ?? "file"], shown.length)}${truncated || run.timedOut ? " (partial results)" : ""}`
+					: "No matches found.";
 			const hint =
 				shown.length && !params.hidden
 					? "[Hidden entries are skipped by default; pass hidden:true or path:'.github'.]"
