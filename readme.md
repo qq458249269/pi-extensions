@@ -231,7 +231,9 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 **首次开窗会下 Electron ≈100MB**（上游在 Windows 自动设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）；包里 91 个透明 WebM，`assets/thumb` 解包 48MB。
 
-验证：`node .sc-test/probe-pet-autostart.mjs`（**64 个 case**，探针默认测**仓库里的源文件**并在开头报「仓库 vs 已装副本」的漂移——不同步时 pi 跑的根本不是你刚改的代码）。覆盖配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回、**单只限制**（已有窗→复用、`maxPets`、锁抢占/陈旧锁、`cleanup`/`restart`、ws 钩子真起服务验证 `add_pet` 被丢），以及 2026-09-29 补的 5 组回归：**端口验活**（`dead` 判孤儿并收掉 / `unknown` 保守放过）、**事件桥端到端**（真起 ws 服务，验证 `thinking`/`tool_call` 真的发得出去）、**`/reload` 后桥仍在**、**扫不动 ≠ 没有窗**、**status 摊开活窗/孤儿/桥状态**。探针用 `globalThis.__piPetScanWindows` / `__piPetKillWindow` / `__piPetProbePort` 顶掉扫进程、taskkill、端口探测，不会误动真实宠物。末条 case 查真实机器上是否只剩一只（**红了就说明机器上真有多只，跑 `/pet-auto cleanup`**）。回退：`pi remove npm:pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
+验证：`node .sc-test/probe-pet-autostart.mjs`（**67 个 case**，探针默认测**仓库里的源文件**并在开头报「仓库 vs 已装副本」的漂移——不同步时 pi 跑的根本不是你刚改的代码）。覆盖配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回、**单只限制**（已有窗→复用、`maxPets`、锁抢占/陈旧锁、`cleanup`/`restart`、ws 钩子真起服务验证 `add_pet` 被丢），以及 2026-09-29 补的回归组：**端口验活**（`refused` 当孤儿；探不通先快探再宽限长超时探，两次都不通就收掉）、**泄漏 socket 复现**（裸 `net` server 只 accept 不应答，断言状态不会永远停在 `connecting`）、**事件桥端到端**（真起 ws 服务，验证 `thinking`/`tool_call` 真的发得出去）、**`/reload` 后桥仍在**、**扫不动 ≠ 没有窗**、**status 摊开活窗/孤儿/桥状态**。探针用 `globalThis.__piPetScanWindows` / `__piPetKillWindow` / `__piPetProbePort` 顶掉扫进程、taskkill、端口探测，不会误动真实宠物。末条 case 查真实机器上是否只剩一只（**红了就说明机器上真有多只，跑 `/pet-auto cleanup`**）。回退：`pi remove npm:pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
+
+**「一直待机」的真凶（实测）**：不是桥没建、也不是 ws 解析错，而是**主人 pi 被硬杀后它的 LISTENING socket 被 electron 子进程带着活了下来**。`netstat` 看着在监听，内核照常完成 TCP 握手，所以连接不报错，但永远没人 `accept`——`/health` 超时、WS upgrade 挂死，窗还照常亮着照常呼吸，就是收不到事件。**只要窗在，假端口就一直在**，自我维持。判据：`netstat` 报 `LISTENING` 的 pid 在 `tasklist` 里已不存在（现场 pid 95932），且该端口 `/health` 与 WS upgrade 双双超时。杀掉窗则 socket 立刻消失，可反证是子进程持有。修法：探不通不能当活窗（先快探、再长超时宽限探，两次都不通就收掉让扩展重开一只能用的）；另给桥加握手看门狗（`PI_PET_BRIDGE_WATCHDOG_MS`，默认 6s），超时报 `err`，不让状态永远停在 `connecting`。
 
 **已知残留**：上游 `pet-electron.cjs` **没有** `app.requestSingleInstanceLock()`，即窗口层零单例保护，且 `electronProc` 是进程内变量、看不见别的进程的窗。所以「整机一只」完全是本扩展在**外面**兜的；一旦本扩展没跑起来（`autostart:false`、非 tui 模式、配置坏到读不出）而有人手敲 `/pet`，就可能多一扇。**这也是当初评估「要不要 fork 上游」的唯一真实理由**——本次先把扩展侧四个成因修完，fork 留作备选。
 
@@ -503,7 +505,7 @@ node .sc-test/check-ext-errors.mjs
 node .sc-test/probe-fd.mjs            # 行为（改过 fd 调用就要跑）
 node .sc-test/measure-fd.mjs          # 字节（改了 description/schema 就要跑）
 
-# 宠物自动启动体检（不起 pi、不弹窗）：64 个 case（配置/派发时机/幂等 + 端口验活 + 事件桥端到端）
+# 宠物自动启动体检（不起 pi、不弹窗）：67 个 case（配置/派发时机/幂等 + 端口验活 + 泄漏 socket 复现 + 事件桥端到端）
 node .sc-test/probe-pet-autostart.mjs
 ```
 

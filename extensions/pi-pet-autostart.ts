@@ -28,7 +28,7 @@
  * 把本会话的 `agent_start` / `thinking` / `tool_call` / `agent_idle` 用同样的消息格式
  * 转发过去，于是「一只宠物」照样跟着**每个**会话的思考、敲代码动。
  *
- * ## 「一直在待机 / 突然多出第二只」的四个成因（2026-09-29 修）
+ * ## 「一直在待机 / 突然多出第二只」的五个成因（2026-09-29 修）
  * 1. **pid 记账把桥一起跳过了**：`session_start` 里 `alreadyFiredThisProcess()` 直接 return，
  *    而它 return 在建桥之前。于是同进程内第二次 `session_start`（`/reload`、`/clear`、树跳转）
  *    之后，复用的窗**永远没人喂事件**——不动，就是一直待机。现在建桥提到那个闸**外面**，
@@ -36,14 +36,21 @@
  * 2. **闸门只认命令行，不验活**：上游用 `detached:false`+`shell:true`+`unref()` 拉 electron，
  *    清理只挂在 `process.on('exit'/'SIGINT'/'SIGTERM')`——**硬杀/崩溃就留下永久孤儿窗**。
  *    旧逻辑把 `pet-electron.cjs <port>` 进程一律当「已有 1 只」→ 吸附上去 → 桥到没人监听的
- *    端口 → 永远发不出东西。现在每个端口都探一次 `/health`，分三档：
- *    `up` 算活窗；`dead`（ECONNREFUSED，确定性）判**孤儿**，不占名额且自动收掉；
- *    `unknown`（超时等，不确定）保守当活窗，**宁多留一只也不误杀好窗**。
- * 3. **「扫不动」被当成「真没有」**：wmic 被新版 Windows 删掉 + PowerShell 兜底也失败时，
+ *    端口 → 永远发不出东西。现在每个端口都探一次 `/health`。
+ * 3. **探不通的端口被当成活的（最阴的一个）**：主人 pi 被硬杀后，它的 LISTENING socket 会被
+ *    electron 子进程**带着一起活下来**——`netstat` 看着在监听，内核照常完成 TCP 握手，所以
+ *    连接**不报错**，但永远没人 `accept`：`/health` 超时、WS upgrade 挂死。窗照常亮着、
+ *    照常呼吸，就是收不到任何事件。**只要窗在，这个假端口就一直在**，是个自我维持的死循环。
+ *    （实测：netstat 报 `LISTENING` 归 pid 95932，而该 pid 在 tasklist 里已不存在；
+ *    杀掉 electron 后该 socket 立刻消失，证实是子进程持有的。）
+ *    所以探不通**不能**当活窗：先用短超时探一次，`unknown` 就**再用长超时宽限探一次**
+ *    （别误杀刚起、只是慢的窗），还不行就判失活收掉。留着它 = 永远待机；收掉它 = 自动重开一只能用的。
+ * 4. **「扫不动」被当成「真没有」**：wmic 被新版 Windows 删掉 + PowerShell 兜底也失败时，
  *    旧代码拿到 `[]` 就去开第二扇。现在扫描结果带 `ok`，全挂则重试一次，仍失败就**照开但
  *    明确告警**（不让人没宠物，同时把「保证已降级」摆到台面上）。
- * 4. **桥坏了没人知道**：`connect` 的 error 以前是空 handler、close 后 5s 重连也不吭声。
- *    现在记 `{state, lastError, sent}`，`/pet-auto status` 一行摊开。
+ * 5. **桥坏了没人知道**：`connect` 的 error 以前是空 handler、close 后 5s 重连也不吭声。
+ *    现在记 `{state, lastError, sent}` 并加**握手看门狗**（`PI_PET_BRIDGE_WATCHDOG_MS`，默认 6s），
+ *    超时未 open 就报 `err`——不能让状态永远停在 `connecting` 装样子。`/pet-auto status` 一行摊开。
  *
  * 默认启用，开关在 `~/.pi/agent/extensions/pi-dsh-pet.json`：
  *   { "autostart": true, "size": "normal", "delayMs": 400, "maxPets": 1, "bridge": true }
@@ -93,6 +100,10 @@ const LAUNCH_WAIT_MS = numEnv("PI_PET_LAUNCH_WAIT_MS", 25_000);
 const WATCH_MS = numEnv("PI_PET_WATCH_MS", 25_000);
 /** `/pet-auto restart` 关完窗后要等上游的 exit 回调把 electronProc 置空，否则再派发 /pet 会被当成 add_pet。 */
 const RESTART_WAIT_MS = numEnv("PI_PET_RESTART_WAIT_MS", 1_200);
+/** 首次探不通时再宽限探一次的时长（别把刚起、只是慢的窗判死） */
+const SLOW_PROBE_TIMEOUT_MS = numEnv("PI_PET_SLOW_PROBE_MS", 5_000);
+/** 桥的握手看门狗：超时就报 err，不让状态永远停在 connecting */
+const BRIDGE_WATCHDOG_MS = numEnv("PI_PET_BRIDGE_WATCHDOG_MS", 6_000);
 
 /** 等待类参数只为可测（探针把它们压到毫秒级），日常不用设。 */
 function numEnv(name: string, fallback: number): number {
@@ -394,10 +405,10 @@ type PortProbe = (port: number) => Promise<PortHealth>;
 
 /** 探针用 `globalThis.__piPetProbePort` 顶掉真探测（默认放行，单独 case 才造孤儿）。 */
 function portProbe(): PortProbe {
-	const hook = (globalThis as { __piPetProbePort?: (p: number) => Promise<PortHealth | boolean> }).__piPetProbePort;
+	const hook = (globalThis as { __piPetProbePort?: (p: number, t?: number) => Promise<PortHealth | boolean> }).__piPetProbePort;
 	if (typeof hook !== "function") return probeHealth;
-	return async (port: number) => {
-		const raw = await hook(port);
+	return async (port: number, timeoutMs?: number) => {
+		const raw = await hook(port, timeoutMs);
 		return typeof raw === "boolean" ? (raw ? "up" : "dead") : raw;
 	};
 }
@@ -422,8 +433,22 @@ async function splitByHealth(wins: PetWindow[]): Promise<LiveSplit> {
 		} catch {
 			health = "unknown";
 		}
-		if (health === "dead") orphans.push(w);
-		else alive.push(w);
+		// 探不通分两种，得分开判：
+		//  - dead（ECONNREFUSED）：端口压根没人听 → 铁孤儿
+		//  - unknown（超时 / 非 200）：**不等于能用**。最阴的一种是「死进程泄漏的 LISTENING
+		//    socket」——netstat 看着在监听，内核照样完成握手，于是连接不报错，但永远没人
+		//    accept，/health 和 WS upgrade 一起挂死。窗还亮着，事件发不进去，就是「一直待机」。
+		//    所以再宽限探一次（别误杀刚起、只是慢的窗），还不行就判失活收掉：
+		//    留着它 = 永远待机；收掉它 = 扩展自动重开一只能用的，明显划算。
+		if (health === "unknown") {
+			try {
+				health = await probe(w.port, SLOW_PROBE_TIMEOUT_MS);
+			} catch {
+				health = "unknown";
+			}
+		}
+		if (health === "up") alive.push(w);
+		else orphans.push(w);
 	}
 	return { alive, orphans };
 }
@@ -704,14 +729,25 @@ function bridgeTo(pi: ExtensionAPI, petPort: number): (() => void) | null {
 			setBridge(petPort, { state: "error", lastError: (err as Error).message.slice(0, 40) });
 			return;
 		}
-		const on = (event: "open" | "error" | "close", fn: (arg?: unknown) => void): void => {
+	const on = (event: "open" | "error" | "close", fn: (arg?: unknown) => void): void => {
 			try {
 				(sock?.on as ((e: string, f: (arg?: unknown) => void) => void) | undefined)?.(event, fn);
 			} catch {
 				/* 忽略 */
 			}
 		};
-		on("open", () => setBridge(petPort, { state: "open", lastError: "" }));
+		on("open", () => {
+			clearTimeout(watchdog);
+			setBridge(petPort, { state: "open", lastError: "" });
+		});
+		// 「connecting」不能是终态：上面那个泄漏 socket 的情形下，握手永远不完成，
+		// 状态就永远停在 connecting，看上去像在连、其实早死了。给它一个看门狗。
+		const watchdog = setTimeout(() => {
+			if (bridgeStates.get(petPort)?.state === "connecting") {
+				setBridge(petPort, { state: "error", lastError: "连接超时：端口有人监听但无人应答" });
+			}
+		}, BRIDGE_WATCHDOG_MS);
+		(watchdog as unknown as { unref?: () => void }).unref?.();
 		on("error", (err) =>
 			setBridge(petPort, { state: "error", lastError: String((err as Error)?.message ?? err ?? "connect failed").slice(0, 40) }),
 		);
