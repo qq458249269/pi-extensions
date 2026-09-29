@@ -30,7 +30,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:@injaneity/pi-computer-use` | 桌面截图 / 点击 / 输入 | **唯一需批准 install 脚本的包**，见 §3.1 |
 | `npm:pi-one-ui` | TUI 统一美化（Header/Context/WorkingLine/Editor/Footer） | 取代旧 `alps-pi`；要求 Node ≥22.19、Pi ≥0.84 |
 | `npm:pi-cache-guardian` | 缓存命中巡检 + 前缀漂移告警 | 与 §6 的 prefix-stabilizer 是同一根因的两端，一并用 |
-| `npm:@tian.zuo/pi-find` | `grep` / `find` 工具 | **覆盖内建同名工具**（替换，不是并列） |
+| `npm:@tian.zuo/pi-find` | `grep` / `find` 工具 | **覆盖内建同名工具**（替换，不是并列）。本机只用它的 `grep`；`find` 已降为懒加载兜底（见 §4.1） |
 | `npm:pi-edit-guard` | 覆盖内建 `edit` + 注册 `undo` | **已卸载**，见 §7.1（要装的话注意与 smart-edit 争 `edit` 槽） |
 | `npm:@trycedar/pi-mdiff` | `md_inspect` / `md_diff` / `md_edit` | Markdown 结构化编辑，`.md` 改动优先用它 |
 | `npm:pi-undo-redo` | 会话 / 文件撤销重做 | 纯命令扩展，零工具 |
@@ -54,6 +54,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 |---|---|
 | `pi-lean-prompt.ts` | 裁 `payload.tools` 里 `edit`/`read` 的 description 与 schema 样板文字（**只改文字、不动字段结构**，故与 smart-edit / one-ui / undo-redo 兼容） |
 | `pi-lean-sections.ts` | 压 wire 上 system 的 `<docs>` / `<skills>` 两块（见 §6.2） |
+| `pi-fd.ts` | 注册 `fd` 工具（fd 原生接口），**取代 pi-find 那个只认 glob 的 `find`**（见 §4.1） |
 
 > 曾经的 `pi-shell.ts`（把 `bash`+`powershell` 合成 `shell`）**已删除**：它不是 pi 内置也不是 npm 包，纯本仓库自写；它带的 `-156B` 收益抵不上维护成本，改用内建 `bash`（见 §6.1）。注意它在 `session_start` 里会无条件隐藏 `bash`/`powershell`，所以 `shell` 与 `bash` 只能二选一。
 
@@ -157,10 +158,11 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 ### 3.4 懒加载常驻集：`~/.pi/lazy-tools.json`
 
 ```json
-{ "resident": ["read", "write", "edit", "bash", "find", "grep", "omnify"] }
+{ "resident": ["read", "write", "edit", "bash", "fd", "grep", "omnify"] }
 ```
 
 > **本文件是常驻集的唯一手写处**。新装扩展**不要**往里加（硬规则，见 §5 第 0 条）——默认值就对了。
+> `find` 已从常驻集移出（换成 `fd`，见 §4.1）；它仍会注册，只是不再占每轮 token。
 
 ### 3.5 工具注册闸：`defaultTools`（项目 + 用户两处都要写）
 
@@ -170,7 +172,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 { "defaultTools": ["read", "edit", "write", "bash"] }
 ```
 
-> **`grep` 只需写进 `resident`**，不必加 `defaultTools`——它由 `@tian.zuo/pi-find` 注册，不受内建闸门约束。`bash` 则两处都要写。
+> **`grep` 只需写进 `resident`**，不必加 `defaultTools`——它由 `@tian.zuo/pi-find` 注册，不受内建闸门约束。`bash` 则两处都要写。`fd` 是本地扩展注册，同理不受此闸约束。
 
 ---
 
@@ -180,6 +182,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 |---|---|
 | 内建 pi | `read` `write` `bash` `powershell` `edit` `grep` `find` `ls`（受 `defaultTools` 闸门控制） |
 | `@tian.zuo/pi-find` | `grep` `find`（覆盖内建） |
+| `pi-fd`（本地 `extensions/pi-fd.ts`） | `fd`（取代 `find` 的常驻位，见 §4.1） |
 | `@aboutlo/pi-smart-edit` | `edit`（覆盖内建），匹配走「精确 → NFKC 归一化行」，容忍引号/空白差异 |
 | `@trycedar/pi-mdiff` | `md_inspect` `md_diff` `md_edit` |
 | `pi-undo-redo` | 无工具（`/undo` `/redo` 等命令） |
@@ -197,12 +200,37 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 工具 | `defaultTools` | `resident` | 说明 |
 |---|---|---|---|
 | `read` `write` `edit` `bash` | ✅ 需在列 | ✅ 需在列 | 纯内建 |
-| `find` `grep` | ❌ 不需要 | ✅ 需要 | 由 pi-find 扩展注册，只受 resident 闸 |
+| `grep` | ❌ 不需要 | ✅ 需要 | 由 pi-find 扩展注册，只受 resident 闸 |
+| `fd` | ❌ 不需要 | ✅ 需要 | 由本地 `pi-fd` 扩展注册，只受 resident 闸 |
+| `find` | ❌ | ❌ 已移出 → 懒加载 | 同一底层（fd）但只认 glob；`omnify` 按名可拾回兜底 |
 | `ls` `powershell` | ✅/❌ | ❌ 未列 → 懒加载 | 需要时 `omnify` 按名 load 回来（或用 `bash ls`） |
 | `web_enable` / `todo` / `loop` / `md_*` / `ask_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ | ❌ | 全部默认懒加载，用 `omnify` 按需检索 |
 | `omnify` | ❌ | 写不写都一样 | pi 核心无条件注册，**不受 resident 闸管辖**，常驻只是为了读起来清楚 |
 
 漏了任一闸的后果（实测）：不在 `defaultTools` → **工具根本不注册**；不在 `resident` → 注册了但被 lazy 隐藏，wire 上看不到。
+
+### 4.1 常驻位 `find` → `fd`（本仓库 `extensions/pi-fd.ts`）
+
+`@tian.zuo/pi-find` 的 `find` **底层本来就是 fd**（`lib/tools.ts` 里 exec `fd`），但只开了 glob 模式的一层薄壳：`pattern` + `path` 两个参数。于是这些都做不到，而它们在 fd 里都是一行参数：
+
+| 需求 | `find`（旧） | `fd`（现） |
+|---|---|---|
+| 列出全部 `.ts` | 必须编个 glob | `{type:"file", extension:"ts"}`（**pattern 可省略**） |
+| 最近改过的 | 做不到 | `{changedWithin:"1d"}` |
+| 区分文件/目录/可执行文件 | 做不到 | `{type:"directory"}` 等 |
+| 正则匹配路径 | 做不到（只有 glob） | pattern 即正则，且 smart case |
+| 限深度 | 做不到 | `{maxDepth:2}` |
+
+**接线**：`~/.pi/lazy-tools.json` 的 `resident` 里 `"find"` → `"fd"`；`defaultTools` 两处**不动**（扩展注册不过内建闸）。`pi-find` 仍在装（要它的 `grep`），它的 `find` 只是不再常驻，需要时 `omnify` 仍能按名拾回。
+
+**代价（实测）**：`find` 504B → `fd` 1280B，system 因多一行工具简介 + 一条 guideline 从 3050B → 3205B，合计 `7386B → 8317B`（**+931B ≈ +242 tok/请求**，见 §6.3）。买的是上面那五行能力 + 少 1–2 个往返轮次。
+
+**fd 的两个反直觉点（已踩，代码里有注释）**：
+
+1. **省略 pattern 时必须显式传空串**。否则唯一的 position 会被 fd 当成 pattern（`fd -t d .git` 返回空，`fd -t d "" .git` 才出结果）——「列出全部」是这个工具的主卖点。
+2. **`--glob` 是「把 pattern 换成 glob」，不是额外过滤器**。glob 模式下再传位置 pattern 会被 fd 当成第二个搜索路径（报 `Search path 'capture' is not a directory`）。故工具里 `glob` 与 `pattern` 互斥。
+
+验证：`node .sc-test/probe-fd.mjs`（13 个 case，含上面两个回归）、`node .sc-test/measure-fd.mjs`（wire 字节）、`/fd-check`（fd 可执行文件解析）。回退：删 `extensions/pi-fd.ts` + `/reload`，并把 `resident` 的 `"fd"` 换回 `"find"`。
 
 ---
 
@@ -247,7 +275,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 压 `<docs>`（655B → 256B，从原文抽路径重排） | 5869B |
 | **两者都压（本机现状）** | **3556B（−3341B / −48%）** |
 
-> **本机现状（2026-09-28 五次变更后）**：卸 `pi-edit-guard` 交 smart-edit 接管 `edit`，再卸 `pi-shell` 改用内建 `bash` 并精简常驻集 → wire 上 **8 个工具** `bash edit find grep omnify read web_enable write`，system **3050B** + tools **4336B** = **7386B ≈ 1918 tok/请求**（vs 优化前 11351B ≈ 2948 tok，**累计 −3965B ≈ −1030 tok / −35%**）。
+> **本机现状（2026-09-29 六次变更后）**：卸 `pi-edit-guard` 交 smart-edit 接管 `edit`，卸 `pi-shell` 改用内建 `bash`，再把常驻的 `find` 换成 `fd`（§4.1）→ wire 上 **8 个工具** `bash edit fd grep omnify read web_enable write`，system **3205B** + tools **5112B** = **8317B ≈ 2160 tok/请求**（vs 优化前 11351B ≈ 2948 tok，**累计 −3034B ≈ −788 tok / −27%**）。
 
 连续 3 轮字节完全一致（轮间稳定，不散前缀缓存）。
 
@@ -263,19 +291,20 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 场景 | system | tools | 合计 | vs 同基线 |
 |---|---|---|---|---|
 | 手册全套 + 常驻 grep/find/ls | 6897B | 4988B（9 个） | 11885B | **+1928B ≈ +500 tok/请求** |
-| **本机现状**（`grep`+`find` 常驻，`ls` 懒加载，改用内建 `bash`） | 3050B | 4336B（8 个） | 7386B | — |
+| 常驻 grep+find（`ls` 懒加载，内建 `bash`） | 3050B | 4336B（8 个） | 7386B | — |
+| **本机现状**（`find` 换成 `fd`，见 §4.1） | 3205B | 5112B（8 个） | 8317B | vs 上行 **+931B ≈ +242 tok/请求** |
 
-单工具 wire 字节：`grep` 846B、`find` 504B、`ls` 472B（合计 1822B ≈ 473 tok）。
+单工具 wire 字节：`grep` 846B、`fd` 1280B、`ls` 472B（`find` 若常驻是 504B）。
 
 - **常驻**：每请求 +473 tok（首请求全价，之后走 cacheRead，本机本地端点基本免费），换搜索工具**直接可调、0 额外往返**。
 - **懒加载**：0 upfront；要用时多 1–2 个模型轮次，并把同样的字节永久注入历史。
-- **本机取舍（最终：方案 B）**：`grep` + `find` **都留常驻**（查内容 + 查文件名都是编码高频操作，省的是 1–2 个往返轮次而非 token）；`ls` 改用 `bash ls`、懒加载。
+- **本机取舍（最终：方案 B）**：`grep` + `fd` **都留常驻**（查内容 + 查文件名都是编码高频操作，省的是 1–2 个往返轮次而非 token）；`ls` 改用 `bash ls`、懒加载。`find` 已换成 `fd`（§4.1，代价 +931B ≈ +242 tok/请求）。
   - 对比过「砍掉 `grep`」的方案 A：6497B ≈ 1688 tok，比方案 B 少 889B ≈ 231 tok/请求。代价是**每次搜代码内容都要付 omnify 检索 + load + call 三步**，而那 846B 字节照样会永久进历史 → **不划算，故选 B**。
-  - 反向开关：想再省那 231 tok，从 `~/.pi/lazy-tools.json` 的 `resident` 里删 `"grep"` 即可（不必动 `defaultTools`）。
+  - 反向开关：想再省那 231 tok，从 `~/.pi/lazy-tools.json` 的 `resident` 里删 `"grep"` 即可（不必动 `defaultTools`）；删 `"fd"` 同理（代价是查文件名要付 1–2 个往返轮次）。
 
 ### 6.4 优化后的静态前缀总账
 
-`system 3050B + tools 4336B = 7386B ≈ 1.9k tok/请求`，相比优化前 `6758 + 4593 = 11351B ≈ 2.9k tok`，**累计 −35%**。
+`system 3205B + tools 5112B = 8317B ≈ 2.2k tok/请求`，相比优化前 `6758 + 4593 = 11351B ≈ 2.9k tok`，**累计 −27%**（其中 §4.1 的 `find`→`fd` 是主动加回去的 +931B）。
 
 ---
 
@@ -323,6 +352,7 @@ node .sc-test/check-ext-errors.mjs
 | 扩展报 `Tool "x" conflicts with ...` | 两个扩展抢同一工具名 | 二选一卸载（见 §7.1） |
 | 懒加载报 `Cannot find module` | lazy 执行层地基缺失（版本要与 pi 本体一致，别写死） | `npm i --prefix ~/.pi/agent @earendil-works/{pi-coding-agent,pi-tui,pi-ai}@$(pi --version \| grep -oE '[0-9]+\.[0-9]+\.[0-9]+')` |
 | 工具调用不到、wire 上也没有 | 不在 `defaultTools`（不注册）或不在 `resident`（被 lazy） | 对照 §4 的两道闸 |
+| `fd` 报 “fd executable not found” | pi 自带副本与 PATH 都没有 fd | 跑 `/fd-check` 看解析结果；或 `npm i -g fd-find` |
 | 会话/文件撤销 | `pi-edit-guard` 已卸载，其 `undo` 工具随之消失 | 会话级用 `pi-undo-redo`（`/undo` `/redo`）；文件级靠 git 或改前先 `read` |
 | agent 没有 shell | `defaultTools` 里没有 `bash` | 写 `bash` 进两处 `defaultTools` + `resident`；若 `extensions/pi-shell.ts` 被装回来，它会在 `session_start` 无条件隐藏 `bash` |
 | 压缩后首轮命中低 | 正常现象 | 只有「命中 0」才是故障；压缩调用自身用 `pi-compaction-cache` 兜（1.6%→98.8%） |
@@ -355,12 +385,16 @@ node .sc-test/check-ext-errors.mjs
 # 单场景：搭沙箱 → 起 mock provider → 抓首请求真实字节
 node .sc-test/bench/run.mjs <标签> \
   userDefaultTools=read,edit,write,bash defaultTools=read,edit,write,bash \
-  resident=read,write,edit,bash,find,omnify local=1
+  resident=read,write,edit,bash,fd,grep,omnify local=1
 
 # 看结果：各块字节 + 关键内容判定
 node .sc-test/bench/inspect.mjs <标签>
 
 # 变体：local=lean|lean-shell|1|<逗号分隔文件名>  stripPkg=<子串>  provider=probe|real|realshape
+
+# fd 工具单独体检（不起 pi）：13 个行为 case + wire 字节对比
+node .sc-test/probe-fd.mjs            # 行为（改过 fd 调用就要跑）
+node .sc-test/measure-fd.mjs          # 字节（改了 description/schema 就要跑）
 ```
 
 沙箱要点：`PI_CODING_AGENT_DIR` 指向沙箱 agent 目录，`npm`/`git`/`node_modules`/`skills` 用 `mklink /J` junction 指向真实目录（**必须是反斜杠绝对路径**），项目级 `.pi/` 两份配置现写现用；mock 端口默认 18080（8799 在本机被占）。
