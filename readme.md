@@ -8,9 +8,9 @@
 
 ---
 
-## 1. 清单（在用 19 个扩展 = 18 npm + 1 git）
+## 1. 清单（在用 18 个扩展 = 17 npm + 1 git）
 
-> 下表 21 行里 `pi-edit-guard`、`pi-undo-redo` 已卸载（前者的删除线保留作决策记录，见 §7.1），**实际在用 19 个**。
+> 下表 20 行里 `pi-edit-guard`、`pi-undo-redo` 已卸载（前者的删除线保留作决策记录，见 §7.1），**实际在用 18 个**。`pi-web-access` 已于 2026-09-30 卸载（原行已删，理由见 §7.4）。
 
 **不锁版本**：安装命令一律不带 `@版本号`（取 npm 最新），本清单不维护版本矩阵。要查本机实际装的版本：
 
@@ -25,7 +25,6 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 
 | 包 | 作用 | 备注 |
 |---|---|---|
-| `npm:pi-web-access` | 网页搜索 / 抓取 | 大输出工具，用前先看 §5 缓存纪律 |
 | `npm:pi-tps` | 底部 token/speed 状态栏 | 装后跑 `fix-tps-theme.ps1` 让配色跟随系统主题 |
 | `npm:@injaneity/pi-computer-use` | 桌面截图 / 点击 / 输入 | **唯一需批准 install 脚本的包**，见 §3.1 |
 | `npm:pi-one-ui` | TUI 统一美化（Header/Context/WorkingLine/Editor/Footer） | 取代旧 `alps-pi`；要求 Node ≥22.19、Pi ≥0.84 |
@@ -79,7 +78,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 **`pi install` 一次只写一条注册，绝不能并行**（并行会竞写 `settings.json` 丢包）。照序跑：
 
 ```bash
-for p in pi-web-access pi-tps @injaneity/pi-computer-use pi-one-ui pi-cache-guardian \
+for p in pi-tps @injaneity/pi-computer-use pi-one-ui pi-cache-guardian \
          @tian.zuo/pi-find @trycedar/pi-mdiff \
          pi-mcp-adapter pi-agent-browser-native @agenticup/pi-loop; do
   pi install "npm:$p" || echo "[失败] $p"
@@ -100,7 +99,7 @@ pi install git:github.com/qq458249269/pi-lazy-tools
 node install-local-extensions.mjs
 ```
 
-装完自查：`pi list` 应见 **19 个扩展**（18 npm + 1 git），`settings.json` 的 `packages` 19 条。少于 18 就是并行竞写伤痕，重跑补漏。
+装完自查：`pi list` 应见 **18 个扩展**（17 npm + 1 git），`settings.json` 的 `packages` 18 条。少于 17 就是并行竞写伤痕，重跑补漏。
 
 ### 2.2 硬顺序约束
 
@@ -124,7 +123,7 @@ node .sc-test/check-ext-errors.mjs     # 加载期体检：extension_error 应�
 > 首次安装（§2.1）同样不带版本号，npm 自动解析 latest；**本仓库任何位置都不写死扩展版本号**。
 > `pi-dsh-pet` 也会被这条命令带着升（它带 48MB 动画资源，弱网下别反复升）；升完第一次 `/pet` 若要重下 Electron，等它跑完即可。
 
-**处理办法见 §3.4；升完必跑一次 bench 确认 wire 工具集没变**（本次实测未变：升完是 8 个工具 / 8317B，`extension_error` 0；随后按「只保留默认工具」收敛为 6 个 / 6010B）。
+**处理办法见 §3.4；升完必跑一次 bench 确认 wire 工具集没变**（本次实测未变：升完是 8 个工具 / 8317B，`extension_error` 0；随后按「只保留默认工具」收敛为 6 个 / 6010B，2026-09-30 卸 `pi-web-access` 后为 **5 个 / 5664B**）。
 
 ### 2.4 卸载
 
@@ -175,7 +174,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 { "defaultTools": ["read", "edit", "write", "bash"] }
 ```
 
-> **本机就选 pi 的内置默认 4 个**（`dist/core/sdk.js:140` 的 `defaultActiveToolNames`），一个扩展工具都不加：搜文件名/目录、搜内容全部交给 `omnify` 按需激活。换来 `8317B → 6010B`（**−2307B ≈ −641 tok/请求**，见 §6.3），代价是每次搜索多 1–2 个往返轮次。
+> **本机就选 pi 的内置默认 4 个**（`dist/core/sdk.js:140` 的 `defaultActiveToolNames`），一个扩展工具都不加：搜文件名/目录、搜内容全部交给 `omnify` 按需代理执行。换来 `8317B → 5664B`（**−2653B ≈ −689 tok/请求**，见 §6.3），代价是每次搜索多 1–2 个往返轮次。
 > **`omnify` 不写进 `defaultTools`**：它由 lazy-tools 在 `session_start` 无条件写进 active 集（`setActiveTools`），写不写都一样。
 > **`grep` / `fd` 不写也会注册**（扩展注册不过内建闸），只是被 lazy 隐藏；`omnify` 能把它们搜出来并执行（已实测）。**内建的 `ls` / `powershell` 搜得出、却执行不了**（pi 用内部工厂造它们，`sourceInfo` 是合成标记 `<sdk:ls>`，没有可 import 的源码）→ 这类需求一律 `bash ls`。fork 已把这个原因写进 omnify 的失败文案（见 §7.3）。
 > **`~/.pi/lazy-tools.json` 已删除**（2026-09-29，`pi-lazy-tools` 0.4.0 起只告警不读取；旧副本 `lazy-tools.json.bak` / `.bak2` 同日一并删掉，内容已进 `defaultTools`）。新装扩展**不要**往 `defaultTools` 里加（硬规则，见 §5 第 0 条）。
@@ -225,7 +224,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 **为什么是「派发命令」而不是自己 spawn Electron**：端口是上游在 `session_start` 里现找的空闲端口，外部拿不到；派发 `/pet` 则由它自己的 handler 决定「开窗 / 未起则先起服务」，连 Windows 自动切 npmmirror 镜像都走它自己的代码。派发路径是 pi 官方的 `sendUserMessage(..., { expandPromptTemplates: true })` → 命令执行完直接 `return`，**不进 prompt、不起 LLM 轮次**。
 
-**零 token 成本（实测）**：`pi-dsh-pet` 与 `pi-pet-autostart` **都不注册工具**，不进 `defaultTools`（§3.4 硬规则）。装完跑 bench：system 3026B + tools 2984B（6 个）= **6010B，与装之前逐字节一致**。
+**零 token 成本（实测）**：`pi-dsh-pet` 与 `pi-pet-autostart` **都不注册工具**，不进 `defaultTools`（§3.4 硬规则）。装完跑 bench：system 3026B + tools 2638B（5 个）= **5664B，与装之前逐字节一致**。
 
 **安装路径的坑**：上游 README 写的是 `npm install -g pi-dsh-pet`，但 **pi 不扫全局 `node_modules`**——只全局装的话 `/pet` 根本不存在。必须在 pi 里注册一次（`pi install npm:pi-dsh-pet`），本机两份都装了，加载的是 `~/.pi/agent/npm/node_modules` 那份（`pi update --extensions` 也能升它）。想只留一份可把全局那份当本地源：`{ "source": "D:/resp/npm/npm-global/node_modules/pi-dsh-pet" }`（不复制，但就不再跟 `pi update` 走了）。
 
@@ -256,7 +255,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | `@agenticup/pi-loop` | `loop` |
 | `pi-mcp-adapter` | `mcp` |
 | `pi-agent-browser-native` | `agent_browser` 及 7 个配套 |
-| `pi-lazy-tools`（fork） | `load_tools` `call_tool` |
+| `pi-lazy-tools`（fork） | `omnify`（0.4.0 起四合一；`load_tools`/`call_tool` 已撤。只代理执行、**不切 active 集**） |
 | `pi-warm-cache` / `pi-prefix-stabilizer` / `pi-compaction-cache` / `pi-cache-guardian` | 无工具（纯事件钩子） |
 
 **一道闸：`defaultTools`**（0.4.0 前是「`defaultTools` 管注册 + `resident` 管常驻」两道，0.4.0 起合并）：
@@ -268,7 +267,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | `fd` | ❌ 未列 → 懒加载 | 本地 `pi-fd` 注册，同上 |
 | `find` | ❌ 未列 → 懒加载 | 同一底层（fd）但只认 glob，作为 `fd` 的兜底 |
 | `ls` `powershell` | ❌ 未列 → 懒加载 | 需要时 `omnify` 按名 load 回来（或用 `bash ls`） |
-| `web_enable` / `todo` / `loop` / `md_*` / `ask_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ 未列 | 全部默认懒加载，用 `omnify` 按需检索（`web_enable` 例外：pi-web-access 自己在 `session_start` 写进 active 集，实测 wire 上可见） |
+| `todo` / `loop` / `md_*` / `ask_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ 未列 | 全部默认懒加载，用 `omnify` 按需检索 / 代理执行 |
 | `omnify` | ❌ 写不写都一样 | pi 核心无条件注册，**不需进名单**，写进去只是读起来清楚 |
 
 漏了的后果（实测）：`defaultTools` 是内建工具的**注册闸**（不在列 → 根本注册），对扩展工具则是**常驻名单**（不在列 → 注册了但被 lazy 隐藏，wire 上看不到；要它时 `omnify` 一步拾回）。
@@ -332,10 +331,10 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
    - 验证新装扩展是否真的零开销：`node .sc-test/bench/run.mjs <标签> ...` 看 `toolsBytes` 是否与基线一致（§9）。
 1. **首字成本**：常驻集每轮都进 prompt；不在名单的工具靠 `omnify` 检索命中后一次性注入。
 2. **激活往返**：0.86+ 流程是 `omnify`/`load_tools` → `call_tool` → 执行，多 1–2 个模型轮次。搜索类工具建议常驻（见 §6.3）。
-3. **大输出工具**（`web_search` 等）原始 HTML/JSON 全量进历史，会把前缀命中率打崩；用前先想清楚要不要落历史。
+3. **大输出工具**（`agent_browser*` / `mcp`，或 bash 直接抓页面）原始 HTML/JSON 全量进历史，会把前缀命中率打崩；用前先想清楚要不要落历史。
 4. **改 `.md` 优先 `md_edit`**：散文/列表用 `md_edit`（锚定标题+块序号，不受换行重排影响），代码块用 `edit`，`.mdx` 一律用 `edit`。
 5. **不装的东西**：`pi-observational-memory`（治压缩后记忆断层，方向不同）、`pi-deepseek-cache`（绑定 DeepSeek）、`pi-cache-optimizer`（与 guardian 重叠）——都不解决本机的主要成本（system 字节），装了只是多一份常驻负担。
-6. **纯 UI 类扩展可以放心装**：`pi-tps` / `pi-one-ui` / `pi-dsh-pet` / `pi-pet-autostart` 这类只挂事件钩子、只注册命令的扩展，**不注册任何工具**，不进 `defaultTools`，wire 字节不变（§3.6 有 bench 实测：装宠物前后都是 6010B）。反过来，任何**注册工具**的扩展都要重新算 §6.3 那笔账。
+6. **纯 UI 类扩展可以放心装**：`pi-tps` / `pi-one-ui` / `pi-dsh-pet` / `pi-pet-autostart` 这类只挂事件钩子、只注册命令的扩展，**不注册任何工具**，不进 `defaultTools`，wire 字节不变（§3.6 有 bench 实测：装宠物前后都是 5664B）。反过来，任何**注册工具**的扩展都要重新算 §6.3 那笔账。
 
 ---
 
@@ -365,7 +364,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 压 `<docs>`（655B → 256B，从原文抽路径重排） | 5869B |
 | **两者都压（本机现状）** | **3556B（−3341B / −48%）** |
 
-> **本机现状（2026-09-29 六次变更后）**：卸 `pi-edit-guard` 交 smart-edit 接管 `edit`，卸 `pi-shell` 改用内建 `bash`，最后把常驻集收回 pi 内置默认 4 个（§3.4）→ wire 上 **6 个工具** `bash edit omnify read web_enable write`，system **3026B** + tools **2984B** = **6010B ≈ 1669 tok/请求**（vs 优化前 11351B ≈ 2948 tok，**累计 −5341B ≈ −1279 tok / −47%**）。`grep` / `fd` 仍注册，按需 `omnify` 激活。
+> **本机现状（2026-09-30，卸载 `pi-web-access` 后重测）**：常驻集 = pi 内置默认 4 个（§3.4）→ wire 上 **5 个工具** `bash edit omnify read write`，system **3026B** + tools **2638B** = **5664B ≈ 1573 tok/请求**（vs 优化前 11351B ≈ 2948 tok，**累计 −5687B ≈ −1477 tok / −50%**）。`grep` / `fd` 仍注册，按需 `omnify` **代理执行**——omnify 走 jiti 直接执行、**不切 active 集**，所以不会像 `web_enable` 那样掀前缀缓存（§7.4）。
 
 连续 3 轮字节完全一致（轮间稳定，不散前缀缓存）。
 
@@ -381,23 +380,23 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 场景 | system | tools | 合计 | vs 同基线 |
 |---|---|---|---|---|
 | 手册全套 + 常驻 grep/find/ls | 6897B | 4988B（9 个） | 11885B | **+1928B ≈ +500 tok/请求** |
-| 常驻 grep+find（`ls` 懒加载，内建 `bash`） | 3050B | 4336B（8 个） | 7386B | vs 本机 **+1376B ≈ +358 tok/请求** |
-| 常驻 grep+fd | 3205B | 5112B（8 个） | 8317B | vs 本机 **+2307B ≈ +641 tok/请求** |
-| **本机现状**（只留内建默认 4 个） | 3026B | 2984B（6 个） | 6010B | — |
+| 常驻 grep+find（`ls` 懒加载，内建 `bash`） | 3050B | 4336B（8 个） | 7386B | vs 本机 **+1722B ≈ +447 tok/请求** |
+| 常驻 grep+fd | 3205B | 5112B（8 个） | 8317B | vs 本机 **+2653B ≈ +689 tok/请求** |
+| **本机现状**（只留内建默认 4 个） | 3026B | 2638B（5 个） | 5664B | — |
 
 单工具 wire 字节：`grep` 846B、`fd` 1280B、`ls` 472B（`find` 若常驻是 504B）。
 
 - **常驻**：每请求 +473 tok（首请求全价，之后走 cacheRead，本机本地端点基本免费），换搜索工具**直接可调、0 额外往返**。
 - **懒加载**：0 upfront；要用时多 1–2 个模型轮次，并把同样的字节永久注入历史。
-- **本机取舍（最终：只留内建默认 4 个）**：`defaultTools` 就是 `read edit write bash`，`grep` / `fd` / `ls` / `find` 全部懒加载，搜文件先 `omnify` 一步激活。**省 2307B ≈ 641 tok/请求**，代价是每次搜索多 1–2 个往返轮次（本机本地端点，这些轮次几乎不花钱，只花时间）。
-  - 曾经选过方案 B（`grep` + `fd` 都常驻，8317B）：那时判断「搜索是编码高频操作，省轮次比省字节值」；现按「只保留默认」收敛，**要回退就把 `"grep"` / `"fd"` 加回两处 `defaultTools` 即可**（+2307B）。
+- **本机取舍（最终：只留内建默认 4 个）**：`defaultTools` 就是 `read edit write bash`，`grep` / `fd` / `ls` / `find` 全部懒加载，搜文件先 `omnify` 一步代理执行。**省 2653B ≈ 689 tok/请求**，代价是每次搜索多 1–2 个往返轮次（本机本地端点，这些轮次几乎不花钱，只花时间）。
+  - 曾经选过方案 B（`grep` + `fd` 都常驻，8317B）：那时判断「搜索是编码高频操作，省轮次比省字节值」；现按「只保留默认」收敛，**要回退就把 `"grep"` / `"fd"` 加回两处 `defaultTools` 即可**（+2653B）。
   - 无论常驻与否，`fd` 的能力都远胜 pi-find 的 `find`（§4.1 五项），常驻与否只影响字节与往返，不影响能力。
 
 ### 6.4 优化后的静态前缀总账
 
-`system 3026B + tools 2984B = 6010B ≈ 1.7k tok/请求`，相比优化前 `6758 + 4593 = 11351B ≈ 2.9k tok`，**累计 −47%**。
+`system 3026B + tools 2638B = 5664B ≈ 1.5k tok/请求`，相比优化前 `6758 + 4593 = 11351B ≈ 2.9k tok`，**累计 −50%**。
 
-> 2026-09-29 装 `pi-dsh-pet` + `pi-pet-autostart` 后重跑 bench：**仍是 3026B + 2984B = 6010B、6 个工具、`extension_error` 0**，字节没动（两者都不注册工具，见 §3.6）。
+> 2026-09-29 装 `pi-dsh-pet` + `pi-pet-autostart` 后重跑 bench：**仍是 3026B + 2984B = 6010B、6 个工具、`extension_error` 0**，字节没动（两者都不注册工具，见 §3.6）。2026-09-30 卸 `pi-web-access` 后复测：**3026B + 2638B = 5664B、5 个工具、`extension_error` 0**（§6.2）。
 
 ---
 
@@ -430,7 +429,7 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 
 **故意保留**：
 
-- `~/node_modules/@earendil-works*@0.85.1`：一棵自洽的 0.85.1 生态，`@wolido/pi-lazy-tools` 依赖它，删了会连带坏掉。pi 自身的扩展从 `~/.pi/agent/node_modules`（0.87.1）解析，**不会走到家目录那份**；pi-web-access 报的 "Dynamic tool activation requires Pi 0.86.1 or newer" 属误报。
+- `~/node_modules/@earendil-works*@0.85.1`：一棵自洽的 0.85.1 生态，`@wolido/pi-lazy-tools` 依赖它，删了会连带坏掉。pi 自身的扩展从 `~/.pi/agent/node_modules`（0.87.1）解析，**不会走到家目录那份**。
 
 ### 7.3 `omnify` 的两个 fork 修复（2026-09-29，`e972047`，已 push）
 
@@ -440,6 +439,24 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 2. **非指名模式下静默执行错工具（假成功）**：旧代码候选失败后无条件 `continue`；schema 宽松的 `mcp`（`Record<string, unknown>`）会照单全收，返回 `MCP: 0/0 servers, 0 tools` 冒充成功。改为：**候选一旦通过参数校验并开始执行，它就是最佳匹配，失败即最终失败**（`break`）；校验不符时仍按原逻辑（非指名继续试下一个，指名立即返回要求）。
    - **BREAKING**：不再有「首个候选失败后自动换一个工具」。
    - 回归：`npm test` 76 passed（新增 4 条），`tsc --noEmit` 干净；改动同步到已装副本 `~/.pi/agent/git/github.com/qq458249269/pi-lazy-tools/`，`check-ext-errors` 的 `extension_error` 0。
+
+### 7.4 `pi-web-access`：已卸载（2026-09-30）
+
+`pi remove npm:pi-web-access`，连带删掉两个只为它存在的缓存目录 `~/.pi/web-search-cache/`、`~/.pi/agent/web-search-cache/`（§2.4 纪律）。卸载后重跑 bench：**5 个工具 / system 3026B + tools 2638B = 5664B**（比装它时少一个 `web_enable` 工具、−346B）。
+
+**卸载理由：`web_enable` 会在会话中途切 active 工具集，把前缀缓存整段掀掉。** 这是 pi-web-access 的加载器设计：`web_search` / `source_check` / `fetch_content` / `get_search_content` 四个 schema 共 **11436B ≈ 3k tok**，默认不 active；模型调空参 `web_enable` 后它执行 `pi.setActiveTools([...现有, 4个])`，下一轮四工具才出现。工具集一变，请求前缀从第 0 个 token 起全部作废。本机实测（会话 `--D--AI-LLMlocal--/2026-09-30T00-55-59-851Z_01a0efcf…`）：
+
+| 轮次 | input | cacheRead |
+|---|---|---|
+| 调 `web_enable` 前 | 3291 | 86016 |
+| 调完（`toolsAdded` 四工具） | 92007 | **1152** |
+| 下一轮 | 2233 | 91008 |
+
+即激活那一轮把整段 89K 上下文按新 token 重算了一遍，下一轮才恢复——不是持续 0，但每次会话首次联网都吃一发全量 prefill。
+
+替代：`agent_browser*`（已装）、`mcp` 接搜索服务、`bash` 直接抓。注意本机 TUN/fake-IP 代理环境下它的 `fetch_content` 本来就被 SSRF 挡（`Blocked internal address for github.com: 127.0.0.1`，需配 `ssrf.allowRanges`），实际只有 exa 搜索在干活。
+
+> 顺带回答「懒加载工具会不会掀缓存」：**不会**。`omnify` 只在 `session_start` 调一次 `setActiveTools` 做隐藏（`D:\AI\pi-lazy-tools\lazy-tools.ts:487`），执行隐藏工具走 `findToolDefinition` + jiti 直接调 `definition.execute`（同文件 :349），**全程不动 active 集**；`load_tools`/`call_tool` 自 0.4.0 起已撤销。只有像 `web_enable` 这样主动 `setActiveTools` 的加载器才会掀。内建工具（`ls` 等）omnify 根本执行不了（`nonLoadableSourceReason` 先判后 import），更不存在「激活」一说。
 
 ---
 
