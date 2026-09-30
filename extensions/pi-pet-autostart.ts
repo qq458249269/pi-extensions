@@ -28,7 +28,7 @@
  * 把本会话的 `agent_start` / `thinking` / `tool_call` / `agent_idle` 用同样的消息格式
  * 转发过去，于是「一只宠物」照样跟着**每个**会话的思考、敲代码动。
  *
- * ## 「一直在待机 / 突然多出第二只」的五个成因（2026-09-29 修）
+ * ## 「一直在待机 / 突然多出第二只」的九个成因（2026-09-29/30 修）
  * 1. **pid 记账把桥一起跳过了**：`session_start` 里 `alreadyFiredThisProcess()` 直接 return，
  *    而它 return 在建桥之前。于是同进程内第二次 `session_start`（`/reload`、`/clear`、树跳转）
  *    之后，复用的窗**永远没人喂事件**——不动，就是一直待机。现在建桥提到那个闸**外面**，
@@ -51,6 +51,24 @@
  * 5. **桥坏了没人知道**：`connect` 的 error 以前是空 handler、close 后 5s 重连也不吭声。
  *    现在记 `{state, lastError, sent}` 并加**握手看门狗**（`PI_PET_BRIDGE_WATCHDOG_MS`，默认 6s），
  *    超时未 open 就报 `err`——不能让状态永远停在 `connecting` 装样子。`/pet-auto status` 一行摊开。
+ * 6. **PowerShell 兜底整个是死的（2026-09-30 实测）**：脚本里 `[int]($_.CreationDate…).TotalMilliseconds`
+ *    把 epoch 毫秒（≈1.79e12）强转 Int32 → **溢出报错，整个脚本一行都不吐**；而 `capture` 把空 stdout
+ *    当失败。于是 wmic 只要一次超时（机器忙 / 被 AV 拖住），兜底也一起哑掉 → `ok:false` → 静默降级
+ *    开第二扇。修：`[long]`。另外脚本按 `Name='electron.exe'` 列出**所有** Electron 进程，gpu/utility/
+ *    renderer 子进程命令行里也带 `pet-electron.cjs` 但**没有端口** → `port=0`；`probeHealth` 把 0 判成
+ *    `dead` → 被当孤儿 `taskkill`（会把好窗自己的子进程杀掉）。现在脚本只吐带端口的主进程，解析端再兜一道。
+ * 7. **「这扇窗是谁开的」认得不准**：`markFired({...born[0], reused:false})` 把「派发后新出现的窗」
+ *    一律当成自己的。baseline 用的是**第一次**扫描的结果（扫挂时=空集），而抢锁最长能等 25s——
+ *    这期间别的会话开的窗会被记成「本进程自己开的」（`reused:false`），于是 `ownWindowPort()>0`：
+ *    本会话既不建桥也不再开窗，宠物永远不动。现在只在**复核扫描可信**时才敢认领，否则记 `reused:true`
+ *    并老老实实建桥。
+ * 8. **窗被换掉后旧桥不死**：`ensureBridge` 见「已经有桥」就 return。`/pet-auto restart`（或窗崩了被
+ *    重开）之后，老会话还挂在**已经不存在的端口**上，新窗没人接。现在每次 `session_start` 按当前活窗
+ *    **对账**：停掉指向死端口的桥、接上新出现的活窗（扫描失败时维持原状，别因一次抖动误停好桥）。
+ * 9. **`pending` 记账**：以前 `session_start` 先写「本进程已弹」再派发，中途扫挂/等窗超时就**永久**
+ *    放弃（`alreadyFiredThisProcess()` 永远 true，只有 `/reload` 能解）。现在先记 `pending:true`，
+ *    真等到窗（或复用）才转正；`pending` 超过 90s（`PI_PET_PENDING_TTL_MS`）放行重试。记账另加
+ *    进程出生时刻 `startedAt`，防 pid 被回收后「新进程被当成老的那个」。派发失败 / 等不到新窗都明说。
  *
  * 默认启用，开关在 `~/.pi/agent/extensions/pi-dsh-pet.json`：
  *   { "autostart": true, "size": "normal", "delayMs": 400, "maxPets": 1, "bridge": true }
@@ -164,9 +182,18 @@ function saveConfig(config: PetConfig): void {
 
 /* ================================ 状态记账 ================================ */
 
+/** 本进程出生时刻，四舍五入到秒（写/读之间有几毫秒抖动，比较时留 2s 容差）。 */
+const PROCESS_STARTED_AT = Math.round((Date.now() - process.uptime() * 1000) / 1000) * 1000;
+/** `pending` 记账的有效期：比一条 `openWindow` 的最坏耗时（≈25s 抢锁 + 25s 等窗）长一点。 */
+const PENDING_TTL_MS = numEnv("PI_PET_PENDING_TTL_MS", 90_000);
+
 interface PetState {
 	pid?: number;
+	/** 进程出生时刻（ms）：pid 会被回收，光比 pid 会把新进程认成老的那个。旧记录没这个字段。 */
+	startedAt?: number;
 	firedAt?: string;
+	/** true = 只记了「本进程要开窗」，还没等到窗。超时后允许重试，不再一次失败就永久放弃。 */
+	pending?: boolean;
 	/** 最后一次「开窗 or 复用」的结果，给 `/pet-auto status` 看。 */
 	window?: { pid: number; port: number; startedAt: number; reused: boolean };
 }
@@ -188,15 +215,31 @@ function writeState(state: PetState): void {
 	}
 }
 
-/** 本进程是否已经自动开过窗（切会话 / /reload 都不重复弹）。 */
-function alreadyFiredThisProcess(): boolean {
-	return readState().pid === process.pid;
+/** 这条记账是不是本进程写的（pid 相同 + 出生时刻对得上）。 */
+function isThisProcess(s: PetState): boolean {
+	if (s.pid !== process.pid) return false;
+	// 旧记录没有 startedAt：按老规矩只认 pid（兼容一次 /reload 前的记账）
+	if (typeof s.startedAt !== "number") return true;
+	return Math.abs(s.startedAt - PROCESS_STARTED_AT) <= 2_000;
 }
 
-/** 记「本 pid 弹过」+（可选）落在了哪扇窗上。 */
-function markFired(window?: PetState["window"]): void {
+/** 本进程是否已经自动开过窗（切会话 / /reload 都不重复弹）。 */
+function alreadyFiredThisProcess(): boolean {
+	const s = readState();
+	if (!isThisProcess(s)) return false;
+	if (s.pending !== true) return true;
+	// 还在开窗途中：短时间内不重复开；拖太久（扫挂 / 等窗超时）就放行重试，
+	// 不然一次失败会把「自动弹窗」永久关掉，只有 /reload 能解。
+	const at = Date.parse(s.firedAt ?? "") || 0;
+	return Date.now() - at < PENDING_TTL_MS;
+}
+
+/** 记「本 pid 弹过」+（可选）落在了哪扇窗上；`pending=true` 表示只是「打算开」。 */
+function markFired(window?: PetState["window"], pending = false): void {
 	const prev = readState();
-	writeState({ pid: process.pid, firedAt: new Date().toISOString(), window: window ?? prev.window });
+	// 转 pending 时别把**别的进程**留下的窗继承过来：那会让 ownWindowPort() 认错自己的窗
+	const keepWindow = window ?? (isThisProcess(prev) ? prev.window : undefined);
+	writeState({ pid: process.pid, startedAt: PROCESS_STARTED_AT, firedAt: new Date().toISOString(), pending, window: keepWindow });
 }
 
 /* ====================== 跨进程：现在到底有几只宠物在跑 ====================== */
@@ -285,9 +328,13 @@ function parsePs(stdout: string): PetWindow[] {
 const PS_SCAN = [
 	"$ErrorActionPreference='SilentlyContinue'",
 	"Get-CimInstance Win32_Process -Filter \"Name='electron.exe'\" | ForEach-Object {",
-	"  $port = 0",
-	"  if ($_.CommandLine -match 'pet-electron\\.cjs\\s+(\\d+)') { $port = [int]$Matches[1] }",
-	"  '{0}|{1}|{2}' -f $_.ProcessId, [int]($_.CreationDate.ToUniversalTime() - [datetime]'1970-01-01').TotalMilliseconds, $port",
+	// 只吐命令行里带 `pet-electron.cjs <端口>` 的主进程。以前对每个 electron.exe 都吐一行（子进程
+	// 的端口位补 0），那些 port=0 的行会被 probeHealth 判 dead → 当孤儿 taskkill 掉。
+	"  if ($_.CommandLine -match 'pet-electron\\.cjs\\s+(\\d+)') {",
+	// 必须是 [long]：epoch 毫秒 ≈1.79e12 超出 Int32，[int] 会溢出报错，**整个脚本一行都不吐**
+	// （`capture` 把空 stdout 当失败）→ 兜底等于没有。
+	"    '{0}|{1}|{2}' -f $_.ProcessId, [long]($_.CreationDate.ToUniversalTime() - [datetime]'1970-01-01').TotalMilliseconds, [int]$Matches[1]",
+	"  }",
 	"}",
 ].join("; ");
 
@@ -295,7 +342,8 @@ function parsePipeLines(stdout: string): PetWindow[] {
 	const out: PetWindow[] = [];
 	for (const raw of stdout.split(/\r?\n/)) {
 		const m = raw.trim().match(/^(\d+)\|(\d+)\|(\d+)$/);
-		if (m) out.push({ pid: Number(m[1]), startedAt: Number(m[2]), port: Number(m[3]) });
+		// port=0 的行（没有端口的子进程）一律丢：probeHealth 把 0 判成 dead，留着会被当孤儿杀掉
+		if (m && Number(m[3]) > 0) out.push({ pid: Number(m[1]), startedAt: Number(m[2]), port: Number(m[3]) });
 	}
 	return out;
 }
@@ -569,13 +617,16 @@ function releaseLock(): void {
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** 轮询扫描直到冒出 baseline 之外的新**活**窗，或等到超时。 */
-async function waitForNewWindow(baseline: Set<number>, timeoutMs: number): Promise<PetWindow[]> {
+async function waitForNewWindow(baseline: Set<number>, timeoutMs: number, ignore: ReadonlySet<number> = new Set()): Promise<PetWindow[]> {
 	const deadline = Date.now() + timeoutMs;
 	for (;;) {
 		await sleep(POLL_MS);
 		// 只认「真的能收事件」的窗：刚弹出来的 electron 要等本进程的 pet 服务接上，
 		// 端口会先拒连接——不探一下就分不清「自己刚开的」和「别人的孤儿」。
-		const fresh = (await splitByHealth((await scan()).windows)).alive.filter((w) => !baseline.has(w.pid));
+		// `ignore` 是刚 taskkill 掉的窗：它们可能还在进程表里挂着，别把尸体认成活窗。
+		const fresh = (await splitByHealth((await scan()).windows)).alive.filter(
+			(w) => !baseline.has(w.pid) && !ignore.has(w.pid),
+		);
 		if (fresh.length > 0) return fresh;
 		if (Date.now() >= deadline) return [];
 	}
@@ -588,8 +639,12 @@ async function waitForNewWindow(baseline: Set<number>, timeoutMs: number): Promi
  */
 function ownWindowPort(): number {
 	const s = readState();
-	if (s.pid !== process.pid) return 0;
-	return s.window && s.window.reused === false ? s.window.port : 0;
+	if (!isThisProcess(s)) return 0;
+	const w = s.window;
+	if (!w || w.reused !== false) return 0;
+	// 窗可能已经关了、或者被 /pet-auto restart 换掉：进程不在了就不算自己的。
+	// 否则本会话会一直以为「上游在替我广播」，新窗永远接不上桥。
+	return pidAlive(w.pid) ? w.port : 0;
 }
 
 /* ====================== 进程内：拦下 add_pet（第二只） ====================== */
@@ -651,7 +706,8 @@ function installAddPetBlock(pi: ExtensionAPI, atLimit: () => boolean): boolean {
 
 const bridgedPorts = new Set<number>();
 let thinkingTimer: ReturnType<typeof setInterval> | null = null;
-let bridgeStops: Array<() => void> = [];
+/** 端(口) → 停桥函数。对账要用：窗换掉后得知道该停哪条、还差哪条。 */
+const activeBridges = new Map<number, () => void>();
 
 /**
  * 桥的**真实**状态，给 `/pet-auto status` 看。
@@ -796,13 +852,14 @@ function bridgeTo(pi: ExtensionAPI, petPort: number): (() => void) | null {
 }
 
 function stopBridges(): void {
-	for (const stop of bridgeStops.splice(0)) {
+	for (const stop of [...activeBridges.values()]) {
 		try {
 			stop();
 		} catch {
 			/* 忽略 */
 		}
 	}
+	activeBridges.clear();
 	bridgedPorts.clear();
 }
 
@@ -836,7 +893,7 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 		if (!runtime.bridge || port <= 0) return;
 		if (port === ownWindowPort()) return;
 		const stop = bridgeTo(pi, port);
-		if (stop) bridgeStops.push(stop);
+		if (stop) activeBridges.set(port, stop);
 	};
 
 	/** 已经有**活的**窗 → 复用：不派发 `/pet`、不 add_pet，把本会话事件桥过去。 */
@@ -870,18 +927,30 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 	 */
 	const ensureBridge = async (): Promise<void> => {
 		if (!runtime.bridge) return;
-		if (bridgeStops.length > 0) return; // 已经有桥了
+		const shot = await scan();
+		// 扫不动就维持现状：一次扫描抖动不该把好桥全停掉（同「扫不动 ≠ 没有窗」）
+		if (!shot.ok) return;
+		const { alive } = await splitByHealth(shot.windows);
 		const own = ownWindowPort();
-		if (own > 0) return; // 窗是自己开的，上游直接广播
-		const { alive } = await splitByHealth((await scan()).windows);
-		for (const w of alive) bridgeIfForeign(w.port);
+		const foreign = new Map<number, PetWindow>();
+		for (const w of alive) if (w.port > 0 && w.port !== own) foreign.set(w.port, w);
+		// 窗被关掉 / 换掉（`/pet-auto restart`、崩了重开）之后，旧桥必须停：
+		// 否则本会话永远挂在已经不存在的端口上，新窗没人接 = 宠物窗重启了也没人动。
+		for (const [port, stop] of [...activeBridges]) {
+			if (foreign.has(port)) continue;
+			stop();
+			activeBridges.delete(port);
+		}
+		for (const port of foreign.keys()) bridgeIfForeign(port);
 	};
 
 	/**
 	 * 跨进程的开窗流程：扫描 → 验活 → 不够就抢锁 → 复核 → 派发 `/pet` → 等自己的窗冒出来。
 	 * 任何一个「已经有活窗」的分支都走 `adopt`（复用），绝不叠第二扇。
 	 */
-	const openWindow = async (size: PetSize, ctx: Notifier): Promise<void> => {
+	const openWindow = async (size: PetSize, ctx: Notifier, ignore: ReadonlySet<number> = new Set()): Promise<void> => {
+		// 刚 taskkill 掉的窗可能还在进程表里挂着，先剔掉，别把尸体当活窗复用
+		const live = (r: ScanResult): PetWindow[] => r.windows.filter((w) => !ignore.has(w.pid));
 		// 「扫不动」≠「真没有窗」。先重试一次；还是不行就照开，但**明说**保证已降级，
 		// 否则用户只会看到莫名其妙的两只，还查不出原因。
 		let shot = await scan();
@@ -893,7 +962,7 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 			notify(ctx, "扫不到全机宠物窗（wmic / PowerShell 都没成功），单只保证已降级，仍按配置开一扇", "warning");
 		}
 		// 验活：端口没人监听的孤儿不占名额（否则会一直吸附在死窗上）
-		const base = await splitByHealth(shot.windows);
+		const base = await splitByHealth(live(shot));
 		const reapedBase = await reapOrphans(base.orphans);
 		if (reapedBase > 0) {
 			notify(ctx, `清掉 ${reapedBase} 个孤儿宠物窗（主人 pi 进程已死，端口没人监听，收不到任何事件）`);
@@ -905,7 +974,7 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 
 		if (!acquireLock()) {
 			// 别的会话正在开：等它开出来复用，别抢着再开一扇
-			const born = await waitForNewWindow(new Set(shot.windows.map((w) => w.pid)), LAUNCH_WAIT_MS);
+			const born = await waitForNewWindow(new Set(live(shot).map((w) => w.pid)), LAUNCH_WAIT_MS, ignore);
 			if (born.length > 0) {
 				adopt(born, ctx);
 				return;
@@ -918,7 +987,8 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 
 		try {
 			// 拿到锁后再扫一次：抢锁期间可能刚好有人开出来
-			const recheck = await splitByHealth((await scan()).windows);
+			const recheckShot = await scan();
+			const recheck = await splitByHealth(live(recheckShot));
 			const reapedAgain = await reapOrphans(recheck.orphans);
 			if (reapedAgain > 0) notify(ctx, `清掉 ${reapedAgain} 个孤儿宠物窗（主人 pi 进程已死）`);
 			if (recheck.alive.length >= runtime.maxPets) {
@@ -929,12 +999,21 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 			// 不进 prompt、不起 LLM 轮次（agent-session.js 的 _tryExecuteExtensionCommand）
 			try {
 				pi.sendUserMessage(`/${PET_COMMAND} ${size}`, { expandPromptTemplates: true });
-			} catch {
-				/* 派发失败（极少）：宠物没开出来，不影响会话 */
+			} catch (err) {
+				// 派发失败（极少）：宠物没开出来，不影响会话，但别静默——不然又是一桩无头案
+				notify(ctx, `派发 /pet 失败：${String((err as Error)?.message ?? err).slice(0, 60)}`, "warning");
 				return;
 			}
-			const born = await waitForNewWindow(new Set(shot.windows.map((w) => w.pid)), WATCH_MS);
-			if (born.length > 0) markFired({ ...born[0], reused: false });
+			const born = await waitForNewWindow(new Set(live(recheckShot).map((w) => w.pid)), WATCH_MS, ignore);
+			if (born.length > 0) {
+				// 只有**复核扫描可信**时才敢认领「这是我自己开的那扇」：扫挂时 baseline 是空集，
+				// 派发前后冒出来的别人的窗会被记成 reused:false → ownWindowPort()>0 →
+				// 本会话既不建桥也不再开窗，宠物永远不动。不确定就记成「复用」，照样建桥。
+				markFired({ ...born[0], reused: !recheckShot.ok });
+				if (!recheckShot.ok) bridgeIfForeign(born[0].port);
+			} else {
+				notify(ctx, "派发 /pet 后 25s 内没等到新宠物窗（上游可能仍以为窗已开），可用 /pet-auto restart 换一只", "warning");
+			}
 		} finally {
 			releaseLock();
 		}
@@ -959,7 +1038,7 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 		if (broken) notify(ctx, `pi-dsh-pet 配置读坏，按默认启用处理：${CONFIG_PATH}`, "warning");
 
 		fired = true;
-		markFired();
+		markFired(undefined, true); // 先记「打算开」，真等到窗（或复用）再转正
 		const size = runtime.size;
 		const delay = runtime.delayMs;
 		// 上游的 session_start 里在起 HTTP 服务；错开一点让它先就绪（它也能自己补起，这里只是稳态）
@@ -1050,12 +1129,15 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 			if (verb === "restart") {
 				const { windows } = await scan();
 				for (const w of windows) await killer()(w);
+				// taskkill 之后进程表还会挂一会儿：把这些 pid 拉黑到本轮开窗结束，
+				// 否则复核时会把刚杀的窗当活窗复用 → 桥到尸体上，永远收不到事件
+				const ignore = new Set(windows.map((w) => w.pid));
 				fired = false;
 				stopBridges();
 				// 上游要等它自己的 exit 回调把 electronProc 置空，否则再派发 /pet 会被当成
 				// 「窗已开」→ 变成 add_pet（钩子在的话就被拦掉，窗就一直不出来了）
 				await sleep(RESTART_WAIT_MS);
-				await openWindow(runtime.size, ctx);
+				await openWindow(runtime.size, ctx, ignore);
 				return;
 			}
 
