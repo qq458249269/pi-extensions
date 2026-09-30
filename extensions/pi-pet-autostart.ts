@@ -1,46 +1,75 @@
 /**
- * pi-pet-autostart — 让 `pi-dsh-pet` 的桌面宠物**默认常驻、且整机只留一只**
+ * pi-pet-autostart — 桌面宠物：**整机一只、端口全局共享、不随父 cmd 进程消亡**
  *
- * 上游 `pi-dsh-pet` 只注册两个命令，本身不带任何「自动启动」开关：
- *   `/pet [small|normal|large]` 开窗、`/pet-stop` 关窗。
- * 也就是说装完还得每次手敲 `/pet`，会话一换就没了。本扩展补上这一层：
- *   `session_start` 时把 `/pet` 当成扩展命令派发出去（pi 官方路径：`sendUserMessage`
- *   + `expandPromptTemplates` → 命令由 pi 执行并 return，**不产生任何模型轮次**、
- *   **不注册任何工具**，所以 wire 字节零变化，见 readme §6）。
+ * 上游 `pi-dsh-pet` 只注册两个命令（`/pet` / `/pet-stop`），没有任何自动启动开关；
+ * 更要命的是它把「窗」和「服务」都挂在**当前 pi 进程**上：
+ *   - `pi.on('session_start')` 起一个随机端口的 HTTP+WS；
+ *   - `/pet` → `spawn('npx.cmd', ['--yes','electron','pet-electron.cjs', port], {detached:false, windowsHide:true, shell:isWin})`；
+ *   - `process.on('exit'/'beforeExit'/'SIGINT'/'SIGTERM')` → `taskkill /f /t` 关窗。
+ * 于是「关掉父 cmd 进程宠物就没了」，而且**有两处互相独立的成因**，都实测确认过：
+ *   1. **上游自己杀**：pi 退出 → `exit`/`beforeExit`/`SIGINT`/`SIGTERM` → `taskkill /pid <npx 起的 cmd> /f /t`，
+ *      electron 整棵树被显式干掉。这跟控制台无关，是代码里写死的。
+ *   2. **窗会自己关**（把 1 堵掉也一样）：服务随 pi 进程一起没了 →
+ *      `pi/assets/pet.js` 的 `ws.onclose` 重试 5 次（3s 一次 ≈15s）后调
+ *      `__petElectron__.closeWindow()` → preload 发 `pet:close` → `app.quit()`。
+ *      也就是说：**只要服务住在 pi 进程里，「宠物活得比父进程久」就是不可能的**，
+ *      改 spawn 参数救不了，必须把服务搬到 pi 进程外面去。
+ * （顺手排掉一个常见误判：控制台不是凶手。实测 `windowsHide:true` 起的孩子走
+ *   CREATE_NO_WINDOW，本来就不挂父控制台（`GetConsoleProcessList` 查不到它）；
+ *   `detached:false` 且不带 windowsHide 才会挂上去。别再往「给上游加 detached」上找答案。）
  *
- * ## 为什么还要「限一只」
+ * ## 三层结构：宿主进程 / 本扩展 / 上游
+ *   ① **宿主** `pi-pet-host.cjs`（源码内嵌在本文件里，运行时写到 `~/.pi/agent/state/`）：
+ *      一个**不属于任何 pi 进程**的独立进程。`mkdir` 独占锁 → 整机只可能有一个宿主，
+ *      也就只可能有一扇窗；自己提供窗要的那套 HTTP+WS（`/ /pet.js /pet.css
+ *      /config.jsonc /thumb/* /health` + `WS /ws`），端口写进全局状态文件
+ *      `pi-pet-global.json`；自己拉 electron；按 ctrl 文件维持窗。
+ *   ② **本扩展**（每个 pi 进程一份）：`session_start` 读全局状态 → 探 `/health` →
+ *      没有就抢锁拉起宿主 → 把本会话的 agent 事件喂到宿主 `WS /feed`。
+ *   ③ **上游**：仍在 pi 进程里起它自己那套（我们不再派发 `/pet`）。手敲 `/pet` 仍会多一扇，
+ *      由下面的巡检收掉。
+ * 事件汇聚：各会话 `WS /feed` → 宿主转给窗的 `WS /ws`。于是「一只宠物」跟着**所有**会话动，
+ * 而窗和端口是全局唯一的两样东西。`add_pet*` 帧在宿主那层按 `maxPets` 丢掉（=1 时），
+ * 这是**机器级**单只的最后一道闸，不再依赖「哪个进程的钩子」。
+ *
+ * ## 拉宿主为什么这么写 spawn 参数
+ * `detached: true` + `windowsHide: true` + `stdio:'ignore'`：前者让宿主不在父进程的控制台
+ * 事件范围里（Ctrl+C / 关 cmd 都不沾），后者让宿主**没有控制台**（CREATE_NO_WINDOW），
+ * 任一生效都够；给全了就不用赌某个运行时（Bun / node）对 `detached` 的支持程度。
+ * 探针里有一格死盯这两个参数（回归点：谁哪天手滑删掉 `detached` 就会红）。
+ *
+ * ## 起不来怎么办（降级，不假装有宠物）
+ * 宿主拉不起来（没有 node、抢锁失败、20s 内 `/health` 不通）→ 明确告警 + 退回旧路：
+ * 派发 `/pet` 让上游在本进程开窗（旧逻辑整套保留：窗口闸/锁/桥/记账）。`/pet-auto host off`
+ * 可以主动切回旧路逐个排查。
+ *
+ * ## 旧路（降级用）保的那几道闸
  * 只做自动启动会越弹越多，原因有两个，都是跨进程的、记账按 pid 根本拦不住：
- *   1. **每个会话一扇窗**：原记账只认「本 pi 进程已弹过」，换会话 / `/reload` / 多开
- *      一个 pi 就是一个新 pid → 又一扇窗。开 9 个会话就 9 只。
- *   2. **一扇窗里 `add_pet`**：上游 `/pet` 在窗已开时不新开窗，而是广播
- *      `add_pet:<size>` 让窗口里**再加一只**。手敲第二次 `/pet` 就多一只。
- * 所以这里加两道闸：
+ *   1. **每个会话一扇窗**：原记账只认「本 pi 进程已弹过」，换会话 / `/reload` / 多开一个 pi
+ *      就是一个新 pid → 又一扇窗。开 9 个会话就 9 只。
+ *   2. **一扇窗里 `add_pet`**：上游 `/pet` 在窗已开时不新开窗，而是广播 `add_pet:<size>`
+ *      让窗口里**再加一只**。手敲第二次 `/pet` 就多一只。
+ * 所以旧路里加两道闸：
  *   - **窗口闸（跨进程）**：`session_start` 先扫全机的宠物窗（`pet-electron.cjs` 主进程
  *     + 端口），已有 ≥ `maxPets` 扇就**复用**（不派发 `/pet`），并用 `mkdir` 原子锁挡住
  *     「两个会话同时开」的竞态。
  *   - **数量闸（进程内）**：`maxPets=1` 时在 `WebSocket.prototype.send` 上挂钩子，丢掉
  *     `add_pet*` 消息——只认这个前缀，其余帧原样放行。钩子从**上游自己的入口文件**起算
- *     `require('ws')`，否则可能打在另一份 ws 实例上（这机器有 `agent/node_modules/ws` 和
+ *     `require('ws')`，否则可能打在另一份 ws 实例上（本机有 `agent/node_modules/ws` 和
  *     `agent/npm/node_modules/ws` 两份）。
  *
- * ## 复用时的事件桥
- * 复用的窗连着**别的** pi 进程的服务，只听那个进程的广播。这里再连一条 WS 当转接头，
- * 把本会话的 `agent_start` / `thinking` / `tool_call` / `agent_idle` 用同样的消息格式
- * 转发过去，于是「一只宠物」照样跟着**每个**会话的思考、敲代码动。
- *
- * ## 「一直在待机 / 突然多出第二只」的九个成因（2026-09-29/30 修）
+ * ## 「一直在待机 / 突然多出第二只」的成因（2026-09-29/30 修；宿主化后大部分从根上消失）
  * 1. **pid 记账把桥一起跳过了**：`session_start` 里 `alreadyFiredThisProcess()` 直接 return，
  *    而它 return 在建桥之前。于是同进程内第二次 `session_start`（`/reload`、`/clear`、树跳转）
  *    之后，复用的窗**永远没人喂事件**——不动，就是一直待机。现在建桥提到那个闸**外面**，
  *    每次 `session_start` 都跑一遍 `ensureBridge()`（已有桥就跳过，自己开的窗不桥）。
- * 2. **闸门只认命令行，不验活**：上游用 `detached:false`+`shell:true`+`unref()` 拉 electron，
- *    清理只挂在 `process.on('exit'/'SIGINT'/'SIGTERM')`——**硬杀/崩溃就留下永久孤儿窗**。
- *    旧逻辑把 `pet-electron.cjs <port>` 进程一律当「已有 1 只」→ 吸附上去 → 桥到没人监听的
- *    端口 → 永远发不出东西。现在每个端口都探一次 `/health`。
+ * 2. **闸门只认命令行，不验活**：上游清理只挂在 `process.on('exit'/'SIGINT'/'SIGTERM')`——
+ *    **硬杀/崩溃就留下永久孤儿窗**。旧逻辑把 `pet-electron.cjs <port>` 进程一律当「已有 1 只」
+ *    → 吸附上去 → 桥到没人监听的端口 → 永远发不出东西。现在每个端口都探一次 `/health`。
  * 3. **探不通的端口被当成活的（最阴的一个）**：主人 pi 被硬杀后，它的 LISTENING socket 会被
  *    electron 子进程**带着一起活下来**——`netstat` 看着在监听，内核照常完成 TCP 握手，所以
- *    连接**不报错**，但永远没人 `accept`：`/health` 超时、WS upgrade 挂死。窗照常亮着、
- *    照常呼吸，就是收不到任何事件。**只要窗在，这个假端口就一直在**，是个自我维持的死循环。
+ *    连接**不报错**，但永远没人 `accept`：`/health` 超时、WS upgrade 挂死。窗照常亮着、照常呼吸，
+ *    就是收不到任何事件。**只要窗在，这个假端口就一直在**，是个自我维持的死循环。
  *    （实测：netstat 报 `LISTENING` 归 pid 95932，而该 pid 在 tasklist 里已不存在；
  *    杀掉 electron 后该 socket 立刻消失，证实是子进程持有的。）
  *    所以探不通**不能**当活窗：先用短超时探一次，`unknown` 就**再用长超时宽限探一次**
@@ -58,7 +87,7 @@
  *    renderer 子进程命令行里也带 `pet-electron.cjs` 但**没有端口** → `port=0`；`probeHealth` 把 0 判成
  *    `dead` → 被当孤儿 `taskkill`（会把好窗自己的子进程杀掉）。现在脚本只吐带端口的主进程，解析端再兜一道。
  * 7. **「这扇窗是谁开的」认得不准**：`markFired({...born[0], reused:false})` 把「派发后新出现的窗」
- *    一律当成自己的。baseline 用的是**第一次**扫描的结果（扫挂时=空集），而抢锁最长能等 25s——
+ *    一律当自己的。baseline 用的是**第一次**扫描的结果（扫挂时 = 空集），而抢锁最长能等 25s——
  *    这期间别的会话开的窗会被记成「本进程自己开的」（`reused:false`），于是 `ownWindowPort()>0`：
  *    本会话既不建桥也不再开窗，宠物永远不动。现在只在**复核扫描可信**时才敢认领，否则记 `reused:true`
  *    并老老实实建桥。
@@ -69,33 +98,54 @@
  *    放弃（`alreadyFiredThisProcess()` 永远 true，只有 `/reload` 能解）。现在先记 `pending:true`，
  *    真等到窗（或复用）才转正；`pending` 超过 90s（`PI_PET_PENDING_TTL_MS`）放行重试。记账另加
  *    进程出生时刻 `startedAt`，防 pid 被回收后「新进程被当成老的那个」。派发失败 / 等不到新窗都明说。
+ * 10. **上游那套「进程内所有权」**：见开头两处实测成因。这是宿主化最直接的理由。
+ * 11. **手敲 `/pet` 会多一扇**：宿主只保证「自己那只」唯一，别人手敲出来的窗照样存在。所以除了
+ *     `session_start`，还有一个**巡检**（`PI_PET_SWEEP_MS`，默认 60s）持续按「宿主报的那只 = 合法的，
+ *     其余 = 多余」收口；扫不动（`ok:false`）时一律不动手。宿主没起来（旧路）时巡检按
+ *     「本进程开的那只 + 至多 maxPets 扇」收口。
  *
  * 默认启用，开关在 `~/.pi/agent/extensions/pi-dsh-pet.json`：
- *   { "autostart": true, "size": "normal", "delayMs": 400, "maxPets": 1, "bridge": true }
+ *   { "autostart": true, "size": "normal", "delayMs": 400, "maxPets": 1, "bridge": true,
+ *     "host": true, "port": 47653, "sweepMs": 60000, "keepAlive": true }
  *   - autostart: false → 不自动开窗（仍可手敲 `/pet`）
- *   - size: small(260) | normal(400) | large(540)，非法值按 normal
+ *   - size: small | normal | large，非法值按 normal
+ *     （注：上游压根没把尺寸传给 electron，初始窗里几只、每只多大只由 `assets/config.jsonc` 决定；
+ *      这个 size 只对 `add_pet:<size>` 有意义，而 maxPets=1 时它是被拦掉的）
  *   - delayMs: 等上游起 HTTP 服务的延时，默认 400ms；上游 handler 也能自己补起，纯粹是稳态
  *   - maxPets: 同时最多几只（1–8，默认 1）；已经多了用 `/pet-auto cleanup` 收掉多余的
- *   - bridge: 复用别人的窗时是否转发本会话事件（默认开）
+ *   - bridge: 本会话是否把事件喂给宿主（默认开）
+ *   - host: 用全局宿主（默认 true）还是退回旧路（false）
+ *   - port: 宿主**优先**用的端口，被占就退一个随机空闲端口，真实端口写进全局状态文件
+ *   - sweepMs: 巡检间隔（0 = 关）；扫全机要起进程，别设太小
+ *   - keepAlive: 窗自己没了要不要被宿主重新拉起（默认开）
  *   文件不存在 / 读坏 → 按**默认启用**处理（与 no-find.json 同一套约定），读坏时通知一次
  *
- * 幂等：同一 pi 进程只自动开一次（pid 记账在 `~/.pi/agent/state/pi-pet-autostart.json`），
- *   所以切会话、`/reload`、树跳转都不会叠出第二只。关掉就 `/pet-stop`。
- *   注：`/reload` 会重载扩展但**不换 pid**，跨进程的窗靠上面的窗口闸兜底。
- *   上游**没有** `app.requestSingleInstanceLock()`，即窗口层零级联；「整机一只」全靠本扩展。
- * 只在 TUI 模式自动开窗：`print` / `json` / `rpc`（含 bench 沙箱）不弹桌面窗口。
+ * 产物与状态文件（都在 `~/.pi/agent/state/`）：
+ *   pi-pet-host.cjs         宿主源码（本文件内嵌，sha1 没变就不重写）
+ *   pi-pet-host.cjs.lock    宿主独占锁（整机单例；主人 pid 死了就允许接管）
+ *   pi-pet-global.json      宿主写：端口/宿主 pid/窗 pid/会话数/心跳。各会话读它 = 端口全局共享
+ *   pi-pet-ctrl.json        扩展写：desired/keepAlive/size/maxPets/bridge。宿主每 2s 读一次
+ *   pi-pet-autostart.json   旧路的 per-pid 记账（宿主化之后只用于 `/pet-auto status` 与降级路径）
+ *   pi-pet-autostart.json.lock 旧路开窗锁（降级路径用）
  *
  * 会话内随手切：
- *   `/pet-auto [on|off|size <档位>|max <只数>|bridge on|off|status|cleanup|restart]`
- * 回退：删本文件 + `/reload`（宠物包留着，手敲 `/pet` 照常）。
+ *   `/pet-auto [on|off|size <档位>|max <只数>|bridge on|off|host on|off|status|cleanup|restart]`
+ *   `on/off` 改的是 ctrl 里的 `desired`：off 会让宿主自己关窗退出（下次 on 再拉起）
+ *   `host on/off` 在「全局宿主」与「旧路」之间切，`/pet-auto status` 会报当前走的是哪条
+ * 只在 TUI 模式自动开窗：`print` / `json` / `rpc`（含 bench 沙箱）不弹桌面窗口。
+ *
+ * 幂等：同一 pi 进程只自动开一次（pid 记账在 `pi-pet-autostart.json`），切会话、`/reload`、
+ * 树跳转都不会叠出第二只。回退：删本文件 + `/reload`（宠物包留着，手敲 `/pet` 照常）。
  */
-import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
 
 const AGENT_DIR = path.join(homedir(), ".pi", "agent");
 // 两个环境变量只为可测（.sc-test/probe-pet-autostart.mjs 指到临时目录），日常不用设
@@ -103,6 +153,12 @@ const CONFIG_PATH = process.env.PI_PET_CONFIG ?? path.join(AGENT_DIR, "extension
 const STATE_PATH = process.env.PI_PET_STATE ?? path.join(AGENT_DIR, "state", "pi-pet-autostart.json");
 /** 开窗锁：mkdir 跨进程原子，谁建成功谁负责开窗，别的会话等它开出来复用。 */
 const LOCK_PATH = process.env.PI_PET_LOCK ?? `${STATE_PATH}.lock`;
+
+/** 宿主产物与它的两个文件（都走 env 是为了让探针指到临时目录，不碰真机器上的宠物）。 */
+const HOST_SCRIPT_PATH = process.env.PI_PET_HOST_SCRIPT ?? path.join(AGENT_DIR, "state", "pi-pet-host.cjs");
+const HOST_LOCK_PATH = process.env.PI_PET_HOST_LOCK ?? `${HOST_SCRIPT_PATH}.lock`;
+const GLOBAL_PATH = process.env.PI_PET_GLOBAL ?? path.join(AGENT_DIR, "state", "pi-pet-global.json");
+const CTRL_PATH = process.env.PI_PET_CTRL ?? path.join(AGENT_DIR, "state", "pi-pet-ctrl.json");
 
 /** 上游注册的命令名（`pi.registerCommand('pet')`）。找不到就说明包没装/被卸了。 */
 const PET_COMMAND = "pet";
@@ -122,6 +178,12 @@ const RESTART_WAIT_MS = numEnv("PI_PET_RESTART_WAIT_MS", 1_200);
 const SLOW_PROBE_TIMEOUT_MS = numEnv("PI_PET_SLOW_PROBE_MS", 5_000);
 /** 桥的握手看门狗：超时就报 err，不让状态永远停在 connecting */
 const BRIDGE_WATCHDOG_MS = numEnv("PI_PET_BRIDGE_WATCHDOG_MS", 6_000);
+/** 宿主端口：优先这个（全局共享的固定端口），被占就由宿主退一个随机空闲端口。 */
+const HOST_PORT = numEnv("PI_PET_PORT", 47_653);
+/** 等宿主 /health 通的时长上限（起宿主只要拉起 node，npx 拉 electron 由宿主自己慢慢来）。 */
+const HOST_WAIT_MS = numEnv("PI_PET_HOST_WAIT_MS", 20_000);
+/** 巡检间隔：持续保证「整机只有宿主那一扇窗」（手敲 /pet 冒出来的第二只靠它收）。 */
+const SWEEP_MS = numEnv("PI_PET_SWEEP_MS", 60_000);
 
 /** 等待类参数只为可测（探针把它们压到毫秒级），日常不用设。 */
 function numEnv(name: string, fallback: number): number {
@@ -135,6 +197,10 @@ interface PetConfig {
 	delayMs?: number;
 	maxPets?: number;
 	bridge?: boolean;
+	host?: boolean;
+	port?: number;
+	sweepMs?: number;
+	keepAlive?: boolean;
 }
 
 /** 归一后的配置：size 一定是合法档位，autostart 一定是布尔，maxPets 落在 1–8。 */
@@ -144,9 +210,24 @@ interface ResolvedConfig {
 	delayMs: number;
 	maxPets: number;
 	bridge: boolean;
+	/** 用全局宿主（默认）还是退回旧路（本进程内派发 /pet）。 */
+	host: boolean;
+	port: number;
+	sweepMs: number;
+	keepAlive: boolean;
 }
 
-const DEFAULTS: ResolvedConfig = { autostart: true, size: "normal", delayMs: 400, maxPets: 1, bridge: true };
+const DEFAULTS: ResolvedConfig = {
+	autostart: true,
+	size: "normal",
+	delayMs: 400,
+	maxPets: 1,
+	bridge: true,
+	host: true,
+	port: HOST_PORT,
+	sweepMs: SWEEP_MS,
+	keepAlive: true,
+};
 
 /** 读配置；文件缺失 = 默认启用；读坏也按默认启用，但记一笔好提示。 */
 function loadConfig(): { config: ResolvedConfig; broken: boolean } {
@@ -167,6 +248,17 @@ function loadConfig(): { config: ResolvedConfig; broken: boolean } {
 						? Math.min(want, MAX_PETS_CEILING)
 						: DEFAULTS.maxPets,
 				bridge: raw.bridge === false ? false : true,
+				// 宿主是这条修复的主路，默认可用；只有显式 false 才退回旧路。
+				// `PI_PET_HOST=0` 是同一个开关的环境形态：出问题时能一键退回旧路，也给探针用
+				host: process.env.PI_PET_HOST === "0" ? false : raw.host === false ? false : true,
+				// 端口要在 1024–65535 之间（<1024 要管理员）；写错了就回默认端口
+				port:
+					typeof raw.port === "number" && Number.isInteger(raw.port) && raw.port >= 1024 && raw.port <= 65_535
+						? raw.port
+						: DEFAULTS.port,
+				// 0 = 不巡检（扫全机要起进程，嫌吵的人可以关）
+				sweepMs: typeof raw.sweepMs === "number" && raw.sweepMs >= 0 ? raw.sweepMs : DEFAULTS.sweepMs,
+				keepAlive: raw.keepAlive === false ? false : true,
 			},
 			broken: false,
 		};
@@ -535,12 +627,13 @@ function killer(): Killer {
 
 /* ================================ 开窗锁 ================================ */
 
-let holdingLock = false;
+/** 本进程手上正持有的锁（开窗锁、宿主锁各算一个），用来做同一次调用里的重入短路。 */
+const heldLocks = new Set<string>();
 
 /** 主人进程已死、或锁太老（硬杀留下的）→ 允许接管。 */
-function lockStale(): boolean {
+function lockStaleAt(lockPath: string): boolean {
 	try {
-		const owner = JSON.parse(readFileSync(path.join(LOCK_PATH, "owner.json"), "utf8")) as { pid?: number; at?: number };
+		const owner = JSON.parse(readFileSync(path.join(lockPath, "owner.json"), "utf8")) as { pid?: number; at?: number };
 		if (typeof owner.pid === "number" && pidAlive(owner.pid)) {
 			return Date.now() - (Number(owner.at) || 0) > LOCK_TTL_MS;
 		}
@@ -551,25 +644,26 @@ function lockStale(): boolean {
 }
 
 /** mkdir 是跨进程原子的：抢到 = 归我开窗；抢不到且锁不陈旧 = 别人正在开。 */
-function acquireLock(): boolean {
-	if (holdingLock) return true;
+function acquireLockAt(lockPath: string): boolean {
+	if (heldLocks.has(lockPath)) return true;
 	try {
-		mkdirSync(LOCK_PATH);
+		mkdirSync(lockPath);
 	} catch {
-		if (!lockStale()) return false;
+		if (!lockStaleAt(lockPath)) return false;
 		// 陈旧锁（主人进程硬杀留下的）：清掉重抢一次
 		try {
-			rmSync(LOCK_PATH, { recursive: true, force: true });
-			mkdirSync(LOCK_PATH);
+			rmSync(lockPath, { recursive: true, force: true });
+			mkdirSync(lockPath);
 		} catch {
 			return false;
 		}
 	}
-	holdingLock = true;
+	heldLocks.add(lockPath);
 	try {
 		writeFileSync(
-			path.join(LOCK_PATH, "owner.json"),
-			`${JSON.stringify({ pid: process.pid, at: Date.now() }, null, 2)}\n`,
+			path.join(lockPath, "owner.json"),
+			`${JSON.stringify({ pid: process.pid, at: Date.now() }, null, 2)}
+`,
 			"utf8",
 		);
 	} catch {
@@ -599,15 +693,18 @@ function releaseLockOnExit(hook: () => void): void {
 	});
 }
 
-function releaseLock(): void {
-	if (!holdingLock) return;
-	holdingLock = false;
+function releaseLockAt(lockPath: string): void {
+	if (!heldLocks.delete(lockPath)) return;
 	try {
-		rmSync(LOCK_PATH, { recursive: true, force: true });
+		rmSync(lockPath, { recursive: true, force: true });
 	} catch {
 		/* 留着就留着，等 TTL 过期被接管 */
 	}
 }
+
+/** 旧路的开窗锁（降级路径用）。 */
+const acquireLock = (): boolean => acquireLockAt(LOCK_PATH);
+const releaseLock = (): void => releaseLockAt(LOCK_PATH);
 
 /**
  * 等待用真实计时器（不 unref）：整条 `openWindow` 链都挂在这些 await 上，
@@ -722,6 +819,8 @@ interface BridgeInfo {
 	/** 桥建立至今成功发出的消息数。 */
 	sent: number;
 	since: number;
+	/** 接的是哪条："/feed" = 全局宿主，"/ws" = 旧路的复用窗。 */
+	endpoint?: "/ws" | "/feed";
 }
 
 const bridgeStates = new Map<number, BridgeInfo>();
@@ -731,11 +830,11 @@ function setBridge(port: number, patch: Partial<BridgeInfo>): void {
 	bridgeStates.set(port, { ...prev, ...patch });
 }
 
-/** 状态栏用的一行摘要。 */
+/** 状态栏用的一行摘要。`/feed` 那条是接全局宿主，`/ws` 是旧路的复用窗。 */
 function bridgeReport(): string {
-	if (bridgeStates.size === 0) return "无（没找到可复用的窗）";
+	if (bridgeStates.size === 0) return "无（没找到可复用的窗 / 宿主）";
 	return [...bridgeStates.values()]
-		.map((b) => `:${b.port} ${b.state}${b.lastError ? `(${b.lastError})` : ""} 发${b.sent}`)
+		.map((b) => `:${b.port}${b.endpoint === "/feed" ? "/feed" : ""} ${b.state}${b.lastError ? `(${b.lastError})` : ""} 发${b.sent}`)
 		.join("  ");
 }
 
@@ -747,13 +846,16 @@ function stopThinking(): void {
 }
 
 /**
- * 复用的窗连着别的 pi 进程的服务，只听那个进程的广播。这里当一次转接头：自己再连一条
+ * 复用的窗连着别的 pi 进程的服务（或全局宿主），只听那边广播。这里当一次转接头：自己再连一条
  * WS，把同样的消息（agent_start / thinking / tool_call / agent_idle）转发过去，于是
  * 「一只宠物」照样跟着**每个**会话的思考、敲代码动。
+ * `endpoint` 区分两种上游（这条是**唯一**的差别，别的都一样）：
+ *   - `"/ws"`   旧路的复用窗：那个 pi 进程自己的宠物服务；
+ *   - `"/feed"` 全局宿主：接 `/ws` 会被宿主当成「第二只窗的客户端」，接 `/feed` 才是喂事件。
  * 没有 ws 依赖就静默跳过——宠物照常呼吸，只是不跟本会话联动。
  * 返回停桥函数（`/pet-auto bridge off` 用；`pi.on` 的返回值就是退订）。
  */
-function bridgeTo(pi: ExtensionAPI, petPort: number): (() => void) | null {
+function bridgeTo(pi: ExtensionAPI, petPort: number, endpoint: "/ws" | "/feed" = "/ws"): (() => void) | null {
 	if (petPort <= 0 || bridgedPorts.has(petPort)) return null;
 	const Ctor = (loadWs(petEntryPath(pi)) as { WebSocket?: new (url: string) => Record<string, unknown> } | null)?.WebSocket;
 	if (typeof Ctor !== "function") {
@@ -762,6 +864,7 @@ function bridgeTo(pi: ExtensionAPI, petPort: number): (() => void) | null {
 		return null;
 	}
 	bridgedPorts.add(petPort);
+	setBridge(petPort, { endpoint });
 
 	let sock: Record<string, unknown> | null = null;
 	const send = (msg: string): void => {
@@ -780,7 +883,7 @@ function bridgeTo(pi: ExtensionAPI, petPort: number): (() => void) | null {
 		if (!alive) return;
 		setBridge(petPort, { state: "connecting" });
 		try {
-			sock = new Ctor(`ws://127.0.0.1:${petPort}/ws`);
+			sock = new Ctor(`ws://127.0.0.1:${petPort}${endpoint}`);
 		} catch (err) {
 			setBridge(petPort, { state: "error", lastError: (err as Error).message.slice(0, 40) });
 			return;
@@ -878,11 +981,934 @@ function notify(ctx: Notifier, message: string, level: NotifyLevel = "info"): vo
 	}
 }
 
+
+/* ================================ 全局宿主（源码内嵌） ================================ */
+
+/**
+ * 宠物宿主：一个**不属于任何 pi 进程**的独立进程。整机只允许有一个（mkdir 独占锁），
+ * 它自己提供窗要用的 HTTP+WS 与端口（端口写进全局状态文件 = 全局共享），
+ * 自己拉 electron（detached+windowsHide：实测这样起的孩子不挂父控制台，关 cmd / Ctrl+C 都碰不到），
+ * 并把各 pi 会话从 `WS /feed` 喂来的 agent 事件转给窗的 `WS /ws`。
+ *
+ * 为什么非得有它：上游把服务挂在 pi 进程里，于是 pi 一死，
+ * ① 它自己 `process.on('exit') → taskkill /f /t` 把窗杀掉；
+ * ② 就算堵住①，`pet.js` 的 ws 重试 5 次（≈15s）后自己 `closeWindow()` 关窗。
+ * 「宠物活得比父进程久」在那个架构下无解，只能把服务搬到 pi 进程外面。
+ *
+ * 按内容 sha1 门控落盘（`writeHostScript`）：改了才重写，`.cjs` 不是扩展、pi 不会去加载它。
+ * 文件顶部的注释是这个文件的说明书（别删，里面记着每一处「为什么」）。
+ */
+const HOST_SOURCE = `#!/usr/bin/env node
+/**
+ * pi-pet-host — 全局宠物宿主：独立进程，不属于任何 pi 进程
+ *
+ * 这个进程存在的唯一理由：**桌面宠物的寿命不能绑在任何一个 pi 进程上**。
+ * 上游 \`pi-dsh-pet\` 把 HTTP+WS 服务和 electron 窗都挂在 pi 进程里，于是：
+ *   1. pi 退出时上游自己 \`process.on('exit')\` → \`taskkill /f /t\` 把窗杀掉；
+ *   2. 就算不杀，服务随 pi 一起没了 → \`pi/assets/pet.js\` 的 ws.onclose 重试
+ *      5 次（约 15s）后调 \`closeWindow()\` → \`app.quit()\`，**窗会自己关掉**。
+ * 所以「关掉父 cmd 进程后宠物还在」不可能靠「把窗 detach 一下」实现：必须有人
+ * 在 pi 进程之外继续提供那个 127.0.0.1 的 HTTP+WS 服务。本进程就是那个人。
+ *
+ * 它做三件事：
+ *   1. 独占锁（mkdir 原子）→ 整机只可能有一个宿主 = 只可能有一扇窗；
+ *   2. 提供窗需要的那套 HTTP/WS（/ /pet.js /pet.css /config.jsonc /thumb/* /health），
+ *      端口写进全局状态文件，各 pi 会话从这里读——端口是**全局共享**的，不再是
+ *      「每个 pi 进程各找一个随机端口」；
+ *   3. 自己拉起 electron（detached + windowsHide：实测这样起的孩子**不挂在父控制台上**，
+ *      关掉 cmd / Ctrl+C 都碰不到它），并按 ctrl 文件里的意图维持窗。
+ *
+ * 事件汇聚：各 pi 会话把 agent 事件发到 \`/feed\`，宿主转给窗的 \`/ws\`。于是
+ * 「一只宠物」跟着**所有**会话动，而窗和端口只属于本进程。
+ *
+ * 协议（与上游 pet.js 完全一致，不要自创）：
+ *   → 窗：  "agent_start" / "thinking" / "agent_idle" / "add_pet:<size>" / "shutdown"
+ *          {"type":"tool_call","tool":"bash"}
+ *   ← 会话：同上（\`add_pet*\` 在 maxPets<=1 时被宿主丢掉，机器级单只的最后一道闸）
+ *
+ * 参数（都给 env 同名兜底，探针靠参数指到临时目录，不会碰真实宠物）：
+ *   --port N     期望端口（被占就退一个随机空闲端口，真实端口写进状态文件）
+ *   --pkg DIR    pi-dsh-pet 包根目录（含 pi/assets、assets/thumb）
+ *   --global F   全局状态文件（宿主写，各会话读）
+ *   --ctrl F     意图文件（扩展写，宿主每 2s 读一次）
+ *   --lock DIR   独占锁目录
+ *   --log F      日志（默认 stderr，反正 stdio 是 ignore）
+ *   --no-window  只起服务不起窗（探针用）
+ */
+"use strict";
+
+const http = require("node:http");
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawn } = require("node:child_process");
+const { createRequire } = require("node:module");
+
+/* ============================== 参数 ============================== */
+
+function argOf(flag, envName, fallback) {
+	const i = process.argv.indexOf(flag);
+	if (i >= 0 && i + 1 < process.argv.length) return process.argv[i + 1];
+	const env = process.env[envName];
+	return env !== undefined && env !== "" ? env : fallback;
+}
+
+const OPT = {
+	port: Number(argOf("--port", "PI_PET_PORT", "47653")) || 0,
+	pkg: argOf("--pkg", "PI_PET_PKG", ""),
+	globalFile: argOf("--global", "PI_PET_GLOBAL", ""),
+	ctrlFile: argOf("--ctrl", "PI_PET_CTRL", ""),
+	lockDir: argOf("--lock", "PI_PET_LOCK", ""),
+	logFile: argOf("--log", "PI_PET_HOST_LOG", ""),
+	noWindow: process.argv.includes("--no-window"),
+};
+
+/** 窗连上以后多久算「连上了」：npx 首次拉 Electron 可能要十几秒。 */
+const WINDOW_GRACE_MS = Number(process.env.PI_PET_WINDOW_GRACE_MS || 20_000);
+/** 窗断线多久后判死（窗侧 5 次重试 ≈15s 就自己关了，所以 20s 足够）。 */
+const WINDOW_LOST_MS = Number(process.env.PI_PET_WINDOW_LOST_MS || 20_000);
+/** 重启节流：刚起就崩别疯狂重拉。 */
+const RELAUNCH_MIN_GAP_MS = 15_000;
+
+const logLines = [];
+function log(...parts) {
+	const line = \`[pi-pet-host \${new Date().toISOString()}] \${parts.join(" ")}\`;
+	logLines.push(line);
+	if (logLines.length > 200) logLines.shift();
+	try {
+		if (OPT.logFile) fs.appendFileSync(OPT.logFile, \`\${line}\\n\`);
+	} catch {
+		/* 写不上日志不影响 */
+	}
+	try {
+		if (!OPT.logFile) console.error(line);
+	} catch {
+		/* stdio 是 ignore，写失败正常 */
+	}
+}
+
+/* ============================== 独占锁 ============================== */
+
+/**
+ * mkdir 跨进程原子：抢到 = 我是唯一宿主。
+ * 抢不到时看 owner.json：主人还活着且锁不老 → 别人在干，安静退出（退出码 0，
+ * 让「谁先起谁算」这件事对调用方无害）；主人已死/锁太老 → 清掉重抢。
+ */
+let holdingLock = false;
+function acquireLock() {
+	if (!OPT.lockDir) return true;
+	const tryMkdir = () => {
+		try {
+			fs.mkdirSync(OPT.lockDir);
+			return true;
+		} catch {
+			return false;
+		}
+	};
+	if (tryMkdir()) {
+		holdingLock = true;
+	} else {
+		let owner = null;
+		try {
+			owner = JSON.parse(fs.readFileSync(path.join(OPT.lockDir, "owner.json"), "utf8"));
+		} catch {
+			owner = null;
+		}
+		const alive = owner && Number.isInteger(owner.pid) && pidAlive(owner.pid);
+		const fresh = alive && Date.now() - (Number(owner.at) || 0) < 60_000;
+		if (fresh) {
+			log(\`已有宿主在跑（pid \${owner.pid}），本进程安静退出\`);
+			return false;
+		}
+		log(\`锁是陈旧的（owner \${owner ? owner.pid : "无"}），接管\`);
+		try {
+			fs.rmSync(OPT.lockDir, { recursive: true, force: true });
+		} catch {
+			/* 清不掉就当没抢到 */
+		}
+		if (!tryMkdir()) return false;
+		holdingLock = true;
+	}
+	// 抢到的**立刻**写 owner：别的宿主只看得到「没有 owner」= 陈旧锁，
+	// 写晚一点都可能让对方误判并抢第二次。
+	try {
+		fs.writeFileSync(
+			path.join(OPT.lockDir, "owner.json"),
+			\`\${JSON.stringify({ pid: process.pid, at: Date.now(), startedAt: HOST_STARTED_AT }, null, 2)}\\n\`,
+			"utf8",
+		);
+	} catch {
+		/* 写不上就认了：最坏是下个宿主等 TTL */
+	}
+	return true;
+}
+
+function releaseLock() {
+	if (!holdingLock || !OPT.lockDir) return;
+	holdingLock = false;
+	try {
+		fs.rmSync(OPT.lockDir, { recursive: true, force: true });
+	} catch {
+		/* 留着等 TTL */
+	}
+}
+
+function pidAlive(pid) {
+	if (!Number.isInteger(pid) || pid <= 0) return false;
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (err) {
+		return err.code === "EPERM";
+	}
+}
+
+const HOST_STARTED_AT = Date.now();
+
+/* ============================== 资产目录 ============================== */
+
+const PKG = OPT.pkg ? path.resolve(OPT.pkg) : "";
+const ASSETS = PKG ? path.join(PKG, "pi", "assets") : "";
+const THUMB = PKG ? path.join(PKG, "assets", "thumb") : "";
+const ELECTRON_SCRIPT = ASSETS ? path.join(ASSETS, "pet-electron.cjs") : "";
+
+if (!PKG || !fs.existsSync(ELECTRON_SCRIPT)) {
+	log(\`找不到 pi-dsh-pet 的资产（--pkg \${OPT.pkg || "(空)"}，需要 \${ELECTRON_SCRIPT}）\`);
+	process.exit(2);
+}
+
+/** ws 从**包自己的位置**起算：pi-dsh-pet 声明了 ws 依赖，而宿主脚本躺在 state 目录里，
+ *  直接 require('ws') 命中的是另一份（agent/node_modules 与 npm/node_modules 各有一份）。 */
+function loadWs() {
+	const bases = [];
+	if (PKG) bases.push(path.join(PKG, "package.json"));
+	if (OPT.globalFile) bases.push(path.dirname(OPT.globalFile));
+	bases.push(__filename);
+	for (const base of bases) {
+		try {
+			return createRequire(base)("ws");
+		} catch {
+			/* 换下一个 */
+		}
+	}
+	try {
+		return require("ws");
+	} catch {
+		return null;
+	}
+}
+
+const WS = loadWs();
+if (!WS || typeof WS.WebSocketServer !== "function") {
+	log("拿不到 ws 依赖（宿主没法喂事件），退出");
+	process.exit(3);
+}
+
+/* ============================== 意图文件（扩展 → 宿主） ============================== */
+
+const CTRL_DEFAULT = { desired: true, keepAlive: true, maxPets: 1, size: "normal", bridge: true, restartNonce: 0 };
+
+function readCtrl() {
+	try {
+		const raw = JSON.parse(fs.readFileSync(OPT.ctrlFile, "utf8"));
+		return { ...CTRL_DEFAULT, ...(raw && typeof raw === "object" ? raw : {}) };
+	} catch {
+		return { ...CTRL_DEFAULT };
+	}
+}
+
+/* ============================== 全局状态（宿主 → 各会话） ============================== */
+
+const state = {
+	role: "pi-pet-host",
+	version: 1,
+	pid: process.pid,
+	startedAt: HOST_STARTED_AT,
+	heartbeatAt: HOST_STARTED_AT,
+	port: 0,
+	pkg: PKG,
+	size: "normal",
+	windowPid: 0,
+	windowStartedAt: 0,
+	windowState: "none",
+	clients: 0,
+	feeds: 0,
+	restarts: 0,
+};
+
+function writeState() {
+	if (!OPT.globalFile) return;
+	state.heartbeatAt = Date.now();
+	state.clients = windowClients.size;
+	state.feeds = feedClients.size;
+	// 先写临时文件再 rename：读者（各 pi 会话）永远看到完整的一份，不会读到半截 JSON
+	const tmp = \`\${OPT.globalFile}.\${process.pid}.tmp\`;
+	try {
+		fs.writeFileSync(tmp, \`\${JSON.stringify(state, null, 2)}\\n\`, "utf8");
+		fs.renameSync(tmp, OPT.globalFile);
+	} catch (err) {
+		log(\`写状态失败：\${err.message}\`);
+	}
+}
+
+/* ============================== 事件汇聚 ============================== */
+
+/** 窗的客户端（正常只有 1 个：那只宠物）。 */
+const windowClients = new Set();
+/** 各 pi 会话喂事件的连接。 */
+const feedClients = new Set();
+
+function broadcastToWindow(msg) {
+	let sent = 0;
+	for (const ws of windowClients) {
+		try {
+			if (ws.readyState === 1) {
+				ws.send(msg);
+				sent++;
+			}
+		} catch {
+			/* 单个客户端坏了不影响别人 */
+		}
+	}
+	return sent;
+}
+
+/**
+ * 机器级单只的最后一道闸：\`add_pet*\` 会让**窗里**再加一只。
+ * 上游是在自己的进程里广播的，扩展侧钩子只在本进程有效；这里是全局的，
+ * 任何会话（包括手敲 /pet 的那个）想加第二只都得先过这里。
+ */
+function shouldForward(msg, ctrl) {
+	if (msg === "add_pet" || msg.startsWith("add_pet:")) {
+		const want = Number(ctrl.maxPets);
+		return Number.isInteger(want) && want > 1;
+	}
+	return true;
+}
+
+function onFeedMessage(ws, raw) {
+	const msg = typeof raw === "string" ? raw : String(raw);
+	if (!msg) return;
+	const ctrl = readCtrl();
+	if (!shouldForward(msg, ctrl)) {
+		log(\`拦下 \${msg}（maxPets=\${ctrl.maxPets}）\`);
+		return;
+	}
+	// 有人明确要关窗（例如 /pet-auto off 之后又有人发 shutdown）也照转
+	broadcastToWindow(msg);
+}
+
+/* ============================== HTTP 静态资源 ============================== */
+
+const MIME = {
+	".html": "text/html; charset=utf-8",
+	".js": "application/javascript; charset=utf-8",
+	".css": "text/css; charset=utf-8",
+	".webm": "video/webm",
+	".json": "application/json; charset=utf-8",
+	".jsonc": "application/json; charset=utf-8",
+};
+
+function safeAsset(root, rel) {
+	if (!rel || rel.includes("..")) return undefined;
+	const candidate = path.normalize(path.join(root, rel));
+	if (!candidate.startsWith(root)) return undefined;
+	return candidate;
+}
+
+function sendFile(res, filePath) {
+	fs.stat(filePath, (err, st) => {
+		if (err || !st.isFile()) {
+			res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+			res.end("Not found");
+			return;
+		}
+		res.writeHead(200, {
+			"content-type": MIME[path.extname(filePath).toLowerCase()] ?? "application/octet-stream",
+			"content-length": st.size,
+			"cache-control": "public, max-age=3600",
+			"access-control-allow-origin": "*",
+		});
+		fs.createReadStream(filePath).pipe(res);
+	});
+}
+
+function sendJson(res, body) {
+	const text = JSON.stringify(body);
+	res.writeHead(200, { "content-type": "application/json", "content-length": Buffer.byteLength(text) });
+	res.end(text);
+}
+
+function handleRequest(req, res) {
+	const url = new URL(req.url ?? "/", "http://127.0.0.1");
+	const p = decodeURIComponent(url.pathname);
+	// /ws 的 upgrade 在下面处理；这里先放行，免得被当成静态资源 404
+	if (p === "/ws" || p === "/feed") {
+		res.writeHead(426, { "content-type": "text/plain; charset=utf-8" });
+		res.end("upgrade required");
+		return;
+	}
+	if (p === "/health") {
+		// 扩展的探针靠这个端点判「这台机器上的宠物服务真的活着，而且它是不是宿主」
+		sendJson(res, {
+			...state,
+			ok: true,
+			heartbeatAt: Date.now(),
+			windowConnected: windowClients.size > 0,
+			maxPets: Number(readCtrl().maxPets) || 1,
+		});
+		return;
+	}
+	if (p === "/" || p === "/index.html") return sendFile(res, path.join(ASSETS, "pet.html"));
+	if (p === "/pet.js") return sendFile(res, path.join(ASSETS, "pet.js"));
+	if (p === "/pet.css") return sendFile(res, path.join(ASSETS, "pet.css"));
+	if (p === "/config.jsonc" || p === "/config") {
+		return sendFile(res, path.join(PKG, "assets", "config.jsonc"));
+	}
+	if (p.startsWith("/thumb/")) {
+		const file = safeAsset(THUMB, p.slice("/thumb/".length));
+		if (!file) {
+			res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+			res.end("bad thumb path");
+			return;
+		}
+		return sendFile(res, file);
+	}
+	res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+	res.end("pi-pet-host: not found");
+}
+
+/* ============================== 窗 ============================== */
+
+let windowChild = null;
+let windowPid = 0;
+let windowStartedAt = 0;
+let lastWindowSeenAt = 0;
+let lastLaunchAt = 0;
+
+/**
+ * 拉起 electron。**detached + windowsHide 是必须的**，实测：
+ *   detached:false + windowsHide:true  →  CREATE_NO_WINDOW，孩子不挂父控制台（已经免疫）
+ *   detached:false + 无 windowsHide     →  挂父控制台，关 cmd 时一起死
+ * 两个一起给：无论宿主自己怎么被拉起（node / bun / 任何运行时对 detached 的支持程度），
+ * 窗都不在父控制台上；同时宿主死了窗也能自己活着（直到 WS 断 15s 后自己关）。
+ */
+function launchWindow(size) {
+	const isWin = process.platform === "win32";
+	const cmd = isWin ? "npx.cmd" : "npx";
+	const env = { ...process.env };
+	// 跟上游一致：国内机器走 npmmirror（GitHub / S3 不通）
+	if (isWin && !env.ELECTRON_MIRROR) {
+		env.ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/";
+		env.NPM_CONFIG_REGISTRY = "https://registry.npmmirror.com";
+	}
+	state.size = size || readCtrl().size || "normal";
+	try {
+		windowChild = spawn(cmd, ["--yes", "electron", ELECTRON_SCRIPT, String(state.port)], {
+			cwd: PKG,
+			// 尺寸参数上游压根没传给 electron（窗里几只、每只多大只由 config.jsonc 决定），
+			// 这里照样记进状态，别让人以为 size 改的是初始窗口。
+			env,
+			stdio: "ignore",
+			detached: true,
+			windowsHide: true,
+			shell: isWin,
+		});
+	} catch (err) {
+		log(\`拉起 electron 失败：\${err.message}\`);
+		state.windowState = "spawn-failed";
+		writeState();
+		return;
+	}
+	windowPid = windowChild.pid ?? 0;
+	windowStartedAt = Date.now();
+	lastLaunchAt = windowStartedAt;
+	lastWindowSeenAt = 0;
+	state.windowPid = windowPid;
+	state.windowStartedAt = windowStartedAt;
+	state.windowState = "starting";
+	state.restarts++;
+	writeState();
+	log(\`拉起窗：pid \${windowPid} → http://127.0.0.1:\${state.port}\`);
+
+	windowChild.on("error", (err) => {
+		log(\`electron 启动出错：\${err.message}\`);
+		state.windowState = "error";
+		writeState();
+	});
+	windowChild.on("exit", (code) => {
+		log(\`electron 退出（code \${code}）\`);
+		if (windowChild && windowChild.pid === windowPid) {
+			windowPid = 0;
+			state.windowPid = 0;
+			state.windowState = "exited";
+			writeState();
+		}
+	});
+	try {
+		windowChild.unref();
+	} catch {
+		/* 不影响 */
+	}
+}
+
+function closeWindow() {
+	if (!windowPid) return;
+	log(\`关掉窗 pid \${windowPid}\`);
+	if (process.platform === "win32") {
+		try {
+			spawn("taskkill", ["/pid", String(windowPid), "/f", "/t"], { stdio: "ignore", windowsHide: true });
+		} catch {
+			/* 忽略 */
+		}
+	} else {
+		try {
+			process.kill(windowPid, "SIGTERM");
+		} catch {
+			/* 已经没了 */
+		}
+	}
+	windowPid = 0;
+	state.windowPid = 0;
+	state.windowState = "closed";
+	// 把宽限期从此刻重算：不然本拍的「窗没了 → keepAlive 重拉」会和下面 restartNonce
+	// 安排的换窗撞车，旧窗刚 taskkill、新窗又叠上来，屏幕上就是两只
+	windowStartedAt = Date.now();
+	writeState();
+}
+
+/* ============================== 起步 ============================== */
+
+if (!acquireLock()) process.exit(0);
+
+function shutdown(code) {
+	try {
+		releaseLock();
+	} catch {
+		/* 忽略 */
+	}
+	process.exit(code);
+}
+process.on("exit", () => releaseLock());
+process.on("SIGINT", () => shutdown(0));
+process.on("SIGTERM", () => shutdown(0));
+process.on("uncaughtException", (err) => {
+	log(\`未捕获异常：\${err && err.stack ? err.stack : err}\`);
+	// 服务已经起来了就别自杀，只记一笔（窗还能继续用）
+});
+
+const wss = new WS.WebSocketServer({ noServer: true });
+wss.on("connection", (ws, req) => {
+	const p = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+	if (p === "/ws") {
+		windowClients.add(ws);
+		lastWindowSeenAt = Date.now();
+		state.windowState = "connected";
+		log(\`窗接上了（当前 \${windowClients.size} 个客户端）\`);
+		ws.on("close", () => {
+			windowClients.delete(ws);
+			if (windowClients.size === 0) {
+				state.windowState = windowPid ? "disconnected" : "none";
+				writeState();
+			}
+			log(\`窗断开（剩 \${windowClients.size} 个）\`);
+		});
+		ws.on("error", () => windowClients.delete(ws));
+		// 窗接上先给它一发配置尺寸的 add_pet？没意义（单只），略。
+		writeState();
+		return;
+	}
+	if (p === "/feed") {
+		feedClients.add(ws);
+		log(\`会话接入事件汇聚（当前 \${feedClients.size} 个会话）\`);
+		ws.on("message", (data) => {
+			try {
+				onFeedMessage(ws, data);
+			} catch (err) {
+				log(\`转发出错：\${err.message}\`);
+			}
+		});
+		ws.on("close", () => {
+			feedClients.delete(ws);
+			log(\`会话离开（剩 \${feedClients.size} 个）\`);
+			writeState();
+		});
+		ws.on("error", () => feedClients.delete(ws));
+		writeState();
+		return;
+	}
+	ws.close();
+});
+
+const server = http.createServer(handleRequest);
+server.on("upgrade", (req, socket, head) => {
+	const p = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+	if (p === "/ws" || p === "/feed") {
+		wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+	} else {
+		socket.destroy();
+	}
+});
+
+/** 端口：优先期望值（全局共享的固定端口），被占就退一个随机空闲端口并如实写进状态。 */
+function listen() {
+	return new Promise((resolve) => {
+		const tryPort = (port, left) => {
+			const onError = (err) => {
+				server.removeListener("error", onError);
+				if (err && err.code === "EADDRINUSE" && left > 0) {
+					tryPort(randomPort(), left - 1);
+					return;
+				}
+				log(\`监听失败：\${err && err.message}\`);
+				process.exit(4);
+			};
+			server.once("error", onError);
+			server.listen(port, "127.0.0.1", () => {
+				server.removeListener("error", onError);
+				resolve();
+			});
+		};
+		tryPort(OPT.port || randomPort(), 20);
+	});
+}
+
+function randomPort() {
+	return 10240 + Math.floor(Math.random() * (49151 - 10240));
+}
+
+let lastStateWrite = 0;
+/** ctrl.restartNonce 的上次值。null = 还没记（起动那一刻先对齐，免得白补一次换窗）。 */
+let lastRestartNonce = null;
+
+/** 每 2s：读意图、维持窗、刷心跳。 */
+function tick() {
+	const ctrl = readCtrl();
+	if (!ctrl.desired) {
+		// 意图是「不要宠物」：关窗、放手、走人。下次有人 \`/pet-auto on\` 会重新拉起。
+		log("ctrl 说不要宠物了 → 关窗退出");
+		broadcastToWindow("shutdown");
+		setTimeout(() => {
+			closeWindow();
+			shutdown(0);
+		}, 250);
+		return;
+	}
+	// \`restartNonce\` 变了 = 有人要换一只窗（\`/pet-auto restart\`）：
+	// **由宿主自己**关掉旧窗再拉新的；扩展那边不伸手 taskkill —— 那样宿主会以为窗还在，
+	// keepAlive 又拉一只，或者留一个没有窗的服务端口。留 1.5s 给 taskkill 真正落地。
+	const nonce = Number(ctrl.restartNonce) || 0;
+	if (lastRestartNonce === null) {
+		lastRestartNonce = nonce;
+	} else if (nonce !== lastRestartNonce) {
+		lastRestartNonce = nonce;
+		log("ctrl.restartNonce 变了 → 换一扇窗");
+		closeWindow();
+		setTimeout(() => {
+			const now = readCtrl();
+			if (now.desired) launchWindow(now.size);
+		}, 1_500);
+		return;
+	}
+	if (ctrl.size) state.size = ctrl.size;
+	if (OPT.noWindow) {
+		writeState();
+		return;
+	}
+	// 窗在不在，以「有没有 WS 客户端」为准（比 pid 可靠：pid 在但窗崩了也连不上）
+	const connected = windowClients.size > 0;
+	if (connected) {
+		lastWindowSeenAt = Date.now();
+		if (state.windowState !== "connected") {
+			state.windowState = "connected";
+			writeState();
+		}
+	} else {
+		const sinceSeen = lastWindowSeenAt === 0 ? Infinity : Date.now() - lastWindowSeenAt;
+		const childGone = !windowChild || windowChild.exitCode !== null || !pidAlive(windowPid);
+		const pastGrace = Date.now() - windowStartedAt > WINDOW_GRACE_MS;
+		const pastLost = sinceSeen > WINDOW_LOST_MS;
+		if (ctrl.keepAlive && childGone && pastGrace && pastLost && Date.now() - lastLaunchAt > RELAUNCH_MIN_GAP_MS) {
+			log("窗没了（keepAlive）→ 重新拉起");
+			launchWindow(ctrl.size);
+		} else if (state.windowState !== "starting" && pastGrace && !connected) {
+			state.windowState = "no-window";
+			writeState();
+		}
+	}
+	if (Date.now() - lastStateWrite > 5_000) {
+		lastStateWrite = Date.now();
+		writeState();
+	}
+}
+
+server.listen && null;
+listen()
+	.then(() => {
+		const addr = server.address();
+		state.port = typeof addr === "object" && addr ? addr.port : 0;
+		state.size = readCtrl().size || "normal";
+		if (OPT.noWindow) {
+			state.windowState = "disabled";
+			log(\`宿主已起（仅服务）：127.0.0.1:\${state.port}  pid \${process.pid}\`);
+		} else {
+			log(\`宿主已起：127.0.0.1:\${state.port}  pid \${process.pid}\`);
+			launchWindow(state.size);
+		}
+		writeState();
+		setInterval(tick, 2_000);
+	})
+	.catch((err) => {
+		log(\`起步失败：\${err && err.stack ? err.stack : err}\`);
+		process.exit(5);
+	});
+`;
+
+/* ================================ 全局宿主的控制面 ================================ */
+
+/** 宿主（/health 与全局状态文件）报上来的东西。`role` 用来确认「这台真是宿主」，
+ *  别把某个 pi 进程自己那个同端口的宠物服务误当成宿主。 */
+interface HostState {
+	role?: string;
+	version?: number;
+	pid?: number;
+	port?: number;
+	startedAt?: number;
+	heartbeatAt?: number;
+	windowPid?: number;
+	windowStartedAt?: number;
+	windowState?: string;
+	clients?: number;
+	feeds?: number;
+	size?: string;
+	pkg?: string;
+	ok?: boolean;
+}
+
+/** 意图文件（扩展写，宿主每 2s 读）。`desired` 是总闸：false = 宿主关窗退出。 */
+interface CtrlIntent {
+	desired?: boolean;
+	keepAlive?: boolean;
+	maxPets?: number;
+	size?: PetSize;
+	bridge?: boolean;
+	/** 变了就换一扇窗（`/pet-auto restart`）。 */
+	restartNonce?: number;
+}
+
+function sha1(text: string): string {
+	return createHash("sha1").update(text).digest("hex");
+}
+
+/**
+ * 按内容 hash 门控写宿主脚本：内容没变就**不碰**文件（省得 mtime 乱跳、也少一个被 AV
+ * 反复扫的目标）。写的时候先写临时文件再改名，免得宿主正在被拉起时读到半截源码。
+ */
+function writeHostScript(): { path: string; changed: boolean } {
+	try {
+		if (existsSync(HOST_SCRIPT_PATH) && sha1(readFileSync(HOST_SCRIPT_PATH, "utf8")) === sha1(HOST_SOURCE)) {
+			return { path: HOST_SCRIPT_PATH, changed: false };
+		}
+	} catch {
+		/* 读不了就重写 */
+	}
+	writeFileAtomic(HOST_SCRIPT_PATH, HOST_SOURCE);
+	return { path: HOST_SCRIPT_PATH, changed: true };
+}
+
+/** 先写临时文件再改名：读者（宿主 / 别的会话）永远看到完整的一份。 */
+function writeFileAtomic(file: string, text: string): void {
+	mkdirSync(path.dirname(file), { recursive: true });
+	const tmp = `${file}.${process.pid}.tmp`;
+	writeFileSync(tmp, text, "utf8");
+	// Windows 的 rename 不能覆盖已存在的目标（EPERM），先删再改名
+	try {
+		rmSync(file, { force: true });
+	} catch {
+		/* 删不掉就让下面的 rename 报错 */
+	}
+	renameSync(tmp, file);
+}
+
+function readJsonFile<T>(file: string): T | null {
+	try {
+		const raw = JSON.parse(readFileSync(file, "utf8")) as T;
+		return raw && typeof raw === "object" ? raw : null;
+	} catch {
+		return null;
+	}
+}
+
+/** 读全局状态 = 读「端口是多少」的唯一入口：各会话都从这儿拿，所以端口是全局共享的。 */
+function readGlobal(): HostState | null {
+	return readJsonFile<HostState>(GLOBAL_PATH);
+}
+
+function readCtrl(): CtrlIntent {
+	return readJsonFile<CtrlIntent>(CTRL_PATH) ?? {};
+}
+
+/** 合并写意图（只改给的那几个字段，其余留着——多会话同时写别互相清空）。 */
+function writeCtrl(patch: CtrlIntent): void {
+	writeFileAtomic(CTRL_PATH, `${JSON.stringify({ ...readCtrl(), ...patch }, null, 2)}\n`);
+}
+
+type HostHealth = (port: number, timeoutMs?: number) => Promise<HostState | null>;
+
+/**
+ * GET /health。必须核 `role === "pi-pet-host"`：状态文件是**任何**进程都能写的普通
+ * 文件，光看它写着「有宠物」就信，等于把「读到了脏数据」当成「宠物在」。
+ */
+const hostHealth: HostHealth = (port, timeoutMs = 1_500) =>
+	((globalThis as { __piPetHostHealth?: HostHealth }).__piPetHostHealth ?? realHostHealth)(port, timeoutMs);
+
+function realHostHealth(port: number, timeoutMs = 1_500): Promise<HostState | null> {
+	return new Promise((resolve) => {
+		let done = false;
+		const finish = (value: HostState | null): void => {
+			if (done) return;
+			done = true;
+			resolve(value);
+		};
+		const req = httpRequest(
+			{ host: "127.0.0.1", port, path: "/health", method: "GET", timeout: timeoutMs },
+			(res) => {
+				if (res.statusCode !== 200) {
+					res.resume();
+					finish(null);
+					return;
+				}
+				let buf = "";
+				res.setEncoding("utf8");
+				res.on("data", (chunk: string) => {
+					buf += chunk;
+					if (buf.length > 65_536) req.destroy();
+				});
+				res.on("end", () => {
+					try {
+						const parsed = JSON.parse(buf) as HostState;
+						finish(parsed?.role === "pi-pet-host" ? parsed : null);
+					} catch {
+						finish(null);
+					}
+				});
+			},
+		);
+		req.on("timeout", () => {
+			req.destroy();
+			finish(null);
+		});
+		req.on("error", () => finish(null));
+		req.end();
+	});
+}
+
+/** 等某个宿主把端口公布出来并真的应答（多会话同时起时，输的那个等赢的那个）。 */
+async function waitForHost(timeoutMs: number, pollMs = 250): Promise<HostState | null> {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		await sleep(pollMs);
+		const global = readGlobal();
+		if (global && Number(global.port) > 0) {
+			const health = await hostHealth(Number(global.port));
+			if (health) return health;
+		}
+		if (Date.now() >= deadline) return null;
+	}
+}
+
+/** PATH 上找可执行文件（Windows 要带 PATHEXT；PATH 项可能带引号，要剥掉）。 */
+function findOnPath(exe: string): string | null {
+	const exts =
+		process.platform === "win32" ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(path.delimiter) : [""];
+	for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+		if (!dir) continue;
+		const base = dir.replace(/^"|"$/g, "");
+		for (const ext of exts) {
+			const candidate = path.join(base, ext ? `${exe}${ext}` : exe);
+			try {
+				if (existsSync(candidate)) return candidate;
+			} catch {
+				/* 无权限目录跳过 */
+			}
+		}
+	}
+	return null;
+}
+
+/**
+ * 宿主拿什么运行时跑。pi 自己是 Bun 打包的单文件，`process.execPath` 指的是 `pi.exe`，
+ * **不能**拿来当 node 用（会变成「pi 启动 pi」）。所以另外找 PATH 上的 node；
+ * 实在没有就退 bun（宿主是纯 CJS，bun 吃得下 `node:http` / `ws`）。
+ */
+function resolveRuntime(): string | null {
+	const forced = process.env.PI_PET_NODE;
+	if (forced && existsSync(forced)) return forced;
+	return findOnPath("node") ?? findOnPath("bun");
+}
+
+/**
+ * pi-dsh-pet 包根目录：扩展入口在 `<pkg>/pi/extensions/index.ts`，往上两级就是 `<pkg>`
+ * （里面有 `pi/assets/pet-electron.cjs`、`pi/assets/pet.js`、`assets/thumb`）。
+ * 认这个目录而不是猜路径：包版本变了目录结构变了也不会拉错。
+ */
+function petPackageRoot(pi: ExtensionAPI): string | null {
+	const entry = petEntryPath(pi);
+	if (!entry) return null;
+	const root = path.resolve(path.dirname(entry), "..", "..");
+	return existsSync(path.join(root, "pi", "assets", "pet-electron.cjs")) ? root : null;
+}
+
+interface HostSpawn {
+	command: string;
+	args: string[];
+}
+
+/** 探针用 `globalThis.__piPetSpawnHost` 顶掉真拉起（免得测试机真冒出窗来）。 */
+type HostSpawner = (spec: HostSpawn & { detached: boolean; windowsHide: boolean; stdio: "ignore" }) => void;
+
+function hostSpawner(): HostSpawner {
+	const hook = (globalThis as { __piPetSpawnHost?: HostSpawner }).__piPetSpawnHost;
+	if (typeof hook === "function") return hook;
+	// detached + windowsHide + stdio ignore：宿主不在父进程的控制台事件范围里（Ctrl+C / 关 cmd
+	// 都不沾），也没有自己的控制台；`detached` 同时保证父进程被 taskkill /t 时**不**连坐它
+	// （taskkill 只跟父子关系走，detached 断了这层关系）。
+	return (spec) => {
+		const child = spawn(spec.command, spec.args, {
+			detached: spec.detached,
+			windowsHide: spec.windowsHide,
+			stdio: spec.stdio,
+		});
+		child.unref();
+	};
+}
+
+/** 关掉宿主（连带它那扇窗）。`restart` / `off` 的兜底路径用。 */
+async function killHostProcess(host: HostState): Promise<boolean> {
+	const pid = Number(host.pid);
+	if (!pid || !pidAlive(pid)) return false;
+	if (process.platform === "win32") {
+		await capture("taskkill", ["/pid", String(pid), "/f", "/t"]);
+	} else {
+		try {
+			process.kill(pid, "SIGTERM");
+		} catch {
+			/* 已经没了 */
+		}
+	}
+	return true;
+}
+
 export default function piPetAutostart(pi: ExtensionAPI): void {
 	const { config, broken } = loadConfig();
 	let runtime = { ...config };
 	let fired = false;
 	let addPetBlocked = false;
+	/** 上一轮拿到的宿主（null = 走的旧路 / 宿主没起来）。status 与巡检都要用它。 */
+	let host: HostState | null = null;
+	/** 巡检定时器：`session_start` 与 `/pet-auto status` 之后只跑一次。 */
+	let sweepTimer: ReturnType<typeof setInterval> | null = null;
+	/** 巡检收掉过的窗 pid：只提醒一次，别每 60s 报同一条。 */
+	const swept = new Set<number>();
 
 	/** 上游包是否在（命令表里能查到）。不在就静默跳过——没装宠物的人不该被提醒。 */
 	const petInstalled = (): boolean =>
@@ -894,6 +1920,190 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 		if (port === ownWindowPort()) return;
 		const stop = bridgeTo(pi, port);
 		if (stop) activeBridges.set(port, stop);
+	};
+
+	/**
+	 * 把本会话的事件喂到宿主的 `/feed`。**所有**会话都走这一条，所以宠物是全局唯一的那一只，
+	 * 却跟着所有会话动。与旧路的 `bridgeIfForeign`（接别人进程的 `/ws`）的区别就是路径：
+	 * 接 `/ws` 会被宿主当成「第二个窗客户端」，接 `/feed` 才是喂事件。
+	 */
+	const feedHost = (port: number): void => {
+		if (!runtime.bridge || port <= 0) return;
+		const stop = bridgeTo(pi, port, "/feed");
+		if (stop) activeBridges.set(port, stop);
+	};
+
+	/**
+	 * 确保全局宿主在跑，返回它的状态（null = 走旧路）。
+	 * 顺序很重要：**先探活再拉起**。多开几个 pi 会话时每个都以为自己该起一个，
+	 * 靠「状态文件里的端口探得到 /health」认出现有那个，才不会拉起一堆宿主。
+	 */
+	const ensureHost = async (ctx: Notifier, allowStart = true): Promise<HostState | null> => {
+		if (!runtime.host) return null;
+		// 1. 已有的：状态文件里的端口探得到 /health 且 role 对 → 直接用
+		const known = readGlobal();
+		if (known && Number(known.port) > 0) {
+			const health = await hostHealth(Number(known.port));
+			if (health) {
+				host = health;
+				writeCtrl(ctrlIntent());
+				return health;
+			}
+		}
+		// 不许拉起（`autostart:false` 的会话、`bridge on` 只想接上）→ 到此为止
+		if (!allowStart) return null;
+		// 2. 拉一个：抢锁 → 写宿主脚本 → detached 拉起 → 等 /health
+		const root = petPackageRoot(pi);
+		if (!root) {
+			notify(ctx, "找不到 pi-dsh-pet 的安装目录（pi/assets/pet-electron.cjs），本会话退回旧路开窗", "warning");
+			return null;
+		}
+		const runtime_bin = resolveRuntime();
+		if (!runtime_bin) {
+			notify(ctx, "PATH 上找不到 node（或 bun），拉不起全局宿主，本会话退回旧路开窗（关掉本会话宠物就没了）", "warning");
+			return null;
+		}
+		if (!acquireLockAt(HOST_LOCK_PATH)) {
+			// 别的会话正在拉宿主：等它把端口公布出来（输家不重复拉，否则一堆宿主抢同一个端口）
+			const health = await waitForHost(HOST_WAIT_MS);
+			if (health) {
+				host = health;
+				// 认领别人的宿主也要刷一遍意图：不然另一个会话的 `/pet-auto off`
+				// 之后，这里还停着一条「我还想要宠物」的旧意图
+				writeCtrl(ctrlIntent());
+				return health;
+			}
+			notify(ctx, "别的会话正在拉起宠物宿主，本会话就不重复拉了", "info");
+			return null;
+		}
+		try {
+			const script = writeHostScript();
+			const args = [
+				script.path,
+				"--port",
+				String(runtime.port),
+				"--pkg",
+				root,
+				"--global",
+				GLOBAL_PATH,
+				"--ctrl",
+				CTRL_PATH,
+				"--lock",
+				HOST_LOCK_PATH,
+			];
+			writeCtrl(ctrlIntent());
+			hostSpawner()({
+				command: runtime_bin,
+				args,
+				// 探针死盯这两个参数：去掉任何一个，宠物就会重新绑回父 cmd 进程的命
+				detached: true,
+				windowsHide: true,
+				stdio: "ignore",
+			});
+			const health = await waitForHost(HOST_WAIT_MS);
+			if (!health) {
+				notify(
+					ctx,
+					`拉起了宿主进程（${path.basename(runtime_bin)}）但 ${HOST_WAIT_MS / 1000}s 内没应答，本会话退回旧路开窗`,
+					"warning",
+				);
+				return null;
+			}
+			host = health;
+			notify(
+				ctx,
+				`全局宠物宿主：pid ${health.pid} :${health.port}（${script.changed ? "已写入新脚本" : "复用已有脚本"}），` +
+					`这一只属于整台机器，不随本会话关闭`,
+				"info",
+			);
+			return health;
+		} finally {
+			releaseLockAt(HOST_LOCK_PATH);
+		}
+	};
+
+	/** 本会话要告诉宿主的意图（也是多会话之间的「合并配置」）。 */
+	const ctrlIntent = (): CtrlIntent => {
+		const patch: CtrlIntent = {
+			keepAlive: runtime.keepAlive,
+			maxPets: runtime.maxPets,
+			size: runtime.size,
+			bridge: runtime.bridge,
+		};
+		// `desired` 只在**本会话真的要**的时候才声明：要的人说「要」，不要的人不吭声，
+		// 否则 autostart:false 的那个会话会把别人正在用的宿主直接关掉。
+		// 真要关只能由 `/pet-auto off` 显式写 false（那是用户的动作，理应赢）。
+		if (runtime.autostart) patch.desired = true;
+		return patch;
+	};
+
+	/**
+	 * 巡检：让「整机只有一只」从「启动时那一下」变成**持续不变量**。
+	 * 宿主那条路：宿主自己那扇（端口 == 宿主端口，或 pid == 宿主报的窗 pid）合法，
+	 * 其余**全是多余的**（别人手敲 `/pet` 冒出来的：端口是那个 pi 进程自己的随机端口）。
+	 * 旧路：按 `startedAt` 留最老的 maxPets 只，其余收掉。
+	 * 扫不动（`ok:false`）就**什么都不做**——扫描失败不是「没有窗」的证据。
+	 */
+	const sweepWindows = async (ctx: Notifier, force = false): Promise<void> => {
+		if (!petInstalled()) return;
+		const shot = await scan();
+		if (!shot.ok) {
+			if (force) notify(ctx, "巡检扫不到全机宠物窗，本轮不动手（保证已降级）", "warning");
+			return;
+		}
+		let doomed: PetWindow[];
+		if (host && Number(host.port) > 0) {
+			const ownPort = Number(host.port);
+			const ownPid = Number(host.windowPid);
+			doomed = shot.windows.filter((w) => w.pid !== ownPid && w.port !== ownPort);
+		} else {
+			const { alive } = await splitByHealth(shot.windows);
+			const sorted = alive.sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
+			doomed = sorted.slice(Math.max(1, runtime.maxPets));
+		}
+		if (doomed.length === 0) return;
+		let closed = 0;
+		for (const w of doomed) {
+			if (await killer()(w)) {
+				closed++;
+				if (!swept.has(w.pid)) {
+					swept.add(w.pid);
+					notify(ctx, `巡检收掉多余的宠物窗 pid ${w.pid}:${w.port}（整机只留一只）`, "warning");
+				}
+			}
+		}
+		if (closed === 0) return;
+	};
+
+	const startSweep = (ctx: Notifier): void => {
+		if (sweepTimer || runtime.sweepMs <= 0) return;
+		sweepTimer = setInterval(() => void sweepWindows(ctx), runtime.sweepMs);
+		// 巡检只是个兜底，不该拖住 pi 退出
+		sweepTimer.unref?.();
+	};
+
+	/**
+	 * 上游那套 `openWindow` 只在**降级**时用：宿主起不来时（没 node / 宿主不答复）
+	 * 至少让本会话有只宠物，代价是它绑在本进程上。
+	 */
+	const legacyOpen = async (size: PetSize, ctx: Notifier, ignore: ReadonlySet<number> = new Set()): Promise<void> => {
+		await openWindow(size, ctx, ignore);
+	};
+
+	/**
+	 * 入口：宿主优先，失败才降级。
+	 * 宿主起来时**不派发 `/pet`**——窗和端口都由宿主管，本进程一个 electron 都不碰。
+	 */
+	const startPet = async (size: PetSize, ctx: Notifier): Promise<void> => {
+		if (runtime.host) {
+			const h = await ensureHost(ctx);
+			if (h) {
+				feedHost(Number(h.port));
+				startSweep(ctx);
+				return;
+			}
+		}
+		await legacyOpen(size, ctx);
 	};
 
 	/** 已经有**活的**窗 → 复用：不派发 `/pet`、不 add_pet，把本会话事件桥过去。 */
@@ -927,6 +2137,8 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 	 */
 	const ensureBridge = async (): Promise<void> => {
 		if (!runtime.bridge) return;
+		// 宿主模式下桥由 startPet 负责（走 /feed），这里只管旧路那些窗
+		if (host && Number(host.port) > 0) return;
 		const shot = await scan();
 		// 扫不动就维持现状：一次扫描抖动不该把好桥全停掉（同「扫不动 ≠ 没有窗」）
 		if (!shot.ok) return;
@@ -945,8 +2157,8 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 	};
 
 	/**
-	 * 跨进程的开窗流程：扫描 → 验活 → 不够就抢锁 → 复核 → 派发 `/pet` → 等自己的窗冒出来。
-	 * 任何一个「已经有活窗」的分支都走 `adopt`（复用），绝不叠第二扇。
+	 * 跨进程的开窗流程（**只在降级时走**）：扫描 → 验活 → 不够就抢锁 → 复核 → 派发 `/pet` →
+	 * 等自己的窗冒出来。任何一个「已经有活窗」的分支都走 `adopt`（复用），绝不叠第二扇。
 	 */
 	const openWindow = async (size: PetSize, ctx: Notifier, ignore: ReadonlySet<number> = new Set()): Promise<void> => {
 		// 刚 taskkill 掉的窗可能还在进程表里挂着，先剔掉，别把尸体当活窗复用
@@ -1029,9 +2241,32 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 
 		if (ctx.mode !== "tui") return; // print / json / rpc（bench 沙箱）不弹桌面窗
 
+		// 宿主优先：能拿到全局宿主就**只**喂事件（/feed），一个 electron 都不碰。
+		// `ensureHost` 内部自带「探活→复用」，所以这里不必等 fired/记账：每次 session_start
+		// 都跑一遍是**故意**的（/reload、切会话、多开 pi 都要重新确认全局状态）。
+		if (runtime.host) {
+			void (async () => {
+				const h = await ensureHost(ctx, runtime.autostart);
+				if (h) {
+					feedHost(Number(h.port));
+					startSweep(ctx);
+					return;
+				}
+				// 宿主起不来：降级，但把「这一只绑在本进程上」说清楚
+				await ensureBridge();
+				if (!runtime.autostart || fired || alreadyFiredThisProcess()) return;
+				fired = true;
+				markFired(undefined, true);
+				await legacyOpen(runtime.size, ctx);
+			})();
+			if (broken) notify(ctx, `pi-dsh-pet 配置读坏，按默认启用处理：${CONFIG_PATH}`, "warning");
+			return;
+		}
+
 		// 建桥**独立于**下面的开窗闸：已经有活窗就接上，没有才考虑开。
 		// 放在闸外是修「/reload 或切会话后复用的窗永久待机」的关键。
 		void ensureBridge();
+		startSweep(ctx);
 
 		if (!runtime.autostart) return;
 		if (fired || alreadyFiredThisProcess()) return;
@@ -1043,14 +2278,15 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 		const delay = runtime.delayMs;
 		// 上游的 session_start 里在起 HTTP 服务；错开一点让它先就绪（它也能自己补起，这里只是稳态）
 		// 整段（扫进程 + 等锁 + 等窗）都放后台：wmic 起步 0.4s，不能挡住 session_start
-		if (delay > 0) setTimeout(() => void openWindow(size, ctx), delay);
-		else void openWindow(size, ctx);
+		if (delay > 0) setTimeout(() => void legacyOpen(size, ctx), delay);
+		else void legacyOpen(size, ctx);
 	});
 
 	pi.registerCommand("pet-auto", {
-		description: "Toggle pi-dsh-pet autostart (on|off|size <档位>|max <只数>|bridge on|off|status|cleanup|restart)",
+		description:
+			"Toggle pi-dsh-pet autostart (on|off|size <档位>|max <只数>|bridge on|off|host on|off|status|cleanup|restart)",
 		getArgumentCompletions: (prefix) =>
-			["on", "off", "size", "max", "bridge", "status", "cleanup", "restart"]
+			["on", "off", "size", "max", "bridge", "host", "status", "cleanup", "restart"]
 				.filter((v) => v.startsWith(prefix))
 				.map((value) => ({ value, label: value })),
 		handler: async (args, ctx) => {
@@ -1059,7 +2295,44 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 				runtime.autostart = verb === "on";
 				fired = false; // 本进程内允许立刻重试
 				saveConfig(runtime);
-				notify(ctx, `pi-dsh-pet 自动启动：${runtime.autostart ? "on" : "off"}（${CONFIG_PATH}）`);
+				if (runtime.host) {
+					// off = 写 `desired:false`，宿主自己会关窗退出（不是我们伸手去关它的窗：
+					// 那样会留下一个没主人的服务端口，别的会话的桥全断）
+					writeCtrl({ desired: runtime.autostart });
+					if (runtime.autostart) {
+						const h = await ensureHost(ctx, true);
+						if (h) feedHost(Number(h.port));
+						startSweep(ctx);
+					}
+				} else if (!runtime.autostart) {
+					// 旧路：上游的窗绑在本进程上，只能伸手关（/pet-stop 同理，但那个走的是上游自己的进程）
+					const { windows } = await scan();
+					for (const w of windows) if (w.port === ownWindowPort() || windows.length === 1) await killer()(w);
+				}
+				notify(
+					ctx,
+					`pi-dsh-pet 自动启动：${runtime.autostart ? "on" : "off"}（${CONFIG_PATH}）` +
+						(runtime.host
+							? runtime.autostart
+								? "｜全局宿主：开着"
+								: "｜全局宿主：已要求关窗退出（再 on 会重新拉起）"
+							: "｜当前走旧路（宿主 off），宠物绑在本进程上"),
+				);
+				return;
+			}
+			if (verb === "host") {
+				if (value !== "on" && value !== "off") {
+					notify(ctx, "用法：/pet-auto host on|off（off = 退回本进程内开窗，用于排查宿主）", "error");
+					return;
+				}
+				runtime.host = value === "on";
+				saveConfig(runtime);
+				notify(
+					ctx,
+					runtime.host
+						? "全局宿主：on（下次 session_start 起，或直接 /pet-auto on）"
+						: "全局宿主：off（退回旧路：宠物绑在本 pi 进程上，关掉本会话就没了；已有的宿主不动）",
+				);
 				return;
 			}
 			if (verb === "size") {
@@ -1069,7 +2342,8 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 				}
 				runtime.size = value as PetSize;
 				saveConfig(runtime);
-				notify(ctx, `pi-dsh-pet 默认尺寸：${runtime.size}（下次 /pet 或自动启动生效）`);
+				writeCtrl({ size: runtime.size });
+				notify(ctx, `pi-dsh-pet 默认尺寸：${runtime.size}（宿主换窗时生效）`);
 				return;
 			}
 			if (verb === "max") {
@@ -1080,6 +2354,8 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 				}
 				runtime.maxPets = want;
 				saveConfig(runtime);
+				// maxPets 是**机器级**的：宿主那层就是按它做最后一道闸的（丢掉 add_pet* 帧）
+				writeCtrl({ maxPets: runtime.maxPets });
 				notify(ctx, `pi-dsh-pet 同时最多 ${want} 只（现有多余的用 /pet-auto cleanup 收掉）`);
 				return;
 			}
@@ -1088,6 +2364,7 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 					runtime.bridge = false;
 					stopBridges();
 					saveConfig(runtime);
+					writeCtrl({ bridge: false });
 					notify(ctx, "事件桥已关：复用的宠物只跟开它那个会话动");
 					return;
 				}
@@ -1097,6 +2374,18 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 				}
 				runtime.bridge = true;
 				saveConfig(runtime);
+				writeCtrl({ bridge: true });
+				// 宿主模式：接 `/feed`（不拉起宿主，只接已有的）
+				if (runtime.host) {
+					const h = await ensureHost(ctx, false);
+					if (h) {
+						feedHost(Number(h.port));
+						notify(ctx, `事件桥已开（宿主 :${h.port}，本会话走 /feed）`);
+					} else {
+						notify(ctx, "事件桥已开，但没找到在跑的宿主（下次 session_start 会拉）", "warning");
+					}
+					return;
+				}
 				// 已经开着活窗的，本进程马上补一条桥
 				const wins = (await scan()).windows;
 				const { alive } = await splitByHealth(wins);
@@ -1108,8 +2397,16 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 				const { alive, orphans } = await splitByHealth((await scan()).windows);
 				// 拿不到出生时刻的（startedAt=0）当最新的处理 → 优先收掉
 				const wins = alive.sort((a, b) => (a.startedAt || Number.MAX_SAFE_INTEGER) - (b.startedAt || Number.MAX_SAFE_INTEGER));
-				const keep = wins.slice(0, runtime.maxPets);
-				const drop = wins.slice(runtime.maxPets);
+				// 宿主模式下，宿主报的那只（端口匹配）无条件保留：它是全局那一只，
+				// 哪怕扫描里它「最年轻」也不能收——收了整机就一只都不剩。
+				const ownPort = host ? Number(host.port) : 0;
+				const ownPid = host ? Number(host.windowPid) : 0;
+				const isHostWindow = (w: PetWindow): boolean => ownPort > 0 && (w.port === ownPort || w.pid === ownPid);
+				const keep = [...wins.filter(isHostWindow), ...wins.filter((w) => !isHostWindow(w))].slice(
+					0,
+					Math.max(runtime.maxPets, wins.filter(isHostWindow).length),
+				);
+				const drop = wins.filter((w) => !keep.includes(w));
 				if (drop.length === 0 && orphans.length === 0) {
 					notify(ctx, `现在 ${wins.length} 只，没多余的（上限 ${runtime.maxPets}）`);
 					return;
@@ -1127,6 +2424,31 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 				return;
 			}
 			if (verb === "restart") {
+				// 宿主模式：改 nonce 让宿主自己关掉旧窗再拉新窗（不伸手去 taskkill 它的窗：
+				// 那样宿主会以为窗还在、keepAlive 又拉一只，或者直接孤零零剩个服务端口）
+				if (runtime.host) {
+					const h = await ensureHost(ctx, false);
+					if (!h) {
+						notify(ctx, "没有在跑的宿主，先 /pet-auto on 拉一个", "warning");
+						return;
+					}
+					const before = Number(h.windowPid);
+					writeCtrl({ desired: true, restartNonce: (Number(readCtrl().restartNonce) || 0) + 1 });
+					// 宿主 2s 一拍，任务 1.5s 后执行 → 等 4.5s 确认换了一只
+					for (let waited = 0; waited < 9_000; waited += 500) {
+						await sleep(500);
+						const now = readGlobal();
+						const health = now && Number(now.port) > 0 ? await hostHealth(Number(now.port)) : null;
+						if (health && Number(health.windowPid) > 0 && Number(health.windowPid) !== before) {
+							stopBridges();
+							feedHost(Number(health.port));
+							notify(ctx, `换了一只：宿主 pid ${health.pid} 的窗 pid ${before} → ${health.windowPid}（:${health.port}）`);
+							return;
+						}
+					}
+					notify(ctx, "10s 内没看到宿主换窗（npx 拉 Electron 可能很慢），用 /pet-auto status 看窗状态", "warning");
+					return;
+				}
 				const { windows } = await scan();
 				for (const w of windows) await killer()(w);
 				// taskkill 之后进程表还会挂一会儿：把这些 pid 拉黑到本轮开窗结束，
@@ -1137,34 +2459,47 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 				// 上游要等它自己的 exit 回调把 electronProc 置空，否则再派发 /pet 会被当成
 				// 「窗已开」→ 变成 add_pet（钩子在的话就被拦掉，窗就一直不出来了）
 				await sleep(RESTART_WAIT_MS);
-				await openWindow(runtime.size, ctx, ignore);
+				await legacyOpen(runtime.size, ctx, ignore);
 				return;
 			}
 
-			// 默认（无参 / status）：把「限额到底生效了没」摊开给用户看
+			// 默认（无参 / status）：把「限额到底生效了没」「这一只到底归谁」摊开给用户看
 			const shot = await scan();
 			const { alive, orphans } = await splitByHealth(shot.windows);
 			const wins = alive.sort((a, b) => a.startedAt - b.startedAt);
 			const state = readState();
 			const own = ownWindowPort();
+			// 宿主状态：现读一次（可能刚被别人起了 / 刚退了），别只信内存里那份
+			const global = readGlobal();
+			const live = global && Number(global.port) > 0 ? await hostHealth(Number(global.port)) : null;
+			if (live) host = live;
 			notify(
 				ctx,
 				`pi-dsh-pet autostart=${runtime.autostart} size=${runtime.size} delayMs=${runtime.delayMs} ` +
-				`maxPets=${runtime.maxPets} bridge=${runtime.bridge ? "on" : "off"} ` +
+				`maxPets=${runtime.maxPets} bridge=${runtime.bridge ? "on" : "off"} host=${runtime.host ? "on" : "off"} ` +
 					// 这两个不是一个东西，分开写：fired 是**本模块实例**开没开过（/reload 会重置），
 					// alreadyFiredThisProcess() 是 pid 记账说本进程开没开过（跨 /reload 仍在）。
 					// 合成一个「本进程已弹」会自相矛盾：/reload 后 fired=false，而窗明明是本进程开的。
 					`本实例已开=${fired} 记账命中=${alreadyFiredThisProcess()}` +
-					`\n宠物包=${petInstalled() ? "已装" : "未装"} 扫进程=${shot.ok ? "ok" : "失败(保证降级)"}` +
-					` 活窗=${wins.length}/${runtime.maxPets}` +
-					(wins.length > 0 ? `（${wins.map((w) => `pid ${w.pid}:${w.port}`).join(" / ")}）` : "") +
-					` 孤儿窗=${orphans.length}` +
-					(orphans.length > 0 ? `（${orphans.map((w) => `pid ${w.pid}:${w.port}`).join(" / ")}，cleanup 可收）` : "") +
-					` add_pet 已拦=${blockedAddPet} 钩子=${addPetBlocked ? "已装" : "没装"}` +
-					`\n事件桥：${bridgeReport()}` +
-					(own > 0 ? `（:${own} 是本进程自己开的，上游直发不桥）` : "") +
-					`\n记账：${STATE_PATH}${state.window ? `（上次落在 pid ${state.window.pid}:${state.window.port}${state.window.reused ? " 复用" : ""}）` : ""}` +
-					`｜多的用 cleanup 收，只留一只且要新开窗用 restart`,
+					(live
+						? `\n全局宿主：pid ${live.pid} :${live.port}（活着；会话数=${live.feeds ?? 0} 窗连接=${live.clients ?? 0}）` +
+						  `窗 pid=${live.windowPid} 状态=${live.windowState} 巡检=${runtime.sweepMs > 0 ? `${Math.round(runtime.sweepMs / 1000)}s` : "关"}` +
+						  `｜这一只属于整台机器，关掉本会话 / 父 cmd 都不影响它`
+						: global
+							? `\n全局宿主：没应答（状态文件说 pid ${global.pid} :${global.port}，探不到 /health）——可能已被硬杀，`
+							  + "下次 session_start 会重新拉起"
+							: `\n全局宿主：没在跑（${runtime.autostart ? "下次 session_start 会拉起" : "autostart=off"}）`) +
+				`\n宠物包=${petInstalled() ? "已装" : "未装"} 扫进程=${shot.ok ? "ok" : "失败(保证降级)"}` +
+				` 活窗=${wins.length}/${runtime.maxPets}` +
+				(wins.length > 0 ? `（${wins.map((w) => `pid ${w.pid}:${w.port}`).join(" / ")}）` : "") +
+				` 孤儿窗=${orphans.length}` +
+				(orphans.length > 0 ? `（${orphans.map((w) => `pid ${w.pid}:${w.port}`).join(" / ")}，cleanup 可收）` : "") +
+				` add_pet 已拦=${blockedAddPet} 钩子=${addPetBlocked ? "已装" : "没装"}` +
+				`\n事件桥：${bridgeReport()}` +
+				(own > 0 ? `（:${own} 是本进程自己开的，上游直发不桥）` : "") +
+				`\n记账：${STATE_PATH}${state.window ? `（上次落在 pid ${state.window.pid}:${state.window.port}${state.window.reused ? " 复用" : ""}）` : ""}` +
+				(live ? `｜宿主：${GLOBAL_PATH}` : "") +
+				`｜多的用 cleanup 收，只留一只且要新开窗用 restart`,
 			);
 		},
 	});

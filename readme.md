@@ -193,7 +193,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 配置 `~/.pi/agent/extensions/pi-dsh-pet.json`（**默认启用**，本机已写）：
 
 ```json
-{ "autostart": true, "size": "normal", "delayMs": 400, "maxPets": 1, "bridge": true }
+{ "autostart": true, "size": "normal", "delayMs": 400, "maxPets": 1, "bridge": true, "host": true, "port": 47653, "sweepMs": 60000, "keepAlive": true }
 ```
 
 - `autostart: false` → 不自动弹（仍可手敲 `/pet`）；**只认显式 `false`**，写错类型（如 `"false"`）仍按启用算，避免宠物莫名消失。
@@ -201,8 +201,12 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 - `delayMs`：等上游 HTTP 服务（随机端口 10240–49151）就绪的延时。上游 handler 自己也能补起服务，这一步纯稳态。
 - `maxPets`：**同时最多几只**（1–8，默认 1）。已经超了就 `/pet-auto cleanup` 收掉多余的。
 - `bridge`：复用别人的窗时是否把本会话事件转发过去（默认开）。
+- `host`：走**全局宿主**（§3.6.2，默认开）。`false` / 环境 `PI_PET_HOST=0` 退回旧路（宠物会随本会话进程死）。
+- `port`：宿主**期望**的端口（默认 47653，1024–65535；被占就退一个随机空闲端口，真实端口写进 `~/.pi/agent/state/pi-pet-global.json`）。
+- `sweepMs`：巡检间隔（默认 60s，`0` = 不巡检）。巡检让「整机一只」成为持续不变量。
+- `keepAlive`：窗意外死了要不要拉回来（默认开）。
 - 文件缺失 / 读坏 = 按**启用**处理（读坏会 `notify` 一次），与 `no-find.json` 同一套约定。
-- 会话内随手切：`/pet-auto on|off|size <档位>|max <只数>|bridge on|off|status|cleanup|restart`，改动写回同一个 json。
+- 会话内随手切：`/pet-auto on|off|size <档位>|max <只数>|host on|off|bridge on|off|status|cleanup|restart`，改动写回同一个 json。
 
 #### 3.6.1 「只许一只」是怎么限住的
 
@@ -230,7 +234,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 **首次开窗会下 Electron ≈100MB**（上游在 Windows 自动设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）；包里 91 个透明 WebM，`assets/thumb` 解包 48MB。
 
-验证：`node .sc-test/probe-pet-autostart.mjs`（**84 个 case**，探针默认测**仓库里的源文件**并在开头报「仓库 vs 已装副本」的漂移——不同步时 pi 跑的根本不是你刚改的代码）。覆盖配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回、**单只限制**（已有窗→复用、`maxPets`、锁抢占/陈旧锁、`cleanup`/`restart`、ws 钩子真起服务验证 `add_pet` 被丢），2026-09-29 补的回归组：**端口验活**（`refused` 当孤儿；探不通先快探再宽限长超时探，两次都不通就收掉）、**泄漏 socket 复现**（裸 `net` server 只 accept 不应答，断言状态不会永远停在 `connecting`）、**事件桥端到端**（真起 ws 服务，验证 `thinking`/`tool_call` 真的发得出去）、**`/reload` 后桥仍在**、**扫不动 ≠ 没有窗**、**status 摊开活窗/孤儿/桥状态**；2026-09-30 补的回归组（这四条**全部先在旧代码上跑出红**，才算数）：**PowerShell 兜底**（静态查 `[int]`→`[long]` + 用 `(Get-Date)` 复现「`[int]` 一行都不吐 / `[long]` 吐 13 位」+ 真机断言「新脚本行数 = 带端口的主进程数、每行 `port>0`」）、**窗被换掉后桥迁移**（两个假 pet 服务，断言新窗收得到、老窗收不到）、**pending 记账三种语义**（新鲜 pending 不重开 / 过期放行 / `startedAt` 对不上照开）、**复核扫描挂掉时不许盲认领窗**（前 4 次扫描挂、之后才扫得动，断言记账是 `reused:true` 且桥真建起来）。探针用 `globalThis.__piPetScanWindows` / `__piPetKillWindow` / `__piPetProbePort` 顶掉扫进程、taskkill、端口探测，不会误动真实宠物。末条 case 查真实机器上是否只剩一只（**红了就说明机器上真有多只，跑 `/pet-auto cleanup`**）。回退：`pi remove npm:pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
+验证：`node .sc-test/probe-pet-autostart.mjs`（**117 个 case**（旧路 84 + 宿主 10 组），探针默认测**仓库里的源文件**并在开头报「仓库 vs 已装副本」的漂移——不同步时 pi 跑的根本不是你刚改的代码）。覆盖配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回、**单只限制**（已有窗→复用、`maxPets`、锁抢占/陈旧锁、`cleanup`/`restart`、ws 钩子真起服务验证 `add_pet` 被丢），2026-09-29 补的回归组：**端口验活**（`refused` 当孤儿；探不通先快探再宽限长超时探，两次都不通就收掉）、**泄漏 socket 复现**（裸 `net` server 只 accept 不应答，断言状态不会永远停在 `connecting`）、**事件桥端到端**（真起 ws 服务，验证 `thinking`/`tool_call` 真的发得出去）、**`/reload` 后桥仍在**、**扫不动 ≠ 没有窗**、**status 摊开活窗/孤儿/桥状态**；2026-09-30 补的回归组（这四条**全部先在旧代码上跑出红**，才算数）：**PowerShell 兜底**（静态查 `[int]`→`[long]` + 用 `(Get-Date)` 复现「`[int]` 一行都不吐 / `[long]` 吐 13 位」+ 真机断言「新脚本行数 = 带端口的主进程数、每行 `port>0`」）、**窗被换掉后桥迁移**（两个假 pet 服务，断言新窗收得到、老窗收不到）、**pending 记账三种语义**（新鲜 pending 不重开 / 过期放行 / `startedAt` 对不上照开）、**复核扫描挂掉时不许盲认领窗**（前 4 次扫描挂、之后才扫得动，断言记账是 `reused:true` 且桥真建起来）。探针用 `globalThis.__piPetScanWindows` / `__piPetKillWindow` / `__piPetProbePort` / `__piPetSpawnHost` / `__piPetHostHealth` 顶掉扫进程、taskkill、端口探测、拉宿主、探活，不会误动真实宠物。末条 case 查真实机器上是否只剩一只（**红了就说明机器上真有多只，跑 `/pet-auto cleanup`**）。回退：`pi remove npm:pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
 
 **「一直待机」的真凶（实测）**：不是桥没建、也不是 ws 解析错，而是**主人 pi 被硬杀后它的 LISTENING socket 被 electron 子进程带着活了下来**。`netstat` 看着在监听，内核照常完成 TCP 握手，所以连接不报错，但永远没人 `accept`——`/health` 超时、WS upgrade 挂死，窗还照常亮着照常呼吸，就是收不到事件。**只要窗在，假端口就一直在**，自我维持。判据：`netstat` 报 `LISTENING` 的 pid 在 `tasklist` 里已不存在（现场 pid 95932），且该端口 `/health` 与 WS upgrade 双双超时。杀掉窗则 socket 立刻消失，可反证是子进程持有。修法：探不通不能当活窗（先快探、再长超时宽限探，两次都不通就收掉让扩展重开一只能用的）；另给桥加握手看门狗（`PI_PET_BRIDGE_WATCHDOG_MS`，默认 6s），超时报 `err`，不让状态永远停在 `connecting`。
 
@@ -246,6 +250,53 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 另有两处记账硬化：`session_start` 先写 `pending:true`，真等到窗（或复用）才转正——拖过 `PI_PET_PENDING_TTL_MS`（默认 90s，比最坏 `openWindow` 耗时略长）就放行重试，不再「一次扫挂/等窗超时就**永久**放弃，只有 `/reload` 能解」；记账另带进程出生时刻 `startedAt`，防 pid 被回收后「新进程被当成老的那个」。派发 `/pet` 抛错、以及派发后 25s 没等到新窗，都改成 `notify` 明说，不再静默。
 
 **已知残留**：上游 `pet-electron.cjs` **没有** `app.requestSingleInstanceLock()`，即窗口层零单例保护，且 `electronProc` 是进程内变量、看不见别的进程的窗。所以「整机一只」完全是本扩展在**外面**兜的；一旦本扩展没跑起来（`autostart:false`、非 tui 模式、配置坏到读不出）而有人手敲 `/pet`，就可能多一扇。**这也是当初评估「要不要 fork 上游」的唯一真实理由**——本次先把扩展侧九个成因（上面五个 + 2026-09-30 这四个）修完，fork 留作备选。
+
+#### 3.6.2 全局宿主：一只宠物 + 一个全局端口（2026-09-30）
+
+**报障**：宠物随父 cmd 进程（pi）一起消失。查下来不是控制台也不是「窗没 detach」，而是**两个各自独立的杀手**：
+
+1. 上游 `pi/extensions/index.ts` 在 `process.on('exit' / 'beforeExit' / 'SIGINT' / 'SIGTERM')` 里跑 `taskkill /pid <npx 起的 cmd> /f /t`——**显式杀窗**（写死的，与控制台无关）。
+2. `pi/assets/pet.js` 的 `ws.onclose` 重试 5 次（约 15s）后调 `__petElectron__.closeWindow()` → preload `pet:close` → `app.quit()`：**服务端一死，窗自己关门**。
+
+两者合起来意味着「服务随 pi 死 → 窗必然自杀」，所以**「仅把窗 detach 出去」在架构上无解**。控制台不是凶手（实测 `GetConsoleProcessList`：拉起时带 `windowsHide:true` → `CREATE_NO_WINDOW`，子进程**已经不挂**父控制台；`detached:true` 只是第二道保险）。
+
+**结论：宠物服务必须跑在不依附任何 pi 的进程里。** 于是拆成三层：
+
+```
+各 pi 会话（无窗、无 electron）        全局宿主（整机一个）          窗（整机一只）
+  扩展只把 agent 事件 ── /feed ──→  127.0.0.1:47653  ── /ws ──→  pet.html
+  读 pi-pet-global.json 拿端口        提供 HTTP+WS 自己拉窗          断线自己 closeWindow
+```
+
+- **宿主源码**：`pi-pet-host.cjs`（18312B），**内嵌**在 `extensions/pi-pet-autostart.ts` 里（`const HOST_SOURCE`），运行时按内容 sha1 门控写到 `~/.pi/agent/state/pi-pet-host.cjs`——内容没变**不重写**（不给 AV 反复扫的目标）。内嵌是因为 `install-local-extensions.mjs` 只同步 `extensions/*.ts`。
+- **整机一个**：`mkdir` 独占锁（`state/pi-pet-host.cjs.lock/owner.json`）保证整机只可能有一个宿主；主人 pid 死了就接管陈旧锁，活着就安静退出（让位，退出码 0）。
+- **端口全局共享**：真实端口 + pid + 窗 pid + 心跳写在 `state/pi-pet-global.json`，**各会话都从这儿读**——不再是「每个 pi 进程各找一个随机端口」。`/health` 必须核 `role === "pi-pet-host"`，否则会把某个 pi 进程自己那个同端口的宠物服务误认成宿主。
+- **状态分文件避写冲突**：易失的 `pi-pet-global.json` 由**宿主**写；`pi-pet-ctrl.json`（`desired` / `keepAlive` / `maxPets` / `size` / `bridge` / `restartNonce`）由**扩展**合并写（多会话不会互相清空），宿主每 2s 读一次当控制通道。
+- **窗是宿主的子进程**：`detached:true` + `windowsHide:true` + `stdio:"ignore"` 拉起（探针死盯这三个参数，就是本次报障的回归点）。`taskkill` 只跟父子关系走，`detached` 断了这层关系，所以**关掉 pi 的 cmd 窗口 / Ctrl+C / taskkill /t 都不再连坐宠物**。
+- **机器级最后一道闸**：`maxPets<=1` 时宿主在**转发层**直接丢掉 `add_pet*` 帧——任何会话、任何旧路都绕不过去。
+- **多会话意图**：`ctrlIntent()` 只在 `autostart` 为真时写 `desired:true`（否则两个会话会互杀）；`/pet-auto off` 显式写 `desired:false`，**由宿主自己关窗退出并放锁**（而不是别的进程伸手 `taskkill` 它的窗）。`restart` 只改 `restartNonce`，同样由宿主自己关旧拉新。
+- **降级不消失**：探不到包目录 / PATH 上没 node / `HOST_WAIT_MS`（20s）内无应答 → `notify` 说清楚 + 退回旧路开窗，宠物不会凭空没了。`/pet-auto host off` 可主动切旧路。
+- **巡检**（默认 60s）收掉手敲 `/pet` 冒出来的第二只：宿主那扇（端口或 pid 匹配）留，其余按 `startedAt` 只留最老的；扫描 `ok:false` 一律**不动手**（宁可多留也不误杀）。
+
+**实测（真起宿主，父进程是个拉起就退出的 node）**：
+
+```
+父进程已退出 → 宿主 /health: {"role":"pi-pet-host","pid":297488,"port":47664,"windowPid":40536,...}
+宿主 pid 在父进程消失后仍活着: true
+写 desired:false 后宿主自己退了: true（锁也放掉了: true）
+```
+
+**产物文件**（都在 `~/.pi/agent/state/`，删掉也会自愈）：
+
+| 文件 | 谁写 | 内容 |
+|---|---|---|
+| `pi-pet-host.cjs` | 扩展 | 宿主源码（内嵌常量落盘） |
+| `pi-pet-host.cjs.lock/` | 宿主 | 整机单例锁（`owner.json` 带 pid） |
+| `pi-pet-global.json` | 宿主 | 真实端口 / pid / 心跳 / 窗 pid / 会话数（**端口全局共享的落点**） |
+| `pi-pet-ctrl.json` | 扩展 | `desired` / `keepAlive` / `maxPets` / `size` / `bridge` / `restartNonce` |
+| `pi-pet-autostart.json` | 扩展 | 旧路记账（宿主模式下不再决定生死） |
+
+**验证**：宿主本体 23 例 `node %TEMP%/petprobe/host-smoke.mjs`（`/health`、静态资源、越界 thumb 400、`/feed`→`/ws` 中继、`maxPets` 策略、单例锁让位、陈旧锁接管、`desired:false` 自退并放锁）；扩展侧 117 例 `node .sc-test/probe-pet-autostart.mjs`（新增 31–40：已有宿主不派发 `/pet` 只喂 `/feed`、抢锁落脚本 + 三个拉起参数、脚本 hash 幂等、锁被占时等对方公布端口、`off`/`restart` 走意图文件不 taskkill、`status` 报全局端口/pid/窗 pid、巡检收多余窗、`ok:false` 不动手、静态存档上游 `pet.js` 的 `MAX_RECONNECT_ATTEMPTS`+`closeWindow`）。探针把拉宿主与探活顶成 `globalThis.__piPetSpawnHost` / `__piPetHostHealth`，**永远不会真冒出窗**；所有状态文件都用 `PI_PET_HOST_SCRIPT` / `PI_PET_GLOBAL` / `PI_PET_CTRL` / `PI_PET_HOST_LOCK` 指到临时目录。
 
 ---
 
