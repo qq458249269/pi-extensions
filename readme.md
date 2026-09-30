@@ -8,17 +8,17 @@
 
 ---
 
-## 1. 清单（在用 18 个扩展 = 17 npm + 1 git）
+## 1. 清单（在用 18 个扩展 = 16 npm + 2 git）
 
-> 下表 20 行里 `pi-edit-guard`、`pi-undo-redo` 已卸载（前者的删除线保留作决策记录，见 §7.1），**实际在用 18 个**。`pi-web-access` 已于 2026-09-30 卸载（原行已删，理由见 §7.4）。
+> 下表 20 行里 `pi-edit-guard`、`pi-undo-redo` 已卸载（前者的删除线保留作决策记录，见 §7.1），**实际在用 18 个**。`pi-web-access` 已于 2026-09-30 卸载（原行已删，理由见 §7.4）；`pi-dsh-pet` 同日从 npm 源换成 git 源 → **git 源是两个**（`pi-lazy-tools` + `pi-dsh-pet`）。
 
 **不锁版本**：安装命令一律不带 `@版本号`（取 npm 最新），本清单不维护版本矩阵。要查本机实际装的版本：
 
 ```bash
 node -e 'const{execSync}=require("child_process"),fs=require("fs");
 execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.test(l)).map(l=>l.trim())
- .forEach(s=>{const n=s.split(":").slice(1).join(":");
-  try{console.log(n,"→",JSON.parse(fs.readFileSync("C:/Users/yinxuehao/.pi/agent/npm/node_modules/"+n+"/package.json","utf8")).version)}catch{console.log(n,"→ (git)")}})'
+ .forEach(s=>{const n=s.split(":").slice(1).join(":").replace(/@latest$/,"");
+  try{console.log(n,"→",JSON.parse(fs.readFileSync(process.env.USERPROFILE+"/.pi/agent/npm/node_modules/"+n+"/package.json","utf8")).version)}catch{console.log(n,"→ (git)")}})'
 ```
 
 ### 1.1 核心层（先装，装完先跑一次冒烟）
@@ -88,18 +88,19 @@ done
 for p in @zhushanwen/pi-smart-context \
          pi-prefix-stabilizer pi-compaction-cache pi-warm-cache \
          @henryqw/pi-ask-question @ssk_dev/rpiv-todo-lean \
-         @aboutlo/pi-smart-edit pi-dsh-pet; do
+         @aboutlo/pi-smart-edit; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 
-# git 源单独装
+# git 源单独装（两个都要串行；宠物从 npm 换 git 时先 remove，见 §3.6）
 pi install git:github.com/qq458249269/pi-lazy-tools
+pi install git:github.com/qq458249269/pi-dsh-pet
 
 # 本地扩展（含 pi-pet-autostart.ts，宠物默认启用就靠它）
 node install-local-extensions.mjs
 ```
 
-装完自查：`pi list` 应见 **18 个扩展**（17 npm + 1 git），`settings.json` 的 `packages` 18 条。少于 17 就是并行竞写伤痕，重跑补漏。
+装完自查：`pi list` 应见 **18 个扩展**（16 npm + 2 git），`settings.json` 的 `packages` 18 条。少于 16 就是并行竞写伤痕，重跑补漏。
 
 ### 2.2 硬顺序约束
 
@@ -121,7 +122,9 @@ node .sc-test/check-ext-errors.mjs     # 加载期体检：extension_error 应�
 **升级禁用 `pi install`**：对已装包会命中 npm 缓存、不升版本。升级一律走 `pi update --extensions`（不带版本号 = 取各包 npm 最新）。升级后跑 §8 体检。
 
 > 首次安装（§2.1）同样不带版本号，npm 自动解析 latest；**本仓库任何位置都不写死扩展版本号**。
-> `pi-dsh-pet` 也会被这条命令带着升（它带 48MB 动画资源，弱网下别反复升）；升完第一次 `/pet` 若要重下 Electron，等它跑完即可。
+> **两个 git 源走同一条命令**：`pi update --extensions` 对它们是 `git pull`（`pi-lazy-tools` 会 `reset --hard` + `clean -fdx`，**`fix-lazy-tools-notes.mjs` 的 `DOCS_NOTE` 路径补丁会被冲掉，重跑即恢复**——脚本靠 `where pi.exe` 定位 pi 根目录，pi 不在 PATH 时它直接跳过并报「未能定位」）。
+
+> `pi-dsh-pet` 换成 git 源后**不再有「反复重下 48MB 动画」的问题**——clone 就带 `assets/thumb`（91 个 WebM，整仓 202M），`pi update` 只拉增量；只有第一次 `/pet` 要下 Electron ≈100MB。
 
 **处理办法见 §3.4；升完必跑一次 bench 确认 wire 工具集没变**（本次实测未变：升完是 8 个工具 / 8317B，`extension_error` 0；随后按「只保留默认工具」收敛为 6 个 / 6010B，2026-09-30 卸 `pi-web-access` 后为 **5 个 / 5664B**）。
 
