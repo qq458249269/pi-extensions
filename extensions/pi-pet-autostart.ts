@@ -106,7 +106,7 @@
  *
  * 默认启用，开关在 `~/.pi/agent/extensions/pi-dsh-pet.json`：
  *   { "autostart": true, "size": "normal", "delayMs": 400, "maxPets": 1, "bridge": true,
- *     "host": true, "port": 47653, "sweepMs": 60000, "keepAlive": true }
+ *     "host": true, "port": 47653, "sweepMs": 60000, "keepAlive": true, "hostRuntime": "" }
  *   - autostart: false → 不自动开窗（仍可手敲 `/pet`）
  *   - size: small | normal | large，非法值按 normal
  *     （注：上游压根没把尺寸传给 electron，初始窗里几只、每只多大只由 `assets/config.jsonc` 决定；
@@ -118,16 +118,39 @@
  *   - port: 宿主**优先**用的端口，被占就退一个随机空闲端口，真实端口写进全局状态文件
  *   - sweepMs: 巡检间隔（0 = 关）；扫全机要起进程，别设太小
  *   - keepAlive: 窗自己没了要不要被宿主重新拉起（默认开）
- *   文件不存在 / 读坏 → 按**默认启用**处理（与 no-find.json 同一套约定），读坏时通知一次
+ *   - hostRuntime: 宿主用哪个可执行文件跑（绝对路径）。改名用，见上；空 = 默认
+
  *
  * 产物与状态文件（都在 `~/.pi/agent/state/`）：
  *   pi-pet-host.cjs         宿主源码（本文件内嵌，sha1 没变就不重写）
- *   pi-pet-host.cjs.lock    宿主独占锁（整机单例；主人 pid 死了就允许接管）
+ *   pi-pet-host.cjs.lock    宿主**单例锁**（整机单例；主人 pid 死了就允许接管）
+ *   pi-pet-host.cjs.boot.lock 宿主**启动锁**（扩展之间「谁去拉宿主」；拉完就还）
  *   pi-pet-global.json      宿主写：端口/宿主 pid/窗 pid/会话数/心跳。各会话读它 = 端口全局共享
  *   pi-pet-ctrl.json        扩展写：desired/keepAlive/size/maxPets/bridge。宿主每 2s 读一次
  *   pi-pet-autostart.json   旧路的 per-pid 记账（宿主化之后只用于 `/pet-auto status` 与降级路径）
  *   pi-pet-autostart.json.lock 旧路开窗锁（降级路径用）
  *
+ * ## 启动锁与单例锁必须是两把（2026-09-30 修，之前 100% 自锁死）
+ * 扩展先 `acquireLockAt(HOST_LOCK_PATH)` 当「启动锁」用，又把**同一个路径**当 `--lock`
+ * 传给宿主。宿主起来 `acquireLock()` 读到 owner.json 里那个**活着的 pi 进程 pid** →
+ * 「已有宿主在跑」→ `process.exit(0)`。于是宿主每次秒退、扩展每次等满 20s 报
+ * 「拉起了宿主进程（node.EXE）但 20s 内没应答」→ 退回旧路 → 宠物一直绑在本会话上。
+ * **症状像「node 起不来」，实际是自己把自己挡在门外**：`pi-pet-global.json` 从来不生成。
+ * （顺带一提：`.sc-test` 里的探针抓不到它，因为探针的 spawner 是假的、不会真起一个自杀的宿主。）
+ * 现在 `HOST_BOOT_LOCK_PATH`（`.boot.lock`）归扩展、`HOST_LOCK_PATH` 归宿主，各管一件事。
+ * 还有一处连带：等不到 `/health` 时**不能**顺手 `releaseLockAt(HOST_LOCK_PATH)`——那把锁
+ * 已经被宿主接过去了，抽掉等于放第二个宿主进来开第二个服务端口。只还启动锁。
+ *
+ * ## 想改宿主的进程名（任务管理器里那只 node.exe）
+ * 复制一份 node.exe 改名即可（node.exe 自包含，复制出来能直接跑）：
+ *   copy "<node 目录>\node.exe" "%USERPROFILE%\.pi\agent\state\pi-pet-host.exe"
+ * 然后在 `pi-dsh-pet.json` 里写 `"hostRuntime": "C:\\Users\\<你>\\.pi\\agent\\state\\pi-pet-host.exe"`
+ * （等价的环境变量：`PI_PET_NODE`；优先级 config > env > PATH 上的 node > bun）。
+ * `/pet-auto status` 会把当前用的哪个运行时打出来。
+ * **electron 那只（`electron.exe`）没做**：扫描/巡检/孤儿判定全靠
+ * `Name='electron.exe'` + 命令行里的 `pet-electron.cjs <port>` 认窗，exe 一改名就一只都扫不到，
+ * 孤儿收不掉、宿主自己的窗还会被当「多余的」误杀。想改得连带改扫描，别单改 exe 名。
+
  * 会话内随手切：
  *   `/pet-auto [on|off|size <档位>|max <只数>|bridge on|off|host on|off|status|cleanup|restart]`
  *   `on/off` 改的是 ctrl 里的 `desired`：off 会让宿主自己关窗退出（下次 on 再拉起）
@@ -156,7 +179,20 @@ const LOCK_PATH = process.env.PI_PET_LOCK ?? `${STATE_PATH}.lock`;
 
 /** 宿主产物与它的两个文件（都走 env 是为了让探针指到临时目录，不碰真机器上的宠物）。 */
 const HOST_SCRIPT_PATH = process.env.PI_PET_HOST_SCRIPT ?? path.join(AGENT_DIR, "state", "pi-pet-host.cjs");
+/** 宿主**自己**的单例锁：谁起谁占着，进程活着就一直占（整机只可能有一个宿主）。 */
 const HOST_LOCK_PATH = process.env.PI_PET_HOST_LOCK ?? `${HOST_SCRIPT_PATH}.lock`;
+/**
+ * 启动锁：**扩展之间**「谁去拉宿主」，拉完立刻释放。
+ *
+ * 这两把锁以前是同一把，于是 100% 自锁死（2026-09-30 实测）：扩展先
+ * `acquireLockAt(HOST_LOCK_PATH)`（owner.json 写的是**活着的 pi 进程 pid**），
+ * 又把同一个路径当 `--lock` 传给宿主；宿主起来 `acquireLock()` 读到 owner 还活着 →
+ * 「已有宿主在跑」→ `process.exit(0)`。宿主每次秒退，扩展每次等满 `HOST_WAIT_MS` →
+ * 报「拉起了宿主进程但 20s 内没应答」→ 退回旧路。症状与「node 起不来」一模一样，
+ * 但 `pi-pet-global.json` 永远不生成、宠物一直绑在本会话上（关掉父 cmd 就没）。
+ * 拆成两把就干净了：启动锁归扩展（短命、TTL 内可被接管），单例锁归宿主（长命）。
+ */
+const HOST_BOOT_LOCK_PATH = process.env.PI_PET_HOST_BOOT_LOCK ?? `${HOST_SCRIPT_PATH}.boot.lock`;
 const GLOBAL_PATH = process.env.PI_PET_GLOBAL ?? path.join(AGENT_DIR, "state", "pi-pet-global.json");
 const CTRL_PATH = process.env.PI_PET_CTRL ?? path.join(AGENT_DIR, "state", "pi-pet-ctrl.json");
 
@@ -201,6 +237,12 @@ interface PetConfig {
 	port?: number;
 	sweepMs?: number;
 	keepAlive?: boolean;
+	/**
+	 * 宿主用哪个可执行文件跑（绝对路径）。**改名用**：把 node.exe 复制一份成
+	 * `pi-pet-host.exe` 指到这里，任务管理器里那只就从 node.exe 变成 pi-pet-host.exe。
+	 * 空 = 走 `PI_PET_NODE` → PATH 上的 node → bun。写错（路径不存在）时忽略并回退。
+	 */
+	hostRuntime?: string;
 }
 
 /** 归一后的配置：size 一定是合法档位，autostart 一定是布尔，maxPets 落在 1–8。 */
@@ -215,6 +257,8 @@ interface ResolvedConfig {
 	port: number;
 	sweepMs: number;
 	keepAlive: boolean;
+	/** 宿主运行时绝对路径；空串 = 用默认（`PI_PET_NODE` / PATH 上的 node / bun）。 */
+	hostRuntime: string;
 }
 
 const DEFAULTS: ResolvedConfig = {
@@ -227,6 +271,7 @@ const DEFAULTS: ResolvedConfig = {
 	port: HOST_PORT,
 	sweepMs: SWEEP_MS,
 	keepAlive: true,
+	hostRuntime: "",
 };
 
 /** 读配置；文件缺失 = 默认启用；读坏也按默认启用，但记一笔好提示。 */
@@ -259,6 +304,11 @@ function loadConfig(): { config: ResolvedConfig; broken: boolean } {
 				// 0 = 不巡检（扫全机要起进程，嫌吵的人可以关）
 				sweepMs: typeof raw.sweepMs === "number" && raw.sweepMs >= 0 ? raw.sweepMs : DEFAULTS.sweepMs,
 				keepAlive: raw.keepAlive === false ? false : true,
+				// 写死的路径当没配（别把宿主钉死在一个已经不存在的文件上）
+				hostRuntime:
+					typeof raw.hostRuntime === "string" && raw.hostRuntime.trim() !== "" && existsSync(raw.hostRuntime.trim())
+						? raw.hostRuntime.trim()
+						: DEFAULTS.hostRuntime,
 			},
 			broken: false,
 		};
@@ -765,9 +815,21 @@ function loadWs(petEntry?: string): { prototype?: Record<string, unknown> } | nu
 	return null;
 }
 
-/** 上游 `/pet` 的注册入口文件（从命令表拿），用来从它的位置解析 `ws`。 */
+/**
+ * 上游 `/pet` 的注册入口文件（从命令表拿），用来从它的位置解析 `ws`。
+ *
+ * `pi.getCommands()` 是 **action method**：扩展还在加载（runtime 没 bind）时调它会抛
+ * `Extension runtime not initialized. Action methods cannot be called during extension loading.`
+ * ——那会把整个 session_start 打断（pi 弹一个扩展报错，宠物这条 session_start 全丢）。
+ * 所以：**宁可当「有」也不抛**（探不到只说明这一瞬间拿不到命令表，宠物包本机装着），
+ * 调用方拿 undefined 会走「找不到包」的降级分支，不会静默炸掉整个钩子。
+ */
 function petEntryPath(pi: ExtensionAPI): string | undefined {
-	return pi.getCommands().find((c) => c.source === "extension" && c.name === PET_COMMAND)?.sourceInfo?.path;
+	try {
+		return pi.getCommands().find((c) => c.source === "extension" && c.name === PET_COMMAND)?.sourceInfo?.path;
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -1039,6 +1101,7 @@ const HOST_SOURCE = `#!/usr/bin/env node
 
 const http = require("node:http");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { createRequire } = require("node:module");
@@ -1385,16 +1448,122 @@ let windowStartedAt = 0;
 let lastWindowSeenAt = 0;
 let lastLaunchAt = 0;
 
+/* ============================== electron 可执行文件 ============================== */
+
+/**
+ * 找现成的 electron.exe，**绕开 npx**。
+ *
+ * 为什么：\`npx electron\` 会串出 cmd.exe → node(npx) → cmd.exe → node → electron，
+ * 而 npm 自己 spawn 的那一层**不带 CREATE_NO_WINDOW**。我们给孩子的 cmd 是无控制台的
+ * （windowsHide → CREATE_NO_WINDOW），npm 的孩子（那个 npx node）就没控制台可继承，
+ * Windows 于是给它**新分配一个** —— 屏幕上弹一个黑框，标题「管理员: ...cmd.exe」。
+ * 直接 spawn electron.exe：一条进程、零控制台，顺带省掉 npx 每次 1~2s 的解析。
+ * 真找不到才退回 npx（能开窗，但会闪一个黑框）。
+ */
+const ELECTRON_BIN_FILE = OPT.globalFile ? \`\${OPT.globalFile}.electron.json\` : "";
+let electronBinMemo;
+
+function electronExe(distDir) {
+	return path.join(distDir, process.platform === "win32" ? "electron.exe" : "electron");
+}
+
+/** npm 的 cache 目录：环境变量 → 各级 .npmrc 的 cache= → 平台默认值。**刻意不 spawn npm**（问一次就是又一层控制台）。 */
+function npmCacheDirs() {
+	const dirs = [];
+	for (const v of [process.env.NPM_CONFIG_CACHE, process.env.npm_config_cache]) {
+		if (v) dirs.push(path.resolve(v));
+	}
+	const rcs = [path.join(os.homedir(), ".npmrc"), path.join(PKG, ".npmrc"), path.join(process.cwd(), ".npmrc")];
+	if (process.env.APPDATA) rcs.push(path.join(process.env.APPDATA, "npm", "etc", "npmrc"));
+	for (const rc of rcs) {
+		let text = "";
+		try {
+			text = fs.readFileSync(rc, "utf8");
+		} catch {
+			continue;
+		}
+		for (const line of text.split(/\\r?\\n/)) {
+			const m = /^\\s*cache\\s*=\\s*(.+?)\\s*$/.exec(line);
+			if (m) dirs.push(path.resolve(m[1].replace(/^["']|["']$/g, "")));
+		}
+	}
+	dirs.push(path.join(os.homedir(), ".npm"));
+	if (process.env.LOCALAPPDATA) dirs.push(path.join(process.env.LOCALAPPDATA, "npm-cache"));
+	return [...new Set(dirs)];
+}
+
+function resolveElectronBin() {
+	if (electronBinMemo !== undefined) return electronBinMemo;
+	let found = null;
+	// 1. 显式指定（给 dist/ 或直接给 exe 都行）
+	if (process.env.PI_PET_ELECTRON) {
+		const v = process.env.PI_PET_ELECTRON;
+		if (fs.existsSync(v)) found = v;
+		else if (fs.existsSync(electronExe(v))) found = electronExe(v);
+	}
+	// 2. 上次找到的（记在状态文件旁边；缓存被清 / 换机器时自动失效）
+	if (!found && ELECTRON_BIN_FILE) {
+		try {
+			const cached = String(fs.readFileSync(ELECTRON_BIN_FILE, "utf8")).trim();
+			if (cached && fs.existsSync(cached)) found = cached;
+		} catch {
+			/* 没记过 */
+		}
+	}
+	// 3. 包自己带了 electron
+	if (!found) {
+		const local = electronExe(path.join(PKG, "node_modules", "electron", "dist"));
+		if (fs.existsSync(local)) found = local;
+	}
+	// 4. npx 缓存里那份（\`npx electron\` 装出来的就在这儿）
+	if (!found) {
+		for (const cache of npmCacheDirs()) {
+			const npxDir = path.join(cache, "_npx");
+			let names = [];
+			try {
+				names = fs.readdirSync(npxDir);
+			} catch {
+				continue;
+			}
+			for (const name of names) {
+				const exe = electronExe(path.join(npxDir, name, "node_modules", "electron", "dist"));
+				if (fs.existsSync(exe)) {
+					found = exe;
+					break;
+				}
+			}
+			if (found) break;
+		}
+	}
+	electronBinMemo = found;
+	if (found) {
+		log(\`electron 直接用 \${found}（不经 npx，不弹控制台）\`);
+		if (ELECTRON_BIN_FILE) {
+			try {
+				fs.writeFileSync(ELECTRON_BIN_FILE, found);
+			} catch {
+				/* 写不上就下次重新找 */
+			}
+		}
+	} else {
+		log("没找到现成的 electron.exe，退回 npx 拉窗（会闪一个控制台窗口）");
+	}
+	return found;
+}
+
 /**
  * 拉起 electron。**detached + windowsHide 是必须的**，实测：
  *   detached:false + windowsHide:true  →  CREATE_NO_WINDOW，孩子不挂父控制台（已经免疫）
  *   detached:false + 无 windowsHide     →  挂父控制台，关 cmd 时一起死
  * 两个一起给：无论宿主自己怎么被拉起（node / bun / 任何运行时对 detached 的支持程度），
  * 窗都不在父控制台上；同时宿主死了窗也能自己活着（直到 WS 断 15s 后自己关）。
+ *
+ * 另外：**能直接 spawn electron.exe 就别过 npx**（npx 那层会凭空多出一扇控制台窗口，
+ * 见 resolveElectronBin）。直接起还有个附带好处：windowPid 就是 electron 本尊，
+ * taskkill /t 精确打到窗 + 它的 GPU/renderer 孩子，不用顺着 npx 的孙进程猜。
  */
 function launchWindow(size) {
 	const isWin = process.platform === "win32";
-	const cmd = isWin ? "npx.cmd" : "npx";
 	const env = { ...process.env };
 	// 跟上游一致：国内机器走 npmmirror（GitHub / S3 不通）
 	if (isWin && !env.ELECTRON_MIRROR) {
@@ -1402,16 +1571,20 @@ function launchWindow(size) {
 		env.NPM_CONFIG_REGISTRY = "https://registry.npmmirror.com";
 	}
 	state.size = size || readCtrl().size || "normal";
+	const bin = resolveElectronBin();
 	try {
-		windowChild = spawn(cmd, ["--yes", "electron", ELECTRON_SCRIPT, String(state.port)], {
+		// 尺寸参数上游压根没传给 electron（窗里几只、每只多大只由 config.jsonc 决定），
+		// 这里照样记进状态，别让人以为 size 改的是初始窗口。
+		const spec = bin
+			? { file: bin, args: [ELECTRON_SCRIPT, String(state.port)], shell: false }
+			: { file: isWin ? "npx.cmd" : "npx", args: ["--yes", "electron", ELECTRON_SCRIPT, String(state.port)], shell: isWin };
+		windowChild = spawn(spec.file, spec.args, {
 			cwd: PKG,
-			// 尺寸参数上游压根没传给 electron（窗里几只、每只多大只由 config.jsonc 决定），
-			// 这里照样记进状态，别让人以为 size 改的是初始窗口。
 			env,
 			stdio: "ignore",
 			detached: true,
 			windowsHide: true,
-			shell: isWin,
+			shell: spec.shell,
 		});
 	} catch (err) {
 		log(\`拉起 electron 失败：\${err.message}\`);
@@ -1839,11 +2012,26 @@ function findOnPath(exe: string): string | null {
  * 宿主拿什么运行时跑。pi 自己是 Bun 打包的单文件，`process.execPath` 指的是 `pi.exe`，
  * **不能**拿来当 node 用（会变成「pi 启动 pi」）。所以另外找 PATH 上的 node；
  * 实在没有就退 bun（宿主是纯 CJS，bun 吃得下 `node:http` / `ws`）。
+ *
+ * 顺序：配置里的 `hostRuntime` > `PI_PET_NODE` > PATH 上的 node > bun。
+ * 前两个就是给「改名」用的：把 node.exe 复制一份叫 `pi-pet-host.exe` 指过来，
+ * 任务管理器里那只宠物宿主就不叫 node.exe 了（node.exe 自包含，复制改名能直接跑）。
  */
-function resolveRuntime(): string | null {
-	const forced = process.env.PI_PET_NODE;
-	if (forced && existsSync(forced)) return forced;
+function resolveRuntime(configured = ""): string | null {
+	const explicit = [configured, process.env.PI_PET_NODE ?? ""]
+		.map((s) => s.trim())
+		.find((s) => s !== "" && existsSync(s));
+	if (explicit) return explicit;
 	return findOnPath("node") ?? findOnPath("bun");
+}
+
+/**
+ * 通知里怎么称呼宿主。直接 basename 会在默认配置下变成难看的 `node.EXE`
+ * （扩展/宿主都是 CJS 兼容的运行时，node / bun 都行），所以**默认叫「pi-pet 宿主」**；
+ * 配了 `hostRuntime` 才显示那个文件名（那本来就是用户特意改过的名字）。
+ */
+function runtimeLabel(configured: string): string {
+	return configured.trim() !== "" ? path.basename(configured) : "pi-pet 宿主";
 }
 
 /**
@@ -1863,8 +2051,12 @@ interface HostSpawn {
 	args: string[];
 }
 
-/** 探针用 `globalThis.__piPetSpawnHost` 顶掉真拉起（免得测试机真冒出窗来）。 */
-type HostSpawner = (spec: HostSpawn & { detached: boolean; windowsHide: boolean; stdio: "ignore" }) => void;
+/**
+ * 探针用 `globalThis.__piPetSpawnHost` 顶掉真拉起（免得测试机真冒出窗来）。
+ * 返回拉起来的 pid（假货返回 undefined → 通知里显示 `?`）——拉不起来时要能说清
+ * 「到底拉起了哪个 pid、它叫什么」，不然又是一桩无头案。
+ */
+type HostSpawner = (spec: HostSpawn & { detached: boolean; windowsHide: boolean; stdio: "ignore" }) => number | undefined;
 
 function hostSpawner(): HostSpawner {
 	const hook = (globalThis as { __piPetSpawnHost?: HostSpawner }).__piPetSpawnHost;
@@ -1878,7 +2070,11 @@ function hostSpawner(): HostSpawner {
 			windowsHide: spec.windowsHide,
 			stdio: spec.stdio,
 		});
+		child.on("error", () => {
+			/* 拉不起来（比如文件被删了）：等 /health 超时那条通知里会报 pid undefined */
+		});
 		child.unref();
+		return child.pid;
 	};
 }
 
@@ -1911,8 +2107,15 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 	const swept = new Set<number>();
 
 	/** 上游包是否在（命令表里能查到）。不在就静默跳过——没装宠物的人不该被提醒。 */
-	const petInstalled = (): boolean =>
-		pi.getCommands().some((c) => c.source === "extension" && c.name === PET_COMMAND);
+	const petInstalled = (): boolean => {
+		try {
+			return pi.getCommands().some((c) => c.source === "extension" && c.name === PET_COMMAND);
+		} catch {
+			// action method 在扩展加载期不可用（见 petEntryPath 的注释）：这一瞬间拿不到命令表，
+			// 按「在」继续（真没装的话后面 petPackageRoot 会返回 null，走降级而不是抛异常）
+			return true;
+		}
+	};
 
 	/** 桥到**别的进程**的窗。自己开的那扇不用桥（上游已在广播，桥了只是双发）。 */
 	const bridgeIfForeign = (port: number): void => {
@@ -1958,12 +2161,17 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 			notify(ctx, "找不到 pi-dsh-pet 的安装目录（pi/assets/pet-electron.cjs），本会话退回旧路开窗", "warning");
 			return null;
 		}
-		const runtime_bin = resolveRuntime();
+		const runtime_bin = resolveRuntime(runtime.hostRuntime);
 		if (!runtime_bin) {
-			notify(ctx, "PATH 上找不到 node（或 bun），拉不起全局宿主，本会话退回旧路开窗（关掉本会话宠物就没了）", "warning");
+			notify(
+				ctx,
+				`找不到能跑宿主的运行时（配的 hostRuntime=${runtime.hostRuntime || "(空)"} 不存在，PATH 上也没有 node / bun），` +
+					"本会话退回旧路开窗（关掉本会话宠物就没了）",
+				"warning",
+			);
 			return null;
 		}
-		if (!acquireLockAt(HOST_LOCK_PATH)) {
+		if (!acquireLockAt(HOST_BOOT_LOCK_PATH)) {
 			// 别的会话正在拉宿主：等它把端口公布出来（输家不重复拉，否则一堆宿主抢同一个端口）
 			const health = await waitForHost(HOST_WAIT_MS);
 			if (health) {
@@ -1992,19 +2200,24 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 				HOST_LOCK_PATH,
 			];
 			writeCtrl(ctrlIntent());
-			hostSpawner()({
+			const spec = {
 				command: runtime_bin,
 				args,
 				// 探针死盯这两个参数：去掉任何一个，宠物就会重新绑回父 cmd 进程的命
 				detached: true,
 				windowsHide: true,
-				stdio: "ignore",
-			});
+				stdio: "ignore" as const,
+			};
+			// pid 拉起时就拿到：等不到 /health 时那条告警得说清「拉起的是哪个 pid、叫什么」，
+			// 否则又是一桩无头案（假 spawner 返回 undefined → 落个 `?`）
+			const hostChildPid = hostSpawner()(spec);
 			const health = await waitForHost(HOST_WAIT_MS);
 			if (!health) {
 				notify(
 					ctx,
-					`拉起了宿主进程（${path.basename(runtime_bin)}）但 ${HOST_WAIT_MS / 1000}s 内没应答，本会话退回旧路开窗`,
+					`拉起了${runtimeLabel(runtime.hostRuntime)}（${path.basename(runtime_bin)}，pid ${hostChildPid ?? "?"}）` +
+						`但 ${HOST_WAIT_MS / 1000}s 内没应答，本会话退回旧路开窗。` +
+						`排查：/pet-auto status 看锁与端口；宿主抢不到单例锁（${path.basename(HOST_LOCK_PATH)}）就会秒退`,
 					"warning",
 				);
 				return null;
@@ -2012,13 +2225,16 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 			host = health;
 			notify(
 				ctx,
-				`全局宠物宿主：pid ${health.pid} :${health.port}（${script.changed ? "已写入新脚本" : "复用已有脚本"}），` +
+					`全局宠物宿主：pid ${health.pid} :${health.port}（${runtimeLabel(runtime.hostRuntime)} / ` +
+					`${path.basename(runtime_bin)}，${script.changed ? "已写入新脚本" : "复用已有脚本"}），` +
 					`这一只属于整台机器，不随本会话关闭`,
 				"info",
 			);
 			return health;
 		} finally {
-			releaseLockAt(HOST_LOCK_PATH);
+			// 只还**启动锁**：`--lock` 那把（HOST_LOCK_PATH）已经被宿主接过去了，
+			// 这里删它等于把宿主的单例锁抽掉 → 下一个宿主马上抢进来开第二个服务端口。
+			releaseLockAt(HOST_BOOT_LOCK_PATH);
 		}
 	};
 
@@ -2477,6 +2693,9 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 				ctx,
 				`pi-dsh-pet autostart=${runtime.autostart} size=${runtime.size} delayMs=${runtime.delayMs} ` +
 				`maxPets=${runtime.maxPets} bridge=${runtime.bridge ? "on" : "off"} host=${runtime.host ? "on" : "off"} ` +
+					// 改名要看这一行：默认是 PATH 上的 node.exe（任务管理器里叫 node.exe），
+					// 配了 hostRuntime 才是那个文件名
+					`宿主运行时=${runtime.hostRuntime ? path.basename(runtime.hostRuntime) : "(默认) node.exe"}${runtime.hostRuntime ? ` → ${runtime.hostRuntime}` : ""}` +
 					// 这两个不是一个东西，分开写：fired 是**本模块实例**开没开过（/reload 会重置），
 					// alreadyFiredThisProcess() 是 pid 记账说本进程开没开过（跨 /reload 仍在）。
 					// 合成一个「本进程已弹」会自相矛盾：/reload 后 fired=false，而窗明明是本进程开的。
@@ -2488,7 +2707,11 @@ export default function piPetAutostart(pi: ExtensionAPI): void {
 						: global
 							? `\n全局宿主：没应答（状态文件说 pid ${global.pid} :${global.port}，探不到 /health）——可能已被硬杀，`
 							  + "下次 session_start 会重新拉起"
-							: `\n全局宿主：没在跑（${runtime.autostart ? "下次 session_start 会拉起" : "autostart=off"}）`) +
+					: `\n全局宿主：没在跑（${runtime.autostart ? "下次 session_start 会拉起" : "autostart=off"}）`) +
+					(live
+						? ""
+						: `｜启动锁=${existsSync(HOST_BOOT_LOCK_PATH) ? "被占（别的会话在拉）" : "空闲"} ` +
+						  `单例锁=${existsSync(HOST_LOCK_PATH) ? "在（宿主活着）" : "空"}`) +
 				`\n宠物包=${petInstalled() ? "已装" : "未装"} 扫进程=${shot.ok ? "ok" : "失败(保证降级)"}` +
 				` 活窗=${wins.length}/${runtime.maxPets}` +
 				(wins.length > 0 ? `（${wins.map((w) => `pid ${w.pid}:${w.port}`).join(" / ")}）` : "") +

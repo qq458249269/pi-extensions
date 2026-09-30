@@ -44,7 +44,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:@henryqw/pi-ask-question` | `ask_question` 交互式提问（单题，1–3 选项 + 自定义答案，首项为推荐） | 歧义时问用户，比猜省事 |
 | `npm:@ssk_dev/rpiv-todo-lean` | `todo` 任务清单工具 + TUI overlay | `ctrl+shift+t` 折叠；`/todos` 看全量 |
 | `npm:@aboutlo/pi-smart-edit` | 覆盖内建 `edit`，容忍引号/空白不匹配 | **已生效**；`edit` 归它，匹配走「精确 → NFKC 归一化行」 |
-| `npm:pi-dsh-pet` | 桌面宠物：Electron 透明浮窗 + 91 个 WebM 动画，随 agent 状态（思考/写代码/空闲）切换 | **纯命令扩展**（`/pet` `/pet-stop`），零工具、零 wire 开销。**必须 `pi install`**，光 `npm i -g` pi 不加载（见 §3.6）；解包 48MB，首次 `/pet` 另下 Electron ≈100MB。常驻与「整机只留一只」由本仓库的 `pi-pet-autostart.ts` 接管 |
+| `git:github.com/qq458249269/pi-dsh-pet` | 桌面宠物：Electron 透明浮窗 + 91 个 WebM 动画，随 agent 状态（思考/写代码/空闲）切换 | **纯命令扩展**（`/pet` `/pet-stop`），零工具、零 wire 开销。**必须 `pi install`**，光 `npm i -g` pi 不加载（见 §3.6）。**2026-09-30 从 `npm:pi-dsh-pet` 换成 git 源**（自己 fork 的仓库，改完 `git pull` 就生效；`pi update --extensions` 也认它）。常驻与「整机只留一只」由本仓库的 `pi-pet-autostart.ts` 接管 |
 
 ### 1.2 本地扩展（不走 `pi install`，放 `~/.pi/agent/extensions/`）
 
@@ -193,7 +193,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 配置 `~/.pi/agent/extensions/pi-dsh-pet.json`（**默认启用**，本机已写）：
 
 ```json
-{ "autostart": true, "size": "normal", "delayMs": 400, "maxPets": 1, "bridge": true, "host": true, "port": 47653, "sweepMs": 60000, "keepAlive": true }
+{ "autostart": true, "size": "normal", "delayMs": 400, "maxPets": 1, "bridge": true, "host": true, "port": 47653, "sweepMs": 60000, "keepAlive": true, "hostRuntime": "C:\\Users\\<你>\\.pi\\agent\\state\\pi-pet-host.exe" }
 ```
 
 - `autostart: false` → 不自动弹（仍可手敲 `/pet`）；**只认显式 `false`**，写错类型（如 `"false"`）仍按启用算，避免宠物莫名消失。
@@ -205,6 +205,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 - `port`：宿主**期望**的端口（默认 47653，1024–65535；被占就退一个随机空闲端口，真实端口写进 `~/.pi/agent/state/pi-pet-global.json`）。
 - `sweepMs`：巡检间隔（默认 60s，`0` = 不巡检）。巡检让「整机一只」成为持续不变量。
 - `keepAlive`：窗意外死了要不要拉回来（默认开）。
+- `hostRuntime`：宿主用哪个可执行文件跑（绝对路径，**改名用**；见 §3.6.2）。空 = `PI_PET_NODE` → PATH 上的 node → bun；写错的路径当没配。
 - 文件缺失 / 读坏 = 按**启用**处理（读坏会 `notify` 一次），与 `no-find.json` 同一套约定。
 - 会话内随手切：`/pet-auto on|off|size <档位>|max <只数>|host on|off|bridge on|off|status|cleanup|restart`，改动写回同一个 json。
 
@@ -219,8 +220,8 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 两个容易踩的细节：
 
-- 扫进程要认 **`pet-electron.cjs`** 这个特征，不能认 `pi-dsh-pet`——上游那一条启动链有 `cmd.exe`→`node.exe`(npx)→`electron.exe` 三个进程的命令行都带 `pi-dsh-pet`，只有主进程带 `pet-electron.cjs <port>`。认错了会把一只数成三只。
-- 钩子必须**从上游自己的入口文件起算 `require('ws')`**（`pi.getCommands()` 里 `/pet` 的 `sourceInfo.path`）。这机器上 `agent/node_modules/ws` 与 `agent/npm/node_modules/ws` 是两份不同实例，打在错的实例上等于没打。
+- 扫进程要认 **`pet-electron.cjs`** 这个特征，不能认 `pi-dsh-pet`——上游那条启动链有 `cmd.exe`→`node.exe`(npx)→`electron.exe` 三个进程的命令行都带 `pi-dsh-pet`，只有主进程带 `pet-electron.cjs <port>`。认错了会把一只数成三只。（宿主那条路已经不经 npx 了，但 Electron 自己的 GPU/renderer 孩子同样不带这个特征，规则不变。）
+- 钩子必须**从上游自己的入口文件起算 `require('ws')`**（`pi.getCommands()` 里 `/pet` 的 `sourceInfo.path`）。这机器上 `agent/node_modules/ws` 与 `agent/npm/node_modules/ws` 是两份不同实例，打在错的实例上等于没打。**`pi.getCommands()` 是 action method：扩展还在加载（runtime 还没 bind）时调它会抛 `Extension runtime not initialized…`**，整个 `session_start` 当场断掉（pi 弹一个扩展报错、宠物这条钩子全丢）。所以 `petEntryPath()` / `petInstalled()` 都包了 try/catch：拿不到命令表时**按「装着」继续**（真没装的话 `petPackageRoot` 返回 null，走降级而不是抛）。
 
 **复用时的事件桥**：复用的窗连的是**别的** pi 进程的服务，只听那个进程的广播。扩展会再连一条 WS 当转接头，把本会话的 `agent_start` / `thinking`（2s 节流，与上游同）/ `tool_call` / `agent_idle` 用同样的消息格式转发过去，于是「一只宠物」照样跟着**每个**会话的思考、敲代码动。没有 ws 依赖就静默跳过（宠物照常呼吸，只是不跟本会话联动）。
 
@@ -230,11 +231,13 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 **零 token 成本（实测）**：`pi-dsh-pet` 与 `pi-pet-autostart` **都不注册工具**，不进 `defaultTools`（§3.4 硬规则）。装完跑 bench：system 3026B + tools 2638B（5 个）= **5664B，与装之前逐字节一致**。
 
-**安装路径的坑**：上游 README 写的是 `npm install -g pi-dsh-pet`，但 **pi 不扫全局 `node_modules`**——只全局装的话 `/pet` 根本不存在。必须在 pi 里注册一次（`pi install npm:pi-dsh-pet`），本机两份都装了，加载的是 `~/.pi/agent/npm/node_modules` 那份（`pi update --extensions` 也能升它）。想只留一份可把全局那份当本地源：`{ "source": "D:/resp/npm/npm-global/node_modules/pi-dsh-pet" }`（不复制，但就不再跟 `pi update` 走了）。
+**安装路径的坑**：上游 README 写的是 `npm install -g pi-dsh-pet`，但 **pi 不扫全局 `node_modules`**——只全局装的话 `/pet` 根本不存在。必须在 pi 里注册一次。**本机 2026-09-30 换成 git 源**：`pi remove npm:pi-dsh-pet` + `pi install git:github.com/qq458249269/pi-dsh-pet`（两份同时声明会被当两个包各加载一次，必须先 remove；`pi remove` 报 `EBUSY` 说明还有 Electron 窗占着旧目录——先 `/pet-auto off` 或 `taskkill` 掉它）。装完落在 `~/.pi/agent/git/github.com/qq458249269/pi-dsh-pet`；扩展是从 `/pet` 命令的 `sourceInfo.path` 反推包根的，**换源不用改任何配置**。
 
 **首次开窗会下 Electron ≈100MB**（上游在 Windows 自动设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）；包里 91 个透明 WebM，`assets/thumb` 解包 48MB。
 
-验证：`node .sc-test/probe-pet-autostart.mjs`（**117 个 case**（旧路 84 + 宿主 10 组），探针默认测**仓库里的源文件**并在开头报「仓库 vs 已装副本」的漂移——不同步时 pi 跑的根本不是你刚改的代码）。覆盖配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回、**单只限制**（已有窗→复用、`maxPets`、锁抢占/陈旧锁、`cleanup`/`restart`、ws 钩子真起服务验证 `add_pet` 被丢），2026-09-29 补的回归组：**端口验活**（`refused` 当孤儿；探不通先快探再宽限长超时探，两次都不通就收掉）、**泄漏 socket 复现**（裸 `net` server 只 accept 不应答，断言状态不会永远停在 `connecting`）、**事件桥端到端**（真起 ws 服务，验证 `thinking`/`tool_call` 真的发得出去）、**`/reload` 后桥仍在**、**扫不动 ≠ 没有窗**、**status 摊开活窗/孤儿/桥状态**；2026-09-30 补的回归组（这四条**全部先在旧代码上跑出红**，才算数）：**PowerShell 兜底**（静态查 `[int]`→`[long]` + 用 `(Get-Date)` 复现「`[int]` 一行都不吐 / `[long]` 吐 13 位」+ 真机断言「新脚本行数 = 带端口的主进程数、每行 `port>0`」）、**窗被换掉后桥迁移**（两个假 pet 服务，断言新窗收得到、老窗收不到）、**pending 记账三种语义**（新鲜 pending 不重开 / 过期放行 / `startedAt` 对不上照开）、**复核扫描挂掉时不许盲认领窗**（前 4 次扫描挂、之后才扫得动，断言记账是 `reused:true` 且桥真建起来）。探针用 `globalThis.__piPetScanWindows` / `__piPetKillWindow` / `__piPetProbePort` / `__piPetSpawnHost` / `__piPetHostHealth` 顶掉扫进程、taskkill、端口探测、拉宿主、探活，不会误动真实宠物。末条 case 查真实机器上是否只剩一只（**红了就说明机器上真有多只，跑 `/pet-auto cleanup`**）。回退：`pi remove npm:pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
+验证：`node .sc-test/probe-pet-autostart.mjs`（**124 个 case**（旧路 84 + 宿主 10 组 + 1 组自锁死回归），探针默认测**仓库里的源文件**并在开头报「仓库 vs 已装副本」的漂移——不同步时 pi 跑的根本不是你刚改的代码）。覆盖配置解析、只在 tui 弹、只弹一次、pid 记账、`/pet-auto` 写回、**单只限制**（已有窗→复用、`maxPets`、锁抢占/陈旧锁、`cleanup`/`restart`、ws 钩子真起服务验证 `add_pet` 被丢），2026-09-29 补的回归组：**端口验活**（`refused` 当孤儿；探不通先快探再宽限长超时探，两次都不通就收掉）、**泄漏 socket 复现**（裸 `net` server 只 accept 不应答，断言状态不会永远停在 `connecting`）、**事件桥端到端**（真起 ws 服务，验证 `thinking`/`tool_call` 真的发得出去）、**`/reload` 后桥仍在**、**扫不动 ≠ 没有窗**、**status 摊开活窗/孤儿/桥状态**；2026-09-30 补的回归组（这四条**全部先在旧代码上跑出红**，才算数）：**PowerShell 兜底**（静态查 `[int]`→`[long]` + 用 `(Get-Date)` 复现「`[int]` 一行都不吐 / `[long]` 吐 13 位」+ 真机断言「新脚本行数 = 带端口的主进程数、每行 `port>0`」）、**窗被换掉后桥迁移**（两个假 pet 服务，断言新窗收得到、老窗收不到）、**pending 记账三种语义**（新鲜 pending 不重开 / 过期放行 / `startedAt` 对不上照开）、**复核扫描挂掉时不许盲认领窗**（前 4 次扫描挂、之后才扫得动，断言记账是 `reused:true` 且桥真建起来）；再加 2026-09-30 晚的 **case 41：启动锁 ≠ 单例锁**（探针的假 spawner 盖不住「真宿主因为锁而秒退」，所以这条真起一个 `pi-pet-host.cjs --no-window`，断言启动锁被占时它能起来并应答 `/health`，再反证单例锁被活进程占着时它必退——这条就是本机「拉起了宿主进程但 20s 内没应答」的真凶）。探针用 `globalThis.__piPetScanWindows` / `__piPetKillWindow` / `__piPetProbePort` / `__piPetSpawnHost` / `__piPetHostHealth` 顶掉扫进程、taskkill、端口探测、拉宿主、探活，不会误动真实宠物。末条 case 查真实机器上是否只剩一只（**红了就说明机器上真有多只，跑 `/pet-auto cleanup`**）。回退：`pi remove git:github.com/qq458249269/pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
+
+> 另有两个小探针（不属于 124 例）：`node .sc-test/gen-host.mjs` 从扩展里把内嵌的 `HOST_SOURCE` 抠成独立 `.cjs` 并 `node --check`（模板串里反斜杠/反引号转义错了它第一个报警）；`node .sc-test/probe-electron-bin.mjs` 单独跑 `resolveElectronBin()`，验证「不 spawn npm、命中 npx 缓存里那份、命中后写缓存、缓存被删能重找」。
 
 **「一直待机」的真凶（实测）**：不是桥没建、也不是 ws 解析错，而是**主人 pi 被硬杀后它的 LISTENING socket 被 electron 子进程带着活了下来**。`netstat` 看着在监听，内核照常完成 TCP 握手，所以连接不报错，但永远没人 `accept`——`/health` 超时、WS upgrade 挂死，窗还照常亮着照常呼吸，就是收不到事件。**只要窗在，假端口就一直在**，自我维持。判据：`netstat` 报 `LISTENING` 的 pid 在 `tasklist` 里已不存在（现场 pid 95932），且该端口 `/health` 与 WS upgrade 双双超时。杀掉窗则 socket 立刻消失，可反证是子进程持有。修法：探不通不能当活窗（先快探、再长超时宽限探，两次都不通就收掉让扩展重开一只能用的）；另给桥加握手看门狗（`PI_PET_BRIDGE_WATCHDOG_MS`，默认 6s），超时报 `err`，不让状态永远停在 `connecting`。
 
@@ -270,9 +273,11 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 - **宿主源码**：`pi-pet-host.cjs`（18312B），**内嵌**在 `extensions/pi-pet-autostart.ts` 里（`const HOST_SOURCE`），运行时按内容 sha1 门控写到 `~/.pi/agent/state/pi-pet-host.cjs`——内容没变**不重写**（不给 AV 反复扫的目标）。内嵌是因为 `install-local-extensions.mjs` 只同步 `extensions/*.ts`。
 - **整机一个**：`mkdir` 独占锁（`state/pi-pet-host.cjs.lock/owner.json`）保证整机只可能有一个宿主；主人 pid 死了就接管陈旧锁，活着就安静退出（让位，退出码 0）。
+- **启动锁 ≠ 单例锁（2026-09-30 修的 100% 自锁死）**：扩展自己抢的是**启动锁** `pi-pet-host.cjs.boot.lock`（“谁去拉宿主”，拉完就还），`--lock` 传出去的是**单例锁** `pi-pet-host.cjs.lock`（宿主自己接过去）。两把曾经是同一把，于是扩展 `mkdir` 占着它（`owner.json` 写的是**活着的 pi 进程 pid**）→ 宿主起来 `acquireLock()` 读到 owner 还活着 → 「已有宿主在跑」→ `exit(0)`；宿主每次秒退、扩展每次等满 20s 报「拉起了宿主进程（node.EXE）但 20s 内没应答」→ 退回旧路 → 宠物一直绑在本会话上。**症状像「node 起不来」，实际是自己把自己挡在门外**：`pi-pet-global.json` 从来不生成。连带一处：等不到 `/health` 时**不能**顺手释放单例锁（那把锁已被宿主接过去，抽掉等于放第二个宿主开第二个服务端口）。
 - **端口全局共享**：真实端口 + pid + 窗 pid + 心跳写在 `state/pi-pet-global.json`，**各会话都从这儿读**——不再是「每个 pi 进程各找一个随机端口」。`/health` 必须核 `role === "pi-pet-host"`，否则会把某个 pi 进程自己那个同端口的宠物服务误认成宿主。
 - **状态分文件避写冲突**：易失的 `pi-pet-global.json` 由**宿主**写；`pi-pet-ctrl.json`（`desired` / `keepAlive` / `maxPets` / `size` / `bridge` / `restartNonce`）由**扩展**合并写（多会话不会互相清空），宿主每 2s 读一次当控制通道。
 - **窗是宿主的子进程**：`detached:true` + `windowsHide:true` + `stdio:"ignore"` 拉起（探针死盯这三个参数，就是本次报障的回归点）。`taskkill` 只跟父子关系走，`detached` 断了这层关系，所以**关掉 pi 的 cmd 窗口 / Ctrl+C / taskkill /t 都不再连坐宠物**。
+- **拉窗不经 npx（否则必弹一个黑框）**：`npx electron` 会串出 `cmd.exe → node(npx) → cmd.exe → node → electron`，而 npm 自己 spawn 的那一层**不带 `CREATE_NO_WINDOW`**——我们给孩子的 cmd 是无控制台的（`windowsHide`），npm 的孩子就没控制台可继承，Windows 于是给它**新分配一个**（`Get-Process` 里看得到标题「管理员: ...cmd.exe」的 `node`）。所以宿主先 `resolveElectronBin()` 找到现成的 `electron.exe`（`PI_PET_ELECTRON` → 上次记在 `<global>.electron.json` 的 → 包自己的 `node_modules` → **npx 缓存** `<npm cache>/_npx/*/node_modules/electron/dist/`，npm cache 从环境变量和各级 `.npmrc` 的 `cache=` 读，**刻意不 spawn npm**——问一次又是一层控制台）再直接 spawn：一条进程、零控制台，还快 1~2s。附带好处：`windowPid` 就是 electron 本尊，`taskkill /t` 精确打到窗 + GPU/renderer 孩子。真的一个都找不到才退回 npx（会闪一下黑框）。
 - **机器级最后一道闸**：`maxPets<=1` 时宿主在**转发层**直接丢掉 `add_pet*` 帧——任何会话、任何旧路都绕不过去。
 - **多会话意图**：`ctrlIntent()` 只在 `autostart` 为真时写 `desired:true`（否则两个会话会互杀）；`/pet-auto off` 显式写 `desired:false`，**由宿主自己关窗退出并放锁**（而不是别的进程伸手 `taskkill` 它的窗）。`restart` 只改 `restartNonce`，同样由宿主自己关旧拉新。
 - **降级不消失**：探不到包目录 / PATH 上没 node / `HOST_WAIT_MS`（20s）内无应答 → `notify` 说清楚 + 退回旧路开窗，宠物不会凭空没了。`/pet-auto host off` 可主动切旧路。
@@ -291,12 +296,17 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 | 文件 | 谁写 | 内容 |
 |---|---|---|
 | `pi-pet-host.cjs` | 扩展 | 宿主源码（内嵌常量落盘） |
-| `pi-pet-host.cjs.lock/` | 宿主 | 整机单例锁（`owner.json` 带 pid） |
+| `pi-pet-host.cjs.lock/` | **宿主** | 整机单例锁（`owner.json` 带 pid） |
+| `pi-pet-host.cjs.boot.lock/` | **扩展** | 启动锁（谁去拉宿主，拉完就还；与上面那把**必须**是不同目录） |
+| `pi-pet-host.exe` | 人工造的 | 改名后的宿主运行时（`copy node.exe`），见下 |
+| `pi-pet-global.json.electron.json` | 宿主 | 找到的 `electron.exe` 路径（一行文本；缓存被清就自动重找） |
 | `pi-pet-global.json` | 宿主 | 真实端口 / pid / 心跳 / 窗 pid / 会话数（**端口全局共享的落点**） |
 | `pi-pet-ctrl.json` | 扩展 | `desired` / `keepAlive` / `maxPets` / `size` / `bridge` / `restartNonce` |
 | `pi-pet-autostart.json` | 扩展 | 旧路记账（宿主模式下不再决定生死） |
 
-**验证**：宿主本体 23 例 `node %TEMP%/petprobe/host-smoke.mjs`（`/health`、静态资源、越界 thumb 400、`/feed`→`/ws` 中继、`maxPets` 策略、单例锁让位、陈旧锁接管、`desired:false` 自退并放锁）；扩展侧 117 例 `node .sc-test/probe-pet-autostart.mjs`（新增 31–40：已有宿主不派发 `/pet` 只喂 `/feed`、抢锁落脚本 + 三个拉起参数、脚本 hash 幂等、锁被占时等对方公布端口、`off`/`restart` 走意图文件不 taskkill、`status` 报全局端口/pid/窗 pid、巡检收多余窗、`ok:false` 不动手、静态存档上游 `pet.js` 的 `MAX_RECONNECT_ATTEMPTS`+`closeWindow`）。探针把拉宿主与探活顶成 `globalThis.__piPetSpawnHost` / `__piPetHostHealth`，**永远不会真冒出窗**；所有状态文件都用 `PI_PET_HOST_SCRIPT` / `PI_PET_GLOBAL` / `PI_PET_CTRL` / `PI_PET_HOST_LOCK` 指到临时目录。
+**改宿主的进程名**（任务管理器里那只 `node.exe`）：`copy` 一份 `node.exe` 成 `state/pi-pet-host.exe`（node.exe 自包含，复制出来能直接跑），然后在 `pi-dsh-pet.json` 里写 `"hostRuntime": "…\\state\\pi-pet-host.exe"`（优先级 config > `PI_PET_NODE` > PATH 上的 node > bun；写错的路径当没配）。`/pet-auto status` 会打出当前用的哪个运行时。**electron 那只没改**：扫描/巡检/孤儿判定全靠 `Name='electron.exe'` + 命令行里的 `pet-electron.cjs <port>` 认窗，exe 一改名就一只都扫不到（孤儿收不掉、宿主自己的窗还会被当「多余的」误杀），要改得连带改 `PS_SCAN`。
+
+扩展侧 124 例 `node .sc-test/probe-pet-autostart.mjs`（新增 31–40：已有宿主不派发 `/pet` 只喂 `/feed`、抢锁落脚本 + 三个拉起参数、脚本 hash 幂等、**启动锁**被占时等对方公布端口、`off`/`restart` 走意图文件不 taskkill、`status` 报全局端口/pid/窗 pid、巡检收多余窗、`ok:false` 不动手、静态存档上游 `pet.js` 的 `MAX_RECONNECT_ATTEMPTS`+`closeWindow`；**41 是 2026-09-30 自锁死的回归**：断言 `--lock` 传的是单例锁、两个锁路径不同、**真起一个宿主进程**（不是探针的假 spawner）验证「启动锁被占时照样起来并应答 `/health`」+ 反证「单例锁被活进程占着时它秒退」）。探针把拉宿主与探活顶成 `globalThis.__piPetSpawnHost` / `__piPetHostHealth`，**永远不会真冒出窗**（case 41 的真宿主带 `--no-window`）；所有状态文件都用 `PI_PET_HOST_SCRIPT` / `PI_PET_GLOBAL` / `PI_PET_CTRL` / `PI_PET_HOST_LOCK` / `PI_PET_HOST_BOOT_LOCK` 指到临时目录。
 
 ---
 
@@ -544,7 +554,7 @@ node .sc-test/check-ext-errors.mjs
 | 压缩后首轮命中低 | 正常现象 | 只有「命中 0」才是故障；压缩调用自身用 `pi-compaction-cache` 兜（1.6%→98.8%） |
 | `pi-warm-cache` 没反应 | 本地代理属未注册路由 | 不是故障，`/warm status` 里 `automaticWarm:false` 即预期 |
 | pi-agent-browser-native 报 `buildSessionProjection is not a function` | Pi < 0.86 | 本机 0.87.1 不会发生；若真发生跑 `node fix-browser-native-compat.mjs` |
-| `/pet` 提示命令不存在 | 只 `npm i -g` 装过，pi 不扫全局 `node_modules` | `pi install npm:pi-dsh-pet` → `/reload`（见 §3.6） |
+| `/pet` 提示命令不存在 | 只 `npm i -g` 装过，pi 不扫全局 `node_modules` | `pi install git:github.com/qq458249269/pi-dsh-pet` → `/reload`（见 §3.6） |
 | 宠物窗口不弹 | 首次要下 Electron ≈100MB；或自动启动被关了 | 看启动提示；`/pet-auto status` 看当前开关；`/pet small` 换小号试；关掉了就写回 `{"autostart": true}` |
 
 **磁盘布局速查**
