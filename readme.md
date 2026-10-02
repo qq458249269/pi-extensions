@@ -5,7 +5,7 @@
 
 **本机基线（所有实测都在这上面做的）**：Pi **0.87.1**、node **24.16.0**、npm 12、模型走本地代理 `http://localhost:20128/v1`（`openai-completions`，模型 id `1`，窗口 100K）。
 > 2026-10-02 起宿主已升到 **Pi 1.0.0**（自带 `buildSessionProjection()`）。§6 的字节数、§7 的版本结论都是 0.87.1 快照，未复测；§8 排障表与 §1 清单已对齐 1.0.0。
-换版本 / 换 provider 后，**先复测再信下面的数字**（见文末「怎么复测」）。
+换版本 / 换 provider 后，下面的数字要重新对账（§6 是 0.87.1 时期的 wire 实测，pi 1.0.0 下未复测，本机也不再复测——按结论用，别按字节抠）。
 
 ---
 
@@ -128,8 +128,7 @@ node install-local-extensions.mjs
 pi update --extensions        # 只升扩展，不动 pi 本体（--all 会连 pi 一起升）
 
 # 升完先看谁动了（fork 与 major 变更最容易出兼容问题）
-node .sc-test/versions.mjs             # 本机实际版本（升级前先留一份对比）
-node .sc-test/check-ext-errors.mjs     # 加载期体检：extension_error 应为 0
+pi list                                # 升完核一遍实际版本
 ```
 
 **升级禁用 `pi install`**：对已装包会命中 npm 缓存、不升版本。升级一律走 `pi update --extensions`（不带版本号 = 取各包 npm 最新）。升级后跑 §8 体检。
@@ -253,9 +252,9 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 **首次开窗要下 Electron ≈100MB**（上游在 Windows 自动设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）；包里 91 个透明 WebM，`assets/thumb` 解包 48MB。
 
-验证：`node .sc-test/probe-pet-autostart.mjs`（**86 个 case**，A 组 42 个纯单元 + B 组 14 个真宿主端到端；探针默认测**仓库里的源文件**并在开头报「仓库 vs 已装副本」漂移 —— 不同步时 pi 跑的根本不是你刚改的代码）。A 组每个 case 一个独立临时 `PI_PET_HOME` + 配置/状态/启动锁（不隔离就会跑到真 home 上去），用 `globalThis.__piPetSpawnHost`（假 spawner，伪造退出码与子进程原话）/ `__piPetHostHealth`（假 `/health`）顶掉拉宿主与探活。B 组真起一个 `pi-pet serve`（临时 home、无窗），探针自己连 `/ws` 当「窗」录广播：验证 **feeds=1、thinking/tool_call/done/say 帧真的到窗、`/feed` 断连全程零 spawn、探针跑完不留残余宿主进程、整机没有「pi.exe 跑 pi-pet CLI」的野进程**。2026-09-30 晚这轮重构补的回归：**先打再探**（启动时零能力探测，命令失败才两个只读 GET）、**只有 `home/port` 也能复用宿主**（两宿主互锁的入场券）、**心跳陈旧不再单独判死**（`/health` + pid 才权威，陈旧且探不通才重拉）、**退出码翻译**（2 参数错 / 3 缺依赖 → `cd <pkg> && npm install` / 4 端口）、**一次 `/feed` 连接**（并发重连不许叠连接，见 §7.5）。回退：`pi remove git:github.com/qq458249269/pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
+这一轮重构定下的几条回归约束（历史探针随 `.sc-test/` 一起删除，改本扩展时按这几条自查）：**先打再探**（启动时零能力探测，命令失败才两个只读 GET）、**只有 `home/port` 也能复用宿主**（两宿主互锁的入场券）、**心跳陈旧不再单独判死**（`/health` + pid 才权威，陈旧且探不通才重拉）、**退出码翻译**（2 参数错 / 3 缺依赖 → `cd <pkg> && npm install` / 4 端口）、**一次 `/feed` 连接**（并发重连不许叠连接，见 §7.5）。回退：`pi remove git:github.com/qq458249269/pi-dsh-pet` + 删 `extensions/pi-pet-autostart.ts` 与 `pi-dsh-pet.json` 再 `/reload`。
 
-> 另有两个小探针（不属于 86 例）：`node .sc-test/gen-host.mjs` 从扩展里把内嵌的 `HOST_SOURCE` 抠成独立 `.cjs` 并 `node --check`；`node .sc-test/probe-electron-bin.mjs` 单独跑 `resolveElectronBin()`。**注意：这两条属旧架构**（宿主源码已不再内嵌，Electron 解析也已上移到服务端），留着只为对照，真要删时先确认没有别处引用。
+
 
 #### 3.6.2 服务端契约（本扩展认的那份，2026-09-30 实测 0.0.2）
 
@@ -347,7 +346,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 1. **省略 pattern 时必须显式传空串**。否则唯一的 position 会被 fd 当成 pattern（`fd -t d .git` 返回空，`fd -t d "" .git` 才出结果）——「列出全部」是这个工具的主卖点。
 2. **`--glob` 是「把 pattern 换成 glob」，不是额外过滤器**。glob 模式下再传位置 pattern 会被 fd 当成第二个搜索路径（报 `Search path 'capture' is not a directory`）。故工具里 `glob` 与 `pattern` 互斥。
 
-验证：`node .sc-test/probe-fd.mjs`（13 个 case，含上面两个回归）、`node .sc-test/measure-fd.mjs`（wire 字节）、`/fd-check`（fd 可执行文件解析）。回退：删 `extensions/pi-fd.ts` 再 `/reload`（`fd` 懒加载与否都不影响其余工具）。
+验证：`/fd-check`（fd 可执行文件解析）。回退：删 `extensions/pi-fd.ts` 再 `/reload`（`fd` 懒加载与否都不影响其余工具）。
 
 ---
 
@@ -372,7 +371,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 
 **开关**：`~/.pi/agent/extensions/no-find.json` → `{"enabled": false}` 整体停用；`{"allow": ["find -name *.go"]}` 按「首词 + 第二个词」前缀放行个别命令。配置坏了按「启用」处理（宁可多拦，不静默失效）。
 
-**回退**：`powershell -ExecutionPolicy Bypass -File .sc-test/enable-global-nofind.ps1 -Undo` 还原 `PATH` / `BASH_ENV`（原值备份在 `~/.pi/agent/no-find-global.json`）；删 `extensions/no-find.ts` + `/reload` 关掉 pi 内那层。
+**回退**：删 `extensions/no-find.ts` + `/reload` 关掉 pi 内那层；全局那层按 `~/.pi/agent/no-find-global.json` 里的备份手工还原 `PATH` / `BASH_ENV`。
 
 ---
 
@@ -380,13 +379,13 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 
 **铁律：装机前先审「它运行时会不会动 active 工具集」。** 只要扩展在会话中途调 `pi.setActiveTools`（典型是 `pi-web-access` 的 `web_enable` 这类空参激活器），工具集一变，请求前缀从第 0 个 token 起整段作废——本机实测 `cacheRead` 从 86016 掉到 1152，等于每次首次激活都吃一发全量 prefill（§7.4）。所以只接受两种接入方式：① 常驻进 `defaultTools`（前缀恒定）；② 懒加载由 `omnify` 代理执行（只在 `session_start` 隐藏一次，全程不切 active 集，§7.4 尾注）。
 - **凡「运行时增删工具」的扩展一律不装、不启用、不写进 `defaultTools`**——哪怕它的工具本身很有用（要联网搜就换 `agent_browser*` / `mcp` / `bash`，别为它掀缓存）。
-- 审法：`read` 扩展源码搜 `setActiveTools` / `activeTools`；装完再用 §9 的 bench 连跑 3 轮，字节不一致就是它在散缓存。
+- 审法：`read` 扩展源码搜 `setActiveTools` / `activeTools`；装完对比首请求的工具字节（口径见 §6），不一致就是它在散缓存。
 
 0. **新装扩展一律不进常驻集**（硬规则）
    - 理由：常驻集每轮都进 prompt（`grep`+`find` 就要 +1350B ≈ 350 tok），而多数扩展一天用不到几次。
    - **只有这三类才加常驻**：① 高频工具（见 §6.3 的取舍）；② 覆盖内建工具的（`grep`/`find`/`edit` 需先过 `defaultTools` 闸）；③ 缺失后 agent 会“瘫”的（如 `bash`）。
    - 例外：无。`grep` / `fd` 也只是「需要时 `omnify` 激活」，不进名单（§6.3）。
-   - 验证新装扩展是否真的零开销：`node .sc-test/bench/run.mjs <标签> ...` 看 `toolsBytes` 是否与基线一致（§9）。
+- 验证新装扩展是否真的零开销：看首请求的工具字节是否与基线一致（口径见 §6）。
 1. **首字成本**：常驻集每轮都进 prompt；不在名单的工具靠 `omnify` 检索命中后**代理执行**（不把 schema 注入 active 集，见上面铁律）。
 2. **激活往返**：0.86+ 流程是 `omnify`/`load_tools` → `call_tool` → 执行，多 1–2 个模型轮次。搜索类工具建议常驻（见 §6.3）。
 3. **大输出工具**（`agent_browser*` / `mcp`，或 bash 直接抓页面）原始 HTML/JSON 全量进历史，会把前缀命中率打崩；用前先想清楚要不要落历史。
@@ -525,14 +524,11 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 
 **顺带修掉的一个自造 bug**：`connectFeed()` 先 `await findHost()`（一次 HTTP）才建 socket，这段 await 里 `sock` 还是 null —— 看门狗、会话事件、重连定时器撞在一起时会各开一条，`sock` 只留最后一条，前面的**没人关**（`close` 回调还会误杀活着的那条），宿主那边 `feeds` 只增不减（本机实测 15s 涨到 18）。开着是真连接泄漏，长会话必拖垮宿主。已加 `feedPending` 在途闸 + `close` 只认自己那条，探针有对应用例（`B2b`：整个会话只建一条 `/feed`）。
 
-**旧路遗留的死文件**（架构换了，可以删，留着只是占地方）：`~/.pi/agent/state/pi-pet-host.cjs`（内嵌宿主源码，已不再落盘）、`pi-pet-global.json*`、`pi-pet-ctrl.json`、`pi-pet-host.cjs.lock/`、`pi-pet-host.cjs.boot.lock/`。新架构只认 `<home>/`（`%APPDATA%/pi-dsh-pet`）里的 `port` / `token` / `state.json` / `ctrl.json` / `host.lock` + `state/pi-pet-autostart.json` + `state/spawn-log.txt`。
+**旧路遗留的死文件**（架构换了，**已清**，本机 `state/` 下只剩 `pi-pet-autostart.json`）：`~/.pi/agent/state/pi-pet-host.cjs`（内嵌宿主源码，已不再落盘）、`pi-pet-global.json*`、`pi-pet-ctrl.json`、`pi-pet-host.cjs.lock/`、`pi-pet-host.cjs.boot.lock/`。新架构只认 `<home>/`（`%APPDATA%/pi-dsh-pet`）里的 `port` / `token` / `state.json` / `ctrl.json` / `host.lock` + `state/pi-pet-autostart.json` + `state/spawn-log.txt`。
 
 ## 8. 体检与排障
 
-```bash
-# 加载期体检：扫 RPC 事件流里的 extension_error + stderr
-node .sc-test/check-ext-errors.mjs
-```
+本机**没有自动体检脚本**（历史 `check-ext-errors.mjs` 随 `.sc-test/` 一起删除，不重写）。改完 `/reload`，看 TUI 有无 `extension_error`；本地扩展与仓库是否漂移跑 `node install-local-extensions.mjs --check`。
 
 | 症状 | 原因 | 处置 |
 |---|---|---|
@@ -564,46 +560,15 @@ node .sc-test/check-ext-errors.mjs
 **生效方式**：改配置或扩展后 `/reload`（不重启会话、不丢历史）。
 
 ---
-
-## 9. 怎么复测（结论过期了就自己重跑）
-
-沙箱在 `.sc-test/bench/`（已 gitignore），不污染真实配置：
-
-```bash
-# 单场景：搭沙箱 → 起 mock provider → 抓首请求真实字节
-node .sc-test/bench/run.mjs <标签> \
-  userDefaultTools=read,edit,write,bash,grep,fd defaultTools=read,edit,write,bash,grep,fd \
-  local=1
-# 注：0.4.0 起常驻名单 = defaultTools，bench 的 `resident=` 只是它的别名
-
-# 看结果：各块字节 + 关键内容判定
-node .sc-test/bench/inspect.mjs <标签>
-
-# 变体：local=lean|lean-shell|1|<逗号分隔文件名>  stripPkg=<子串>  provider=probe|real|realshape
-
-# 升级前后各跑一次：版本对比 + 加载期体检
-node .sc-test/versions.mjs
-node .sc-test/check-ext-errors.mjs
-
-# fd 工具单独体检（不起 pi）：13 个行为 case + wire 字节对比
-node .sc-test/probe-fd.mjs            # 行为（改过 fd 调用就要跑）
-node .sc-test/measure-fd.mjs          # 字节（改了 description/schema 就要跑）
-
-# 宠物体检（不起 pi、不弹窗）：86 个 case = A 组 42 个纯单元 + B 组 14 个真宿主端到端（真起 pi-pet serve、探针自己连 /ws 当窗）
-node .sc-test/probe-pet-autostart.mjs
-```
-
-沙箱要点：`PI_CODING_AGENT_DIR` 指向沙箱 agent 目录，`npm`/`git`/`node_modules`/`skills` 用 `mklink /J` junction 指向真实目录（**必须是反斜杠绝对路径**），项目级 `.pi/` 两份配置现写现用；mock 端口默认 18080（8799 在本机被占）。
-
 ---
 
-## 10. 本轮实录：换包 + 升级 + 环境补齐（2026-09-29，`USERPROFILE=C:\Users\yxh`）
+## 9. 本轮实录：换包 + 升级 + 环境补齐（2026-09-29，`USERPROFILE=C:\Users\yxh`）
 
 在另一台机器上照本清单完整走一遍。**配置值与 §1–§7 全部一致，唯一差异是路径前缀**（本机 `yxh`，原记录机 `yinxuehao`；`compaction-cache.json` 的 `logPath` 已是本机路径）。
 
-> **后注（2026-09-30）**：本节（§10）是 2026-09-29 那次实录的**快照**——本节内的 `pi list` 19 项、§10.6 的 wire 字节 6010B / 6 个工具都是**当时值，保留不改**。2026-09-30 卸载 `pi-web-access` 后为 **18 项 / 5664B / 5 个工具**（详见 §1 与 §7.4）。
+> **后注（2026-09-30）**：本节（§9）是 2026-09-29 那次实录的**快照**——本节内的 `pi list` 19 项、§9.6 的 wire 字节 6010B / 6 个工具都是**当时值，保留不改**。2026-09-30 卸载 `pi-web-access` 后为 **18 项 / 5664B / 5 个工具**（详见 §1 与 §7.4）。
 
-### 10.1 拉代码：未提交改动先备份再 fast-forward
+### 9.1 拉代码：未提交改动先备份再 fast-forward
 
 `git fetch` 后本地落后 17 个提交，工作区有两处未提交改动：
 
@@ -614,7 +579,7 @@ node .sc-test/probe-pet-autostart.mjs
 
 那 146 行不是「还没提交的新活」，而是**已被远端推翻的旧路线**：远端把 wire 压缩拆成独立的 `pi-lean-sections.ts`（只压 `<docs>` + `<skills>`），且 §3.2 明确「**不要压 `<rules>`**」（与 docs/skills 同改会让 pi 把 rules 正文挪位、条目与续行错配）。仓库是 canonical 源，直接还原即正确。备份留在 `/tmp/pi-ext-backup/`（`local-work.patch` + 两个原文件）。`e1758d3 → 16c8951` fast-forward 成功。
 
-### 10.2 照清单换包：卸 3 装 3，仍是 19 个
+### 9.2 照清单换包：卸 3 装 3，仍是 19 个
 
 | 操作 | 包 | 版本 | 依据 |
 |---|---|---|---|
@@ -627,7 +592,7 @@ node .sc-test/probe-pet-autostart.mjs
 
 `pi list` 实测 **19 项 = 18 npm + 1 git**，`settings.json` 的 `packages` 19 条。全程串行（§2.1 的硬规矩）。
 
-### 10.3 升级：只有 mcp-adapter 动了，fork 带上了两个修复
+### 9.3 升级：只有 mcp-adapter 动了，fork 带上了两个修复
 
 `pi update --extensions`：
 
@@ -636,7 +601,7 @@ node .sc-test/probe-pet-autostart.mjs
 
 ⚠ 代价照旧：`reset --hard` + `clean -fdx` 把 `fix-lazy-tools-notes.mjs` 打的 `DOCS_NOTE` 路径补丁冲掉了，`--check` 报「待修补：docs 路径」，重打即恢复（幂等，复跑 `无需改动`）。实测命中 `D:\agent\pi-windows-x64`。**该机已无 `pi-shell.ts`，脚本第 2 段（bash→shell 措辞）自动跳过。**
 
-### 10.4 配置同步
+### 9.4 配置同步
 
 | 项 | 动作 |
 |---|---|
@@ -650,7 +615,7 @@ node .sc-test/probe-pet-autostart.mjs
 
 > `npm install-scripts approve better-sqlite3` 报 `ENOMATCH` —— **属预期**，该依赖早被两包移除；§3.1 那行命令在本机实际等于只批准 computer-use。
 
-### 10.5 体检结果
+### 9.5 体检结果
 
 | 检查 | 结果 |
 |---|---|
@@ -659,12 +624,7 @@ node .sc-test/probe-pet-autostart.mjs
 | `fix-browser-native-compat.mjs` | `[skip]`（双路回退仍在，0.87.1 本就不需要） |
 | `fix-lazy-tools-notes.mjs --check` | 重打后 `无需改动` |
 
-### 10.6 本机新发现
-
-**① `.sc-test/` 零跟踪，§6/§8/§9 的复测脚本拉不下来。**
-`.gitignore` 第 1 行就是 `.sc-test/`，且 `git ls-files .sc-test` 计数 **0** —— 整个目录没有任何文件被跟踪。于是 §9 列的 `versions.mjs` / `probe-fd.mjs` / `measure-fd.mjs` / `probe-pet-autostart.mjs` / `probe-no-find.mjs` / `bench/` **只存在于原作者那台机器**。本轮手里唯一的 `check-ext-errors.mjs` 属历史遗留。
-
-**后果**：本轮**没有复测 §6 的任何 wire 字节**（6010B / 6 工具、§6.2 的 3556B system 均未重新验证），只验了加载期无错。要么把这些脚本移出 gitignore 单独提交，要么在 readme 里注明「§6 数字的复测条件不随仓库分发」。
+### 9.6 本机新发现
 
 **② 中途改 `defaultTools` 而不 `/reload`，等于把自己锁在门外。**
 本轮前半段按 §3.4 往 `defaultTools` 补了 `bash`（两处都写好了）。但**本会话是在改之前启动的**，工具集在启动时定死，改完没跑 `/reload`——于是后半段要执行 `git push` 时，手上只剩 `read`/`write`/`edit`/`web_enable`/`omnify`。`omnify` 兜底调 `bash`、`powershell`、`read` 全部被拒：
