@@ -46,6 +46,13 @@ if (!src.includes("buildSessionProjection")) {
 	process.exit(0);
 }
 
+// pi 1.0.0 起宿主自带 buildSessionProjection()，本补丁的 0.85.x 前提已消失；
+// 上游 0.9.x 也把这段重写成直接遍历 projection，不再经过 getCurrentSystemMessage。
+if (!src.includes("getCurrentSystemMessage")) {
+	console.log("[skip] 目标代码特征已变（不再走 getCurrentSystemMessage 旧路径）——pi 宿主已有 buildSessionProjection，无需本补丁");
+	process.exit(0);
+}
+
 const OLD = `        const { getCurrentSystemMessage } = await import("@earendil-works/pi-ai");
         const current = getCurrentSystemMessage(ctx.sessionManager.buildSessionProjection().messages);
         const restored = new Set(current?.toolsAdded?.map(({ name }) => name));
