@@ -9,9 +9,9 @@
 
 ---
 
-## 1. 清单（在用 18 个扩展 = 16 npm + 2 git）
+## 1. 清单（在用 17 个扩展 = 15 npm + 2 git）
 
-> 下表 20 行里 `pi-edit-guard`、`pi-undo-redo` 已卸载（前者的删除线保留作决策记录，见 §7.1），**实际在用 18 个**。`pi-web-access` 已于 2026-09-30 卸载（原行已删，理由见 §7.4）；`pi-dsh-pet` 同日从 npm 源换成 git 源 → **git 源是两个**（`pi-lazy-tools` + `pi-dsh-pet`）。
+> 下表 21 行里 `pi-edit-guard`、`pi-undo-redo`、`pi-smart-context` 已卸载（前两者的删除线保留作决策记录，见 §7.1；`pi-smart-context` 见 §3.2），**实际在用 17 个**。
 
 **不锁版本**：安装命令一律不带 `@版本号`（取 npm 最新），本清单不维护版本矩阵。要查本机实际装的版本：
 
@@ -38,7 +38,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:pi-agent-browser-native` | 原生 `agent_browser*` 工具（8 个） | 0.9.1 起直接遍历宿主的 `sessionManager.buildSessionProjection()`，不再走 `getCurrentSystemMessage` 旧路径。Pi 1.0.0 宿主自带该 API，**不需要**兼容补丁 |
 | `npm:@agenticup/pi-loop` | `loop` 递归深潜工具 | 入口是 `extensions/loop.ts`，不是 `dist/index.js` |
 | `git:github.com/qq458249269/pi-lazy-tools` | 按需工具加载（`omnify` 一站式：搜索 / 补参 / 代理执行） | **fork，含 jiti 加载器补丁**；npm 版 `@wolido/pi-lazy-tools` 已下架。**0.4.0 是 breaking**：常驻名单从自建 `~/.pi/lazy-tools.json` 改读 pi 的 `defaultTools`（见 §3.4）。本地 clone 在 `D:\AI\pi-lazy-tools`，改完直接 commit + push，`pi update --extensions` 就能带上 |
-| `npm:@zhushanwen/pi-smart-context` | 智能压缩：注册 `compact_context` 交 agent 自决 | **必做配置**见 §3.2 |
+| ~~`npm:@zhushanwen/pi-smart-context`~~ | 智能压缩：注册 `compact_context` 交 agent 自决 | **已卸载**（`pi uninstall npm:@zhushanwen/pi-smart-context`）：阈值提醒实测触发过（`sessions/*-pi-dsh-pet-*/12-29-47` 落在 89.5K/128K 与 91.9K/128K 两档），但 `compact_context` 作为 toolCall 出现 **0 次**，压缩收益 0。理由与数据见 §3.2 |
 | `npm:pi-prefix-stabilizer` | 系统提示词前缀稳定 + 漂移检测 | 与 compaction-cache 有先后要求，见 §2.2 |
 | `npm:pi-compaction-cache` | 摘要调用复用已缓存前缀 | **必做配置**见 §3.3；实测把压缩调用自身命中从 1.6% 拉到 98.8% |
 | `npm:pi-warm-cache` | 空闲期按厂商 TTL 续前缀缓存 | **本机不生效**（本地代理属未注册路由），纯静默待命 |
@@ -86,8 +86,7 @@ for p in pi-tps @injaneity/pi-computer-use pi-one-ui pi-cache-guardian \
 done
 
 # 有硬顺序的后续
-for p in @zhushanwen/pi-smart-context \
-         pi-prefix-stabilizer pi-compaction-cache pi-warm-cache \
+for p in pi-prefix-stabilizer pi-compaction-cache pi-warm-cache \
          @henryqw/pi-ask-question @ssk_dev/rpiv-todo-lean \
          @aboutlo/pi-smart-edit; do
   pi install "npm:$p" || echo "[失败] $p"
@@ -113,11 +112,11 @@ node install-local-extensions.mjs
 >
 > 若 `pi update --extensions` 也超时，同一改写继续生效（git 源的 update 就是 git pull）；装完即可 `/reload`。
 
-装完自查：`pi list` 应见 **18 个扩展**（16 npm + 2 git），`settings.json` 的 `packages` 18 条。少于 16 就是并行竞写伤痕，重跑补漏。
+装完自查：`pi list` 应见 **17 个扩展**（15 npm + 2 git），`settings.json` 的 `packages` 17 条。少于 15 就是并行竞写伤痕，重跑补漏。
 
 ### 2.2 硬顺序约束
 
-- `pi-compaction-cache` 必须在 `@zhushanwen/pi-smart-context` **之后**：两者都接 `session_before_compact`，靠后拿到的接管权；反过来压缩调用命中会退回 1.6%。
+- `pi-compaction-cache` 必须在 `pi-prefix-stabilizer` **之后**：两者都抢 `session_before_compact` 的接管权，靠后装的赢；反过来压缩调用命中会退回 1.6%。~~原第一条写的是「compaction-cache 必须在 smart-context 之后」~~ —— smart-context 已卸载（§3.2），约束退化成这一条。
 - `pi-prefix-stabilizer` 必须在 `pi-compaction-cache` **之前**：先稳前缀再谈复用。
 - 其余顺序不限（`pi-warm-cache` / `pi-ask` / `rpiv-todo-lean` 都不抢 `session_before_compact`）。
 - `pi-dsh-pet` 放哪都行：纯 UI 扩展，只广播事件不改 prompt；它的 `tool_call` 钩子只 `broadcast` 不 block，与 `no-find.ts` 的拦截钩子可共存（实测 `extension_error` 0）。
@@ -160,15 +159,31 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 `allowScripts` 里只有这两个。其余包实测均无 install 脚本。
 
-### 3.2 smart-context：`~/.pi/agent/config/smart-context-ext-config.json`
+### 3.2 ~~smart-context~~（已卸载 2026-10-02，配置一并作废）
+
+原配置位置 `~/.pi/agent/config/smart-context-ext-config.json` 已删（包没了，文件是死配置；重装同版本会自动重建）。当时值留档：
 
 ```json
 { "enabled": true, "compactModel": { "type": "ref", "ref": "" }, "reminderThresholds": [60000, 75000, 90000], "excludedModels": [] }
 ```
 
-- `compactModel.ref` 空串 = 与当前会话同模型（same-model 模式）。
-- `reminderThresholds` 是 100K 窗口下的三档提醒（token 绝对数，升序）；**默认值 400K/500K/600K 对本机 100K 窗口永远不触发**，必须调低。
-- 路径是 `<agentDir>/config/`，不是 `<agentDir>/`。
+**卸载理由**（实测，不是猜）：
+
+| 事实 | 证据 |
+|---|---|
+| 阈值提醒确实触发过 | `~/.pi/agent/sessions/--D--AI-pi-dsh-pet--/2026-10-02T12-29-47-157Z_*.jsonl` 两条 `smart-context:fired`：`{"tiers":[60000,75000],"tokens":89456}`、`{"tiers":[90000],"tokens":91855}`，各跟一条 `custom_message` 提醒（89.5K/128K 69.9%、91.9K/128K 71.8%） |
+| `compact_context` 一次没被调 | 全 `sessions/` grep `toolName/name = compact_context`，0 命中（唯一匹配是 system prompt 的工具清单） |
+| 所以净收益 = 0 | 多两个包（5 个依赖）+ 一份配置 + 一次提醒往返，换来 0 次压缩 |
+
+**根因**（三条，叠加后基本不可能触发）：
+
+1. 提醒**是数据不是指令**。文案原文：「达阶段边界……时才调用 `compact_context`；**否则忽略本提示继续工作**」。「阶段边界」这个条件模型几乎永不判定成立，于是永远忽略。
+2. `compactModel.ref` 是空串 → `pickMode` 只能走 same-model，拿不到 cross-model 的廉价模型收益。
+3. 阈值 60K/75K/90K 对 128K 窗 = 47%/59%/70%，**比内建 auto 压缩的触发点还晚**，插件还没等到动手，内建 `/compact` 已经压完了。
+
+**留个教训**：阈值类扩展的价值全在「agent 真的执行」上。提醒送到 ≠ 模型动手。要这类功能，先 grep session 确认 toolCall 真发生过，再决定留不留。
+
+> §2.2 原本那条「compaction-cache 必须在 smart-context 之后」的硬顺序随之作废，压缩侧现在只剩 prefix-stabilizer → compaction-cache 一条。
 
 ### 3.3 compaction-cache：`~/.pi/agent/compaction-cache.json`
 
@@ -304,7 +319,6 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | `pi-pet-autostart`（本地 `extensions/pi-pet-autostart.ts`） | 无工具（`session_start` 钩子 + `/pet-auto` 命令） |
 | `@henryqw/pi-ask-question` | `ask_question` |
 | `@ssk_dev/rpiv-todo-lean` | `todo` |
-| `pi-smart-context` | `compact_context` |
 | `@agenticup/pi-loop` | `loop` |
 | `pi-mcp-adapter` | `mcp` |
 | `pi-agent-browser-native` | `agent_browser` 及 7 个配套 |
@@ -320,7 +334,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | `fd` | ❌ 未列 → 懒加载 | 本地 `pi-fd` 注册，同上 |
 | `find` | ❌ 未列 → 懒加载 | 同一底层（fd）但只认 glob，作为 `fd` 的兜底 |
 | `ls` `powershell` | ❌ 未列 → 懒加载 | 需要时 `omnify` 按名 load 回来（或用 `bash ls`） |
-| `todo` / `loop` / `md_*` / `ask_question` / `compact_context` / `mcp` / `agent_browser*` | ❌ 未列 | 全部默认懒加载，用 `omnify` 按需检索 / 代理执行 |
+| `todo` / `loop` / `md_*` / `ask_question` / `mcp` / `agent_browser*` | ❌ 未列 | 全部默认懒加载，用 `omnify` 按需检索 / 代理执行 |
 | `omnify` | ❌ 写不写都一样 | pi 核心无条件注册，**不需进名单**，写进去只是读起来清楚 |
 
 漏了的后果（实测）：`defaultTools` 是内建工具的**注册闸**（不在列 → 根本注册），对扩展工具则是**常驻名单**（不在列 → 注册了但被 lazy 隐藏，wire 上看不到；要它时 `omnify` 一步拾回）。
@@ -553,7 +567,7 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 | `~/.pi/agent/state/` | 跨会话记账（如 `pi-pet-autostart.json` 记「本 pid 已弹过窗 + 落在哪只宠物上」，`pi-pet-autostart.json.lock/` 是跨进程开窗锁） |
 | `~/.pi/agent/git/` | git 源扩展（lazy-tools fork） |
 | `~/.pi/agent/npm/node_modules/` | npm 源扩展 |
-| `~/.pi/agent/config/` | smart-context 配置 |
+| `~/.pi/agent/config/` | ~~smart-context 配置~~ → **已空**（包已卸载，该文件一并删了）；新装带 `startupConfig` 的包会往这里写 |
 | `<项目>/.pi/settings.json` | 项目级 `defaultTools`，**整体覆盖**用户级（且需项目被信任） |
 | `~/.pi/agent/sessions/**/*.jsonl` | 会话历史，算命中率的原始数据 |
 
