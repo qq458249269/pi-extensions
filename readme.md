@@ -100,6 +100,18 @@ pi install git:github.com/qq458249269/pi-dsh-pet
 node install-local-extensions.mjs
 ```
 
+> **GitHub 直连不通（国内出口 443 超时）时走加速源**：先把 git 的 https 改写到可达镜像，再照上面装。实测 `gh-proxy.com` 可用，`ghproxy.com`/`gitclone.com`/`ghproxy.cc` 本机 2026-10-02 均不可达或证书过期。全局设置一次即生效（含 `pi install` 内部的 git clone）：
+>
+> ```bash
+> git config --global url."https://gh-proxy.com/https://github.com/".insteadOf "https://github.com/"
+> pi install git:github.com/qq458249269/pi-lazy-tools
+> pi install git:github.com/qq458249269/pi-dsh-pet
+> # 不想留全局改写就改完装完撤掉：
+> git config --global --unset url."https://gh-proxy.com/https://github.com/".insteadOf
+> ```
+>
+> 若 `pi update --extensions` 也超时，同一改写继续生效（git 源的 update 就是 git pull）；装完即可 `/reload`。
+
 装完自查：`pi list` 应见 **18 个扩展**（16 npm + 2 git），`settings.json` 的 `packages` 18 条。少于 16 就是并行竞写伤痕，重跑补漏。
 
 ### 2.2 硬顺序约束
