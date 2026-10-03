@@ -375,7 +375,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 
 | 层 | 位置 | 覆盖 | 实测 |
 |---|---|---|---|
-| pi 钩子 | `extensions/no-find.ts` → `tool_call` | `bash` / `powershell` 命令行里的 `find`（含 `find.exe`、`xargs find`、`$(find …)`、管道后 `| find`）+ pi-find 的 `find` **工具** | `probe-no-find.mjs` 22 个 case 全过；真 pi 里 `extension_error` 0 |
+管道后 `\| find`）
 | bash（全局） | 用户环境变量 `BASH_ENV=C:\Users\yinxuehao\bin\no-find.sh`（非交互 `bash -c`）+ `~/.bashrc` 同款函数（交互） | 任何 bash，包括脚本 | `find` → 拒答 + exit 127；`fd` 正常 |
 | cmd（交互） | `HKCU\...\Command Processor\AutoRun` 里的 doskey 宏 | 交互式 cmd 提示符 | doskey 宏**只在交互命令行展开**，`cmd /c` 不受影响 |
 | PowerShell（交互） | `Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1` 里的 `function find` | 交互式 PowerShell | **本机没生效**：执行策略全是 `Undefined`（= 默认 `Restricted`），profile 根本不加载；要生效得 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`（安全策略变更，**没擅自改**） |
@@ -543,7 +543,7 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 
 ## 8. 体检与排障
 
-本机**没有自动体检脚本**（历史 `check-ext-errors.mjs` 随 `.sc-test/` 一起删除，不重写）。改完 `/reload`，看 TUI 有无 `extension_error`；本地扩展与仓库是否漂移跑 `node install-local-extensions.mjs --check`。
+本机**没有自动体检脚本**（历史 `check-ext-errors.mjs` 随 `.sc-test/` 一起删除，不重写）。改完 `/reload`，看 TUI 有无 `extension_error`；本地扩展与仓库是否漂移跑 `node install-local-extensions.mjs --check`；readme 表格列数跑 `node check-readme-tables.mjs`（编辑手滑插/漏一个 `|` 时靠它兜住，不一致则 exit 1）。
 
 | 症状 | 原因 | 处置 |
 |---|---|---|
