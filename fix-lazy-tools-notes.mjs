@@ -19,7 +19,21 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-const FORK = path.join(os.homedir(), ".pi", "agent", "git", "github.com", "qq458249269", "pi-lazy-tools", "lazy-tools.ts");
+/** fork 位置：环境变量 > 开发用 clone（D:\AI\pi-lazy-tools）> pi 装的 git 缓存副本。 */
+function resolveFork() {
+const fromEnv = process.env.PI_LAZY_TOOLS_REPO;
+	if (fromEnv) {
+		const p = path.join(fromEnv, "lazy-tools.ts");
+		if (fs.existsSync(p)) return p;
+		console.warn(`[fix-lazy-tools-notes] PI_LAZY_TOOLS_REPO=${fromEnv} 无 lazy-tools.ts，改用自动定位`);
+	}
+	for (const dir of ["D:\\AI\\pi-lazy-tools", path.join(os.homedir(), ".pi", "agent", "git", "github.com", "qq458249269", "pi-lazy-tools")]) {
+		if (fs.existsSync(path.join(dir, "lazy-tools.ts"))) return path.join(dir, "lazy-tools.ts");
+	}
+	return path.join(os.homedir(), ".pi", "agent", "git", "github.com", "qq458249269", "pi-lazy-tools", "lazy-tools.ts");
+}
+
+const FORK = resolveFork();
 const SHELL_EXT = path.join(os.homedir(), ".pi", "agent", "extensions", "pi-shell.ts");
 const checkOnly = process.argv.includes("--check");
 
