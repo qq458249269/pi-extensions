@@ -72,8 +72,11 @@ sub(
 );
 
 // 2) 装了 pi-shell 就把「bash」措辞换成「shell」
+// 1b) 本机禁 find（见 ~/.pi/agent/extensions/no-find.ts；已卸载 pi-find，find 会假死/被拦）
+sub("RULES_NOTE find→fd", /- 文件操作用 (?:bash|shell[^)]*) \(ls, rg, find\)/, (m) => m[0].replace("rg, find", "rg, fd"));
+
 if (shell) {
-	sub("RULES_NOTE 首行", /- 文件操作用 bash \(ls, rg, find\)/, "- 文件操作用 shell（bash/powershell 合一；(ls, rg, find)）");
+	sub("RULES_NOTE 首行", /- 文件操作用 (?:bash|shell)[^\n]*\(ls, rg, (?:find|fd)\)/, "- 文件操作用 shell（bash/powershell 合一；(ls, rg, fd)）");
 	sub("omnify 兜底 A", /以 bash\/read\/编辑 等常规手段完成/g, "以 shell/read/编辑 等常规手段完成");
 	sub("omnify 兜底 B", /常规手段（bash\/read\/编辑）/g, "常规手段（shell/read/编辑）");
 	sub("文件头注释", /并建议退回 bash\/read\/编辑 等常规手段。/, "并建议退回 shell/read/编辑 等常规手段。");
