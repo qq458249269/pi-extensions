@@ -10,9 +10,10 @@
 
 ---
 
-## 1. 清单（在用 17 个扩展 = 15 npm + 2 git）
+## 1. 清单（在用 20 个扩展 = 18 npm + 2 git）
 
-> 下表 21 行里 `pi-edit-guard`、`pi-undo-redo`、`pi-smart-context` 已卸载（前两者的删除线保留作决策记录，见 §7.1；`pi-smart-context` 见 §3.2），**实际在用 17 个**。
+> 下表 24 行里 `pi-edit-guard`、`pi-undo-redo`、`pi-smart-context` 已卸载（前两者的删除线保留作决策记录，见 §7.1；`pi-smart-context` 见 §3.2），**实际在用 20 个**。
+> 2026-10-06 增补 3 个：联网（`pi-web-access`）、会话级撤销（`@bacnh85/pi-checkpoint`）、完成通知（`pi-notify`）。
 
 **不锁版本**：安装命令一律不带 `@版本号`（取 npm 最新），本清单不维护版本矩阵。要查本机实际装的版本：
 
@@ -34,7 +35,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:@tian.zuo/pi-find` | `grep` / `find` 工具 | **覆盖内建同名工具**（替换，不是并列）。本机只用它的 `grep`；`find` 已降为懒加载兜底（见 §4.1） |
 | `npm:pi-edit-guard` | 覆盖内建 `edit` + 注册 `undo` | **已卸载**，见 §7.1（要装的话注意与 smart-edit 争 `edit` 槽） |
 | `npm:@trycedar/pi-mdiff` | `md_inspect` / `md_diff` / `md_edit` | Markdown 结构化编辑，`.md` 改动优先用它 |
-| ~~`npm:pi-undo-redo`~~ | 会话 / 文件撤销重做 | **已卸载**（`pi remove npm:pi-undo-redo`），本机有 git + `edit` 精确替换，撤销走 git / 编辑历史；会话级撤销暂缺 |
+本机有 git + `edit` 精确替换，撤销走 git / 编辑历史；它空出来的「会话级撤销」已由 `@bacnh85/pi-checkpoint`（`/undo`）补上 |
 | `npm:pi-mcp-adapter` | 一个 `mcp` 代理工具替代成百上千个 MCP 工具定义 | 装完重启自动读 `.mcp.json` |
 | `npm:pi-agent-browser-native` | 原生 `agent_browser*` 工具（8 个） | 0.9.1 起直接遍历宿主的 `sessionManager.buildSessionProjection()`，不再走 `getCurrentSystemMessage` 旧路径。Pi 1.0.0 宿主自带该 API，**不需要**兼容补丁。**但它声明 `node >=24.21.0`，本机 24.16.0 → 装卸时必有 `EBADENGINE` 警告（无害，见开头基线注）** |
 | `npm:@agenticup/pi-loop` | `loop` 递归深潜工具 | 入口是 `extensions/loop.ts`，不是 `dist/index.js` |
@@ -48,6 +49,10 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:@ssk_dev/rpiv-todo-lean` | `todo` 任务清单工具 + TUI overlay | `ctrl+shift+t` 折叠；`/todos` 看全量 |
 | `npm:@aboutlo/pi-smart-edit` | 覆盖内建 `edit`，容忍引号/空白不匹配 | **已生效**；`edit` 归它，匹配走「精确 → NFKC 归一化行」 |
 | `git:github.com/qq458249269/pi-dsh-pet` | 桌面宠物：Electron 透明浮窗 + 91 个 WebM 动画，随 agent 状态（思考/写代码/空闲）切换 | **纯命令扩展**（`/pet` `/pet-stop`），零工具、零 wire 开销。**必须 `pi install`**，光 `npm i -g` pi 不加载（见 §3.6）。**2026-09-30 从 `npm:pi-dsh-pet` 换成 git 源**（自己 fork 的仓库，改完 `git pull` 就生效；`pi update --extensions` 也认它）。常驻与「整机只留一只」由本仓库的 `pi-pet-autostart.ts` 接管 |
+
+| `npm:pi-web-access` | `web_search` / `source_check` / `fetch_content` / `get_search_content` + `/websearch` `/search` `/curator` | 2026-10-06 **复装**（曾于 2026-09-30 卸载，§7.4）。**必做配置** `~/.pi/agent/web-search.json` 写 `toolActivation: "eager"`，见 §3.7 —— 不写就用 `web_enable` 加载器中途改 active 集，会把前缀缓存掀掉（正是当年卸掉它的原因）。26 个搜索源，duckduckgo 无需 key，其余填 `web-search.json` 的 API key。eager × lazy-tools 实测：四工具不上 wire、用时 `omnify` 捞（§3.7） |
+不碰工作分支/stash。**必须在 git 仓库内**，否则静默 no-op。坑：**只还原已跟踪文件**，该轮新增的未跟踪文件会留在原地（见 §3.8）。装后只在无交互 `pi -p` 下验证过不报错，`/undo` 本身未实测 |
+| `npm:pi-notify` | `agent_end` → Windows toast | 2026-10-06 装，零配置零依赖。Windows Terminal 走 PowerShell toast（`WT_SESSION` 判定），其他终端 OSC 777/9/99。subagent / `loop` 后台跑完靠它收通知。实测：headless 也发（OSC 777 直接打在 stdout） |
 
 ### 1.2 本地扩展（不走 `pi install`，放 `~/.pi/agent/extensions/`）
 
@@ -97,6 +102,10 @@ done
 # git 源单独装（两个都要串行；宠物从 npm 换 git 时先 remove，见 §3.6）
 pi install git:github.com/qq458249269/pi-lazy-tools
 pi install git:github.com/qq458249269/pi-dsh-pet
+
+pi install "npm:pi-web-access"
+pi install "npm:@bacnh85/pi-checkpoint"
+pi install "npm:pi-notify"
 
 # 本地扩展（含 pi-pet-autostart.ts，宠物默认启用就靠它）
 node install-local-extensions.mjs
@@ -308,6 +317,45 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 
 ---
 
+### 3.7 `pi-web-access`：`~/.pi/agent/web-search.json` 必写 `toolActivation`
+
+```json
+{ "toolActivation": "eager" }
+```
+
+**只有一个键，但少写就退化成 §7.4 那个坑。** 取值只有三种（写错值扩展启动即抛）：
+
+| 值 | 行为 | 本机为什么用 |
+|---|---|---|
+| `eager`（本机） | 四工具从会话第一轮就 active，全程**没有** `web_enable` 加载器，也就不会中途改 active 集 | ✅ |
+| `auto`（默认） | 看模型：模型没有「会话中途加工具免重算」的 compat 标记 → 走 eager 分支 | 行为随模型/provider 变，不确定 |
+| `dynamic` | 永远先给一个 `web_enable` 加载器，模型调它才 `setActiveTools` | ❌ 就是 §7.4 卸掉它的原因 |
+
+**别担心「eager = 每轮多背 11KB」** —— 本机 lazy-tools 会接手（2026-10-06 探针实测）：
+
+| 时点 | active 工具集 |
+|---|---|
+| `session_start` | 51 个注册工具**全部**在列，含 `web_search` `source_check` `fetch_content` `get_search_content` |
+| `before_agent_start`（lazy-tools 跑完） | `read,edit,write,bash,omnify` |
+
+即：eager 保证了**不会出现 `web_enable`**（前缀掀不掀）；lazy-tools 保证它们**不上 wire**（§6.3 的瘦身取向不受影响）；要用时 `omnify` 按名捞回来代理执行。**实测全链路通**：新会话里 `omnify` 搜到 `web_search` 并执行，查 `pi.dev` 返回标题 `Pi.dev`。
+
+搜索源共 26 个（brave / tavily / exa / kimi / firecrawl / … / duckduckgo），**duckduckgo 无需 key**，其余在同一个 `web-search.json` 里填 key。命令：`/websearch` 走 provider 选择面板、`/search` 直搜、`/curator` 批量检索、`/google-account` 管 Google 登录态。
+
+> ⚠️ **SSRF 与本机 TUN/fake-IP 代理的旧账**（2026-09-30 实测）：fake-IP 把 `github.com` 解析成 `127.0.0.1`，`fetch_content` 直接报 `Blocked internal address for github.com: 127.0.0.1`。要抓这类站需在配置里放 `ssrf.allowRanges`。本机复装后**未复测出网**（只验证了加载不报错）。
+
+### 3.8 `pi-checkpoint`：三个已知边界（不是 bug，是设计）
+
+| 边界 | 后果 | 对策 |
+|---|---|---|
+| 快照在内存，非 git 里的栈 | 重启 pi 后 `/checkpoint` 栈空（git ref 还在） | 同一 sessionId 恢复会话时编号从最高 ref 续，不会覆盖旧点 |
+| `/undo` 走 `git checkout <ref> -- .` | **只还原已跟踪文件**；该轮新增的未跟踪文件会留在原地，该轮新 `git add` 进索引的文件也留在原地 | undo 后自己扫一眼 `git status` |
+| ref 按 commit date 剪 | 超过 **30 天**的快照被永久删 | 跨月的事别指望 `/undo` |
+
+非 git 仓库里三个命令静默 no-op + 一条通知。另外它会写 `refs/pi-checkpoints/*`，不碰你的分支、tag、stash —— `git for-each-ref refs/pi-checkpoints` 可见。
+
+---
+
 ## 4. 工具归属（谁注册了什么）
 
 | 扩展 | 工具 |
@@ -324,6 +372,9 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | `@agenticup/pi-loop` | `loop` |
 | `@arhen/pi-core-subagent` | `subagent` 及 status/await/steer/reply/result |
 | `pi-mcp-adapter` | `mcp` |
+| `pi-web-access` | `web_search` `source_check` `fetch_content` `get_search_content`（`eager` 模式**不注册** `web_enable`；四个都被 lazy-tools 藏起来，靠 `omnify` 捞，实测能搜，见 §3.7） |
+| `@bacnh85/pi-checkpoint` | 无工具（`/undo` `/redo` `/checkpoint` 命令） |
+| `pi-notify` | 无工具（`agent_end` 钩子 → Windows toast / OSC） |
 | `pi-agent-browser-native` | `agent_browser` 及 7 个配套 |
 | `pi-lazy-tools`（fork） | `omnify`（0.4.0 起四合一；`load_tools`/`call_tool` 已撤。只代理执行、**不切 active 集**） |
 | `pi-warm-cache` / `pi-prefix-stabilizer` / `pi-compaction-cache` / `pi-cache-guardian` | 无工具（纯事件钩子） |
@@ -337,7 +388,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | `fd` | ❌ 未列 → 懒加载 | 本地 `pi-fd` 注册，同上 |
 | `find` | ❌ 未列 → 懒加载 | 同一底层（fd）但只认 glob，作为 `fd` 的兜底 |
 | `ls` `powershell` | ❌ 未列 → 懒加载 | 需要时 `omnify` 按名 load 回来（或用 `bash ls`） |
-| `todo` / `loop` / `md_*` / `ask_question` / `mcp` / `agent_browser*` | ❌ 未列 | 全部默认懒加载，用 `omnify` 按需检索 / 代理执行 |
+| `todo` / `loop` / `md_*` / `ask_question` / `mcp` / `agent_browser*` / `web_*` | ❌ 未列 | 全部默认懒加载，用 `omnify` 按需检索 / 代理执行（`web_*` 除外：它们是 eager，被 lazy-tools 藏而非闸门挡，见 §3.7） |
 | `omnify` | ❌ 写不写都一样 | pi 核心无条件注册，**不需进名单**，写进去只是读起来清楚 |
 
 漏了的后果（实测）：`defaultTools` 是内建工具的**注册闸**（不在列 → 根本注册），对扩展工具则是**常驻名单**（不在列 → 注册了但被 lazy 隐藏，wire 上看不到；要它时 `omnify` 一步拾回）。
@@ -514,11 +565,11 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
    - **BREAKING**：不再有「首个候选失败后自动换一个工具」。
    - 回归：`npm test` 76 passed（新增 4 条），`tsc --noEmit` 干净；改动同步到已装副本 `~/.pi/agent/git/github.com/qq458249269/pi-lazy-tools/`，`check-ext-errors` 的 `extension_error` 0。
 
-### 7.4 `pi-web-access`：已卸载（2026-09-30）
+### 7.4 `pi-web-access`：卸过一次又装回来了（2026-09-30 卸 → 2026-10-06 复装）
 
-`pi remove npm:pi-web-access`，连带删掉两个只为它存在的缓存目录 `~/.pi/web-search-cache/`、`~/.pi/agent/web-search-cache/`（§2.4 纪律）。卸载后重跑 bench：**5 个工具 / system 3026B + tools 2638B = 5664B**（比装它时少一个 `web_enable` 工具、−346B）。
+**历史决策（当时是对的）**：`pi remove npm:pi-web-access`，连带删掉两个只为它存在的缓存目录 `~/.pi/web-search-cache/`、`~/.pi/agent/web-search-cache/`（§2.4 纪律）。卸载后重跑 bench：**5 个工具 / system 3026B + tools 2638B = 5664B**。
 
-**卸载理由：`web_enable` 会在会话中途切 active 工具集，把前缀缓存整段掀掉。** 这是 pi-web-access 的加载器设计：`web_search` / `source_check` / `fetch_content` / `get_search_content` 四个 schema 共 **11436B ≈ 3k tok**，默认不 active；模型调空参 `web_enable` 后它执行 `pi.setActiveTools([...现有, 4个])`，下一轮四工具才出现。工具集一变，请求前缀从第 0 个 token 起全部作废。本机实测（会话 `--D--AI-LLMlocal--/2026-09-30T00-55-59-851Z_01a0efcf…`）：
+**当时的卸载理由：`web_enable` 会在会话中途切 active 工具集，把前缀缓存整段掀掉。** 这是它的加载器设计：模型调空参 `web_enable` → `pi.setActiveTools([...现有, 4个])` → 工具集一变，请求前缀从第 0 个 token 起全部作废。本机实测（会话 `--D--AI-LLMlocal--/2026-09-30T00-55-59-851Z_01a0efcf…`）：
 
 | 轮次 | input | cacheRead |
 |---|---|---|
@@ -526,11 +577,11 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 | 调完（`toolsAdded` 四工具） | 92007 | **1152** |
 | 下一轮 | 2233 | 91008 |
 
-即激活那一轮把整段 89K 上下文按新 token 重算了一遍，下一轮才恢复——不是持续 0，但每次会话首次联网都吃一发全量 prefill。
+即激活那一轮把整段 89K 上下文按新 token 重算了一遍，下一轮才恢复。
 
-替代：`agent_browser*`（已装）、`mcp` 接搜索服务、`bash` 直接抓。注意本机 TUN/fake-IP 代理环境下它的 `fetch_content` 本来就被 SSRF 挡（`Blocked internal address for github.com: 127.0.0.1`，需配 `ssrf.allowRanges`），实际只有 exa 搜索在干活。
+**复装理由 + 上游修没修**：0.37.0 把激活策略提成配置项 `toolActivation`（`auto`/`dynamic`/`eager`，`registerWebToolActivation(pi, tools, mode)`；`eager` 时压根不注册加载器）。写 `eager` 后掀缓存的**机制不存在了** —— 旧的卸载结论已被新版本推翻，保留本节只作决策记录。现按 §3.7 配置，且 lazy-tools 又把四工具收进懒加载集：前缀既不掀、也不长胖。
 
-> 顺带回答「懒加载工具会不会掀缓存」：**不会**。`omnify` 只在 `session_start` 调一次 `setActiveTools` 做隐藏（`D:\AI\pi-lazy-tools\lazy-tools.ts:487`），执行隐藏工具走 `findToolDefinition` + jiti 直接调 `definition.execute`（同文件 :349），**全程不动 active 集**；`load_tools`/`call_tool` 自 0.4.0 起已撤销。只有像 `web_enable` 这样主动 `setActiveTools` 的加载器才会掀。内建工具（`ls` 等）omnify 根本执行不了（`nonLoadableSourceReason` 先判后 import），更不存在「激活」一说。
+> 顺带回答「懒加载工具会不会掀缓存」：**不会**。`omnify` 只在 `session_start` 调一次 `setActiveTools` 做隐藏（`D:\AI\pi-lazy-tools\lazy-tools.ts:487`），执行隐藏工具走 `findToolDefinition` + jiti 直接调 `definition.execute`（同文件 :349），**全程不动 active 集**；`load_tools`/`call_tool` 自 0.4.0 起已撤销。只有像 `web_enable` 这样主动 `setActiveTools` 的加载器才会掀 —— 且现在只在你主动配 `toolActivation: "dynamic"` 时才存在。内建工具（`ls` 等）omnify 根本执行不了（`nonLoadableSourceReason` 先判后 import），更不存在「激活」一说。
 
 ---
 
@@ -553,12 +604,14 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 | 懒加载报 `Cannot find module` | lazy 执行层地基缺失（版本要与 pi 本体一致，别写死） | `npm i --prefix ~/.pi/agent @earendil-works/{pi-coding-agent,pi-tui,pi-ai}@$(pi --version \| grep -oE '[0-9]+\.[0-9]+\.[0-9]+')` |
 | 工具调用不到、wire 上也没有 | 内建工具不在 `defaultTools`（不注册），扩展工具不在其中（被 lazy） | 改 `defaultTools`（§3.4），`/reload` |
 | `fd` 报 “fd executable not found” | pi 自带副本与 PATH 都没有 fd | 跑 `/fd-check` 看解析结果；或 `npm i -g fd-find` |
-| 会话/文件撤销 | `pi-edit-guard` 已卸载，其 `undo` 工具随之消失 | 文件级靠 git 或改前先 `read`；**会话级 `pi-undo-redo` 也已卸载**（2026-09-29），暂无可用替代，需要时再装回 |
+| 会话/文件撤销 | `pi-edit-guard` 已卸载，其 `undo` 工具随之消失 | 文件级靠 git 或改前先 `read`；**会话级 `/undo` 现由 `@bacnh85/pi-checkpoint` 提供**（见 §3.8；不在 git 仓库里则静默 no-op） |
 | agent 没有 shell | `defaultTools` 里没有 `bash` | 写 `bash` 进两处 `defaultTools`（§3.4）；若 `extensions/pi-shell.ts` 被装回来，它会在 `session_start` 无条件隐藏 `bash` |
 | 压缩后首轮命中低 | 正常现象 | 只有「命中 0」才是故障；压缩调用自身用 `pi-compaction-cache` 兜（1.6%→98.8%） |
 | `pi-warm-cache` 没反应 | 本地代理属未注册路由 | 不是故障，`/warm status` 里 `automaticWarm:false` 即预期 |
 | 装/卸任何包时 npm 打 `EBADENGINE ... pi-agent-browser-native@0.9.1 ... node >=24.21.0` | 本机 node 24.16.0 低于该包声明的 engine | **可忽略**，纯警告；工具实测正常。要消掉就把 node 升到 24.21+，或接受每次都打一遍 |
 | pi-agent-browser-native 报 `buildSessionProjection is not a function` | 扩展版本太老（<0.9.x，宿主 1.0.0 才自带该 API） | 本机 pi 1.0.0 + 扩展 0.9.1 不会发生。真发生先 `pi update pi-agent-browser-native`；仍不行跑 `node fix-browser-native-compat.mjs`（新形态下它报 `[skip]` 而非 `[fail]`） |
+| `omnify` 搜不到 `web_search` / 每轮前缀突然被掀 | `web-search.json` 缺 `toolActivation: "eager"`，退回了 `web_enable` 加载器 | 写上该键 `/reload`（§3.7）；掀缓存的现场见 §7.4 表 |
+| 跑完没通知 | 终端不支持（Terminal.app / Alacritty） | `pi-notify` 只覆盖 OSC 777/9/99 与 Windows Terminal；换终端，或改用 §1.2 桌宠看状态 |
 | `/pet` 提示命令不存在 | 只 `npm i -g` 装过，pi 不扫全局 `node_modules` | `pi install git:github.com/qq458249269/pi-dsh-pet` → `/reload`（见 §3.6） |
 | 宠物窗口不弹 | 首次要下 Electron ≈100MB；或自动启动被关了 | 看启动提示；`/pet-auto status` 看当前开关；`/pet small` 换小号试；关掉了就写回 `{"autostart": true}` |
 
@@ -568,6 +621,7 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 |---|---|
 | `~/.pi/agent/settings.json` | `packages` 注册表 + `defaultTools` |
 | `~/.pi/agent/extensions/` | 本地扩展副本 + 各扩展的全局配置（如 `edit-guard-config.json`、`no-find.json`、`pi-dsh-pet.json`，**只放这里，放 agent 根下不生效**） |
+| `~/.pi/agent/web-search.json` | `pi-web-access` 的配置（`toolActivation`，见 §3.7）。注意它在 agent 根下，不在 `extensions/` 里 |
 | `~/.pi/agent/state/` | 跨会话记账（如 `pi-pet-autostart.json` 记「本 pid 已弹过窗 + 落在哪只宠物上」，`pi-pet-autostart.json.lock/` 是跨进程开窗锁） |
 | `~/.pi/agent/git/` | git 源扩展（lazy-tools fork） |
 | `~/.pi/agent/npm/node_modules/` | npm 源扩展 |
