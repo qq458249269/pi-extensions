@@ -10,10 +10,11 @@
 
 ---
 
-## 1. 清单（在用 20 个扩展 = 18 npm + 2 git）
+## 1. 清单（在用 32 个扩展 = 30 npm + 2 git）
 
-> 下表 24 行里 `pi-edit-guard`、`pi-undo-redo`、`pi-smart-context` 已卸载（前两者的删除线保留作决策记录，见 §7.1；`pi-smart-context` 见 §3.2），**实际在用 20 个**。
+**实际在用 32 个**。
 > 2026-10-06 增补 3 个：联网（`pi-web-access`）、会话级撤销（`@bacnh85/pi-checkpoint`）、完成通知（`pi-notify`）。
+> 2026-10-07 增补 7 个：权限门、LSP、测试、预算、语义索引、OCR、跨会话记忆（见新增行）。当日又装 5 个：secrets 防截、上下文体积闸、预算降级、只读规划、路径闸；PR 插件（`@henryqw/pi-pr`）装后即卸，见 §7.7。
 
 **不锁版本**：安装命令一律不带 `@版本号`（取 npm 最新），本清单不维护版本矩阵。要查本机实际装的版本：
 
@@ -53,6 +54,18 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:pi-web-access` | `web_search` / `source_check` / `fetch_content` / `get_search_content` + `/websearch` `/search` `/curator` | 2026-10-06 **复装**（曾于 2026-09-30 卸载，§7.4）。**必做配置** `~/.pi/agent/web-search.json` 写 `toolActivation: "eager"`，见 §3.7 —— 不写就用 `web_enable` 加载器中途改 active 集，会把前缀缓存掀掉（正是当年卸掉它的原因）。26 个搜索源，duckduckgo 无需 key。**实测对 wire 与缓存零影响**（§3.7），要时 `omnify` 捞 |
 不碰工作分支/stash。**必须在 git 仓库内**，否则静默 no-op。坑：**只还原已跟踪文件**，该轮新增的未跟踪文件会留在原地（见 §3.8）。装后只在无交互 `pi -p` 下验证过不报错，`/undo` 本身未实测 |
 | `npm:pi-notify` | `agent_end` → Windows toast | 2026-10-06 装，零配置零依赖。Windows Terminal 走 PowerShell toast（`WT_SESSION` 判定），其他终端 OSC 777/9/99。subagent / `loop` 后台跑完靠它收通知。实测：headless 也发（OSC 777 直接打在 stdout） |
+| `npm:pi-ask-permission` | 危险工具调用的批准对话框 | 2026-10-07 装。填补「只有 no-find 拦 find，其余危险命令无统一 gate」的缺口 |
+| `npm:@narumitw/pi-lsp` | 语言服务器工具（diagnostics/hover/定义/引用/符号） | 2026-10-07 装。替代纯文本 grep 做跳转/引用/诊断；懒加载 |
+| `npm:pi-test-runner` | 项目感知的测试运行工具 | 2026-10-07 装。结构化跑测试，替代手写 `bash npm test`；懒加载 |
+| `npm:pi-budget-guard` | 会话花费追踪 + 预算上限 | 2026-10-07 装。pi-tps 只显示不拦截，这是拦截侧；懒加载 |
+| `npm:pi-zvec` | 本地语义代码搜索（BM25 + embedding，每项目索引） | 2026-10-07 装。⚠️ 唯一调 `setActiveTools` 的新包：仅在用户手动 `/zg:index` 成功后自加 `zg_search` 一次（turn 边界推迟，注释自认重建 system 使前缀缓存失效一次）。严守零掀缓存就不手动启用它，用 `omnify` 代理执行其工具 |
+| `npm:pi-ocr` | 多后端 OCR（MinerU 免费云 / Ollama 本地 / Pix2Text），零配置 | 2026-10-07 装。截图/PDF 出文本；懒加载 |
+| `npm:@chendpoc/pi-memory` | 跨会话记忆（MEMORY.md ground truth + JSONL sidecar 检索） | 2026-10-07 装。备选 `pi-session-memory` 因 `node:sqlite` 在 Pi 内嵌运行时缺失（`ResolveMessage: No such built-in module: node:sqlite`）加载即败，已卸，见 §7.6 |
+| `npm:pi-secret-guard` | 拦截提交 API key / 凭据到 git | 2026-10-07 装。误提交 key 不可逆，故必装；懒加载 |
+| `npm:pi-mono-context-guard` | 上下文体积硬闸：自动截断 read/rg 超长输出 | 2026-10-07 装。cache-guardian 只告警，这是截断侧；懒加载 |
+| `npm:pi-meter` | 花费追踪 + 预算告警 + auto-downshift + 硬截断 | 2026-10-07 装。budget-guard 是拦截，这是降级到便宜模型侧；懒加载 |
+| `npm:@narumitw/pi-plan-mode` | `/plan` 只读规划模式（Codex 风格） | 2026-10-07 装；懒加载 |
+| `npm:pi-cwd-guard` | cwd/路径闸：保护 .env/密钥、拦常见破坏性路径 | 2026-10-07 装。与 no-find 同族（拦命令/路径，不注册工具） |
 
 ### 1.2 本地扩展（不走 `pi install`，放 `~/.pi/agent/extensions/`）
 
@@ -107,6 +120,11 @@ pi install "npm:pi-web-access"
 pi install "npm:@bacnh85/pi-checkpoint"
 pi install "npm:pi-notify"
 
+# 2026-10-07 增补 7 个（权限门/LSP/测试/预算/语义索引/OCR/跨会话记忆；PR 插件已卸，见 §7.7）
+for p in pi-ask-permission @narumitw/pi-lsp pi-test-runner pi-budget-guard pi-zvec pi-ocr @chendpoc/pi-memory; do
+  pi install "npm:$p" || echo "[失败] $p"
+done
+
 # 本地扩展（含 pi-pet-autostart.ts，宠物默认启用就靠它）
 node install-local-extensions.mjs
 ```
@@ -123,7 +141,7 @@ node install-local-extensions.mjs
 >
 > 若 `pi update --extensions` 也超时，同一改写继续生效（git 源的 update 就是 git pull）；装完即可 `/reload`。
 
-装完自查：`pi list` 应见 **17 个扩展**（15 npm + 2 git），`settings.json` 的 `packages` 17 条。少于 15 就是并行竞写伤痕，重跑补漏。
+装完自查：`pi list` 应见 **29 个扩展**（27 npm + 2 git）
 
 ### 2.2 硬顺序约束
 
@@ -385,6 +403,16 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | `pi-web-access` | `web_search` `source_check` `fetch_content` `get_search_content`（`eager` 模式**不注册** `web_enable`；四个都被 lazy-tools 藏起来，靠 `omnify` 捞，实测能搜，见 §3.7） |
 | `@bacnh85/pi-checkpoint` | 无工具（`/undo` `/redo` `/checkpoint` 命令） |
 | `pi-notify` | 无工具（`agent_end` 钩子 → Windows toast / OSC） |
+| `pi-ask-permission` | 批准对话框（无自定义工具名，拦截工具调用） |
+| `@narumitw/pi-lsp` | LSP 系列工具 |
+| `pi-test-runner` | 测试运行工具 |
+| `pi-budget-guard` | 预算守卫（钩子+命令） |
+| `pi-zvec` | `zg_search` 等（懒加载；`/zg:index` 手动启用会自加进 active 集，见 §1.1 该行） |
+| `pi-ocr` | OCR 工具 |
+| `@chendpoc/pi-memory` | 记忆工具 + 生命周期钩子 |
+| `pi-secret-guard` / `pi-cwd-guard` / `pi-mono-context-guard` | 无工具（拦截钩子 + 命令） |
+| `pi-meter` | 1 个工具 + 预算命令 |
+| `@narumitw/pi-plan-mode` | 工具 + `/plan` 模式切换 |
 | `pi-agent-browser-native` | `agent_browser` 及 7 个配套 |
 | `pi-lazy-tools`（fork） | `omnify`（0.4.0 起四合一；`load_tools`/`call_tool` 已撤。只代理执行、**不切 active 集**） |
 | `pi-warm-cache` / `pi-prefix-stabilizer` / `pi-compaction-cache` / `pi-cache-guardian` | 无工具（纯事件钩子） |
@@ -603,6 +631,33 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 **顺带修掉的一个自造 bug**：`connectFeed()` 先 `await findHost()`（一次 HTTP）才建 socket，这段 await 里 `sock` 还是 null —— 看门狗、会话事件、重连定时器撞在一起时会各开一条，`sock` 只留最后一条，前面的**没人关**（`close` 回调还会误杀活着的那条），宿主那边 `feeds` 只增不减（本机实测 15s 涨到 18）。开着是真连接泄漏，长会话必拖垮宿主。已加 `feedPending` 在途闸 + `close` 只认自己那条，探针有对应用例（`B2b`：整个会话只建一条 `/feed`）。
 
 **旧路遗留的死文件**（架构换了，**已清**，本机 `state/` 下只剩 `pi-pet-autostart.json`）：`~/.pi/agent/state/pi-pet-host.cjs`（内嵌宿主源码，已不再落盘）、`pi-pet-global.json*`、`pi-pet-ctrl.json`、`pi-pet-host.cjs.lock/`、`pi-pet-host.cjs.boot.lock/`。新架构只认 `<home>/`（`%APPDATA%/pi-dsh-pet`）里的 `port` / `token` / `state.json` / `ctrl.json` / `host.lock` + `state/pi-pet-autostart.json` + `state/spawn-log.txt`。
+
+### 7.6 `pi-session-memory` 加载即败
+
+`pi install npm:pi-session-memory` 后 `pi list` 直接报：
+
+```
+Failed to load extension ".../pi-session-memory/extensions/index.ts":
+ResolveMessage: No such built-in module: node:sqlite
+```
+
+Pi 内嵌运行时缺 `node:sqlite` 内建模块。已 `pi remove`，跨会话记忆换 `@chendpoc/pi-memory`（deps 无 sqlite：chalk/dayjs/dotenv/es-toolkit/execa/lru-cache/proper-lockfile），`pi list` 加载正常。
+
+### 7.7 `@henryqw/pi-pr` 卸载 + `pi-zvec` Windows 补丁（2026-10-07）
+
+**pi-pr**：装后报 `Error: PR status refresh failed: status unavailable` —— 它依赖 `gh` CLI，本机未装。已 `pi remove npm:@henryqw/pi-pr`。备选 `@narumitw/pi-github-pr` 自述「Requires `gh`; there is no direct GitHub API or `GITHUB_TOKEN` fallback」。结论：**不装 gh CLI 就没有 PR 插件**，PR 需求用 `mcp`/`bash`+git 绕。要装 gh：`winget install GitHub.cli` + `gh auth login`，之后重新装 pi-pr。
+
+**pi-zvec**：两处需知。
+
+1. `zg` 二进制：pi 内嵌 npm 装 `@zvec/zvec-grep` 时 install 脚本被 `allowScripts` 拦（`install failed`）；已手动 `npm i -g @zvec/zvec-grep`（§3.1 的 `allowScripts` 名单未加它，靠手动装）。`zg index` / `zg query` 实测通（本地 potion-code-16m-v2 embedding，256 维）。
+2. **Windows spawn 补丁**：上游 `env.ts` / `zg.ts` 裸 `spawn(ZG_BIN, ...)` 无 `shell:true`，Windows 上解析不到 `zg.cmd`（node 对 `.cmd` 裸 spawn 直接 `EINVAL`）。本机已 patch：两处 spawn 加 `shell: true`（env.ts 的 `--version` 探测、zg.ts 的执行入口）。**`pi update --extensions` 会冲掉此补丁**（同 fix-lazy-tools-notes.mjs），重装后重打：
+
+```bash
+sed -i 's/spawn(ZG_BIN, \["--version"\], { stdio: \["ignore", "pipe", "pipe"\] })/spawn(ZG_BIN, ["--version"], { stdio: ["ignore", "pipe", "pipe"], shell: true })/' ~/.pi/agent/npm/node_modules/pi-zvec/env.ts
+sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"\] })/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"], shell: true })/' ~/.pi/agent/npm/node_modules/pi-zvec/zg.ts
+```
+
+症状若再现：`could not run zg: not found on PATH`。验证：`node -e 'const{spawn}=require("child_process");spawn("zg",["--version"],{shell:true}).stdout.on("data",d=>console.log(String(d).trim()))'`。
 
 ## 8. 体检与排障
 
