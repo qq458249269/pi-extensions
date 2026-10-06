@@ -58,7 +58,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:@narumitw/pi-lsp` | 语言服务器工具（diagnostics/hover/定义/引用/符号） | 2026-10-07 装。替代纯文本 grep 做跳转/引用/诊断；懒加载 |
 | `npm:pi-test-runner` | 项目感知的测试运行工具 | 2026-10-07 装。结构化跑测试，替代手写 `bash npm test`；懒加载 |
 | `npm:pi-budget-guard` | 会话花费追踪 + 预算上限 | 2026-10-07 装。pi-tps 只显示不拦截，这是拦截侧；懒加载 |
-| `npm:pi-zvec` | 本地语义代码搜索（BM25 + embedding，每项目索引） | 2026-10-07 装。⚠️ 唯一调 `setActiveTools` 的新包：仅在用户手动 `/zg:index` 成功后自加 `zg_search` 一次（turn 边界推迟，注释自认重建 system 使前缀缓存失效一次）。严守零掀缓存就不手动启用它，用 `omnify` 代理执行其工具 |
+| `npm:pi-zvec` | 本地语义代码搜索（BM25 + embedding，每项目索引） | 2026-10-07 装。**自动模式**：`<项目>/.pi/zvec.json` 写 `indexMode: "auto"`（本仓库已写），会话启动后台建/更新索引，不弹窗（默认 `ask` 弹选择框）。⚠️ 唯一调 `setActiveTools` 的新包：仅在用户手动 `/zg:index` 成功后自加 `zg_search` 一次（turn 边界推迟，注释自认重建 system 使前缀缓存失效一次）。严守零掀缓存就不手动启用它，用 `omnify` 代理执行其工具 |
 | `npm:pi-ocr` | 多后端 OCR（MinerU 免费云 / Ollama 本地 / Pix2Text），零配置 | 2026-10-07 装。截图/PDF 出文本；懒加载 |
 | `npm:@chendpoc/pi-memory` | 跨会话记忆（MEMORY.md ground truth + JSONL sidecar 检索） | 2026-10-07 装。备选 `pi-session-memory` 因 `node:sqlite` 在 Pi 内嵌运行时缺失（`ResolveMessage: No such built-in module: node:sqlite`）加载即败，已卸，见 §7.6 |
 | `npm:pi-secret-guard` | 拦截提交 API key / 凭据到 git | 2026-10-07 装。误提交 key 不可逆，故必装；懒加载 |
@@ -658,6 +658,12 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 ```
 
 症状若再现：`could not run zg: not found on PATH`。验证：`node -e 'const{spawn}=require("child_process");spawn("zg",["--version"],{shell:true}).stdout.on("data",d=>console.log(String(d).trim()))'`。
+
+
+**`indexMode: "auto"` 与 `index reported not ready after a successful build`**：
+
+- 自动模式：`<项目>/.pi/zvec.json` 写 `{"indexMode":"auto","disabled":false,"coach":true,"verify":true,"gitignore":true}`（本仓库已写，按设计随 repo 走）。默认 `ask` 每次开仓弹选择框，`auto` 后台建/更新不弹。
+- 该 warning = **良性竞态**：auto 后台建完 → 紧接着 `zg status --check-ready` 判 `stale`（构建期间文件被改，本机即 readme 刚编辑过）。非构建失败，下次 `/zg:index` 或下个会话 auto 追上。实录：`--check-ready` 报 `not ready (state: stale)` → 重跑 `zg index`（7s，1 modified）→ `--check-ready` exit 0。
 
 ## 8. 体检与排障
 
