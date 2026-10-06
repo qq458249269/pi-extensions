@@ -50,7 +50,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:@aboutlo/pi-smart-edit` | 覆盖内建 `edit`，容忍引号/空白不匹配 | **已生效**；`edit` 归它，匹配走「精确 → NFKC 归一化行」 |
 | `git:github.com/qq458249269/pi-dsh-pet` | 桌面宠物：Electron 透明浮窗 + 91 个 WebM 动画，随 agent 状态（思考/写代码/空闲）切换 | **纯命令扩展**（`/pet` `/pet-stop`），零工具、零 wire 开销。**必须 `pi install`**，光 `npm i -g` pi 不加载（见 §3.6）。**2026-09-30 从 `npm:pi-dsh-pet` 换成 git 源**（自己 fork 的仓库，改完 `git pull` 就生效；`pi update --extensions` 也认它）。常驻与「整机只留一只」由本仓库的 `pi-pet-autostart.ts` 接管 |
 
-| `npm:pi-web-access` | `web_search` / `source_check` / `fetch_content` / `get_search_content` + `/websearch` `/search` `/curator` | 2026-10-06 **复装**（曾于 2026-09-30 卸载，§7.4）。**必做配置** `~/.pi/agent/web-search.json` 写 `toolActivation: "eager"`，见 §3.7 —— 不写就用 `web_enable` 加载器中途改 active 集，会把前缀缓存掀掉（正是当年卸掉它的原因）。26 个搜索源，duckduckgo 无需 key，其余填 `web-search.json` 的 API key。eager × lazy-tools 实测：四工具不上 wire、用时 `omnify` 捞（§3.7） |
+| `npm:pi-web-access` | `web_search` / `source_check` / `fetch_content` / `get_search_content` + `/websearch` `/search` `/curator` | 2026-10-06 **复装**（曾于 2026-09-30 卸载，§7.4）。**必做配置** `~/.pi/agent/web-search.json` 写 `toolActivation: "eager"`，见 §3.7 —— 不写就用 `web_enable` 加载器中途改 active 集，会把前缀缓存掀掉（正是当年卸掉它的原因）。26 个搜索源，duckduckgo 无需 key。**实测对 wire 与缓存零影响**（§3.7），要时 `omnify` 捞 |
 不碰工作分支/stash。**必须在 git 仓库内**，否则静默 no-op。坑：**只还原已跟踪文件**，该轮新增的未跟踪文件会留在原地（见 §3.8）。装后只在无交互 `pi -p` 下验证过不报错，`/undo` 本身未实测 |
 | `npm:pi-notify` | `agent_end` → Windows toast | 2026-10-06 装，零配置零依赖。Windows Terminal 走 PowerShell toast（`WT_SESSION` 判定），其他终端 OSC 777/9/99。subagent / `loop` 后台跑完靠它收通知。实测：headless 也发（OSC 777 直接打在 stdout） |
 
@@ -339,6 +339,16 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | `before_agent_start`（lazy-tools 跑完） | `read,edit,write,bash,omnify` |
 
 即：eager 保证了**不会出现 `web_enable`**（前缀掀不掀）；lazy-tools 保证它们**不上 wire**（§6.3 的瘦身取向不受影响）；要用时 `omnify` 按名捞回来代理执行。**实测全链路通**：新会话里 `omnify` 搜到 `web_search` 并执行，查 `pi.dev` 返回标题 `Pi.dev`。
+
+**缓存实测（2026-10-06，eager 启用后）**：
+
+| 指标 | 结果 |
+|---|---|
+| wire 体积（`before_provider_request` 实测） | system 2804B + tools 2490B = **5294B**，tools 只有 `read,edit,write,bash,omnify`，**四个 web 工具一个都不在 wire 上** |
+| 中途 active 集变化（transcript `toolsAdded`） | 全会话**仅 1 条**（session_start 那次），用完 `web_search` 之后**没有第二条** |
+| cacheRead 序列（read → omnify 搜 nodejs → read，4 个请求） | 143 → 2679 → 2953 → 3640，**单调上升，无塌方**（对比 §7.4 旧版：86016 → 1152） |
+
+结论：eager 模式下缓存**没有**问题——掀缓存需要「会话中途换工具集」，而 eager + lazy-tools 的组合里根本不存在这个动作。
 
 搜索源共 26 个（brave / tavily / exa / kimi / firecrawl / … / duckduckgo），**duckduckgo 无需 key**，其余在同一个 `web-search.json` 里填 key。命令：`/websearch` 走 provider 选择面板、`/search` 直搜、`/curator` 批量检索、`/google-account` 管 Google 登录态。
 
@@ -709,3 +719,19 @@ builtin工具（sourceInfo=<builtin:bash>，由 pi 内部工厂生成、
 这正是 §3.4 那条注记的实测复现（内建工具没有可 import 的源码，jiti 加载器执行不了它们）。但真正的坑在时序：**恢复 shell 的唯一动作 `/reload` 本身就需要 shell 或命令面板**。所以 §3.4「改完 `/reload` 生效」有个隐含前提——别在一个正指着 shell 干活的中途会话里改它。稳妥做法：**改 `defaultTools` 放在会话开头做，或改完立刻 `/reload` 再继续。**
 
 > 收尾：`git push` 最终由人执行。push 前用 `read` 直接读 `.git/refs/heads/master` 与 `.git/refs/remotes/origin/master`，两者同为 `16c8951`，确认是空操作——**没有 shell 也能判断有没有东西要推**。（`packed-refs` 里有条陈旧的 `8e4776b → origin/master`，loose ref 优先，不影响判定。）
+
+### 9.7 增补三扩展：联网 / 会话级撤销 / 完成通知（2026-10-06）
+
+`pi-web-access` + `@bacnh85/pi-checkpoint` + `pi-notify`，17 → **20 个在用**（18 npm + 2 git）。§3.7 / §3.8 是配置与边界，§7.4 记了 web-access 装卸两轮的理由演进，这里只留操作流水。
+
+| 步 | 动作 | 结果 |
+|---|---|---|
+| 装 | `pi install npm:pi-web-access` / `npm:@bacnh85/pi-checkpoint` / `npm:pi-notify` | **一次只能吃一条参数**（写 `pi install a b c` 报 `Unexpected argument npm:@bacnh85/pi-checkpoint`），已写进 §2.1 |
+| 配 | 新建 `~/.pi/agent/web-search.json` = `{"toolActivation":"eager"}` | 值非法扩展启动即抛，只认 `auto`/`dynamic`/`eager` |
+| 冒烟 | `pi -p` 无交互跑 | pi-notify 生效（stdout 直接打出 OSC 777 序列 `]777;notify;Pi;Ready for input`）；三个扩展均无 `extension_error` |
+| 探针 | 临时扩展打 `getAllTools()` / `getActiveTools()` | 注册表 **51** 个工具（四个 web 工具都在）；`session_start` 时全 active，`before_agent_start` 被 lazy-tools 收到 5 个。探针跑完即删 |
+| 全链路 | 让 agent `omnify` 捞 `web_search` 搜 `nodejs` | 通（provider exa），搜完再 read 一次照常 |
+| 缓存 | 见 §3.7 表 | wire 5294B、cacheRead 单调、零中途翻转 |
+| 清理 | 删仓库里的 `nul` 垃圾文件（69B） | 已删 |
+
+**未实测的**：`/undo` `/redo` 的交互式回合（非 git 仓库与 30 天剪枝路径未走）；`fetch_content` 在本机 TUN/fake-IP 下的 SSRF 表现（§3.7 留注）。
