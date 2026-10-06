@@ -54,8 +54,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:pi-web-access` | `web_search` / `source_check` / `fetch_content` / `get_search_content` + `/websearch` `/search` `/curator` | 2026-10-06 **复装**（曾于 2026-09-30 卸载，§7.4）。**必做配置** `~/.pi/agent/web-search.json` 写 `toolActivation: "eager"`，见 §3.7 —— 不写就用 `web_enable` 加载器中途改 active 集，会把前缀缓存掀掉（正是当年卸掉它的原因）。26 个搜索源，duckduckgo 无需 key。**实测对 wire 与缓存零影响**（§3.7），要时 `omnify` 捞 |
 不碰工作分支/stash。**必须在 git 仓库内**，否则静默 no-op。坑：**只还原已跟踪文件**，该轮新增的未跟踪文件会留在原地（见 §3.8）。装后只在无交互 `pi -p` 下验证过不报错，`/undo` 本身未实测 |
 | `npm:pi-notify` | `agent_end` → Windows toast | 2026-10-06 装，零配置零依赖。Windows Terminal 走 PowerShell toast（`WT_SESSION` 判定），其他终端 OSC 777/9/99。subagent / `loop` 后台跑完靠它收通知。实测：headless 也发（OSC 777 直接打在 stdout） |
-| `npm:pi-ask-permission` | 危险工具调用的批准对话框 | 2026-10-07 装。填补「只有 no-find 拦 find，其余危险命令无统一 gate」的缺口 |
-| `npm:@narumitw/pi-lsp` | 语言服务器工具（diagnostics/hover/定义/引用/符号） | 2026-10-07 装。替代纯文本 grep 做跳转/引用/诊断；懒加载 |
+
 | `npm:pi-test-runner` | 项目感知的测试运行工具 | 2026-10-07 装。结构化跑测试，替代手写 `bash npm test`；懒加载 |
 | `npm:pi-budget-guard` | 会话花费追踪 + 预算上限 | 2026-10-07 装。pi-tps 只显示不拦截，这是拦截侧；懒加载 |
 | `npm:pi-zvec` | 本地语义代码搜索（BM25 + embedding，每项目索引） | 2026-10-07 装。**自动模式**：`<项目>/.pi/zvec.json` 写 `indexMode: "auto"`（本仓库已写），会话启动后台建/更新索引，不弹窗（默认 `ask` 弹选择框）。⚠️ 唯一调 `setActiveTools` 的新包：仅在用户手动 `/zg:index` 成功后自加 `zg_search` 一次（turn 边界推迟，注释自认重建 system 使前缀缓存失效一次）。严守零掀缓存就不手动启用它，用 `omnify` 代理执行其工具 |
@@ -120,8 +119,8 @@ pi install "npm:pi-web-access"
 pi install "npm:@bacnh85/pi-checkpoint"
 pi install "npm:pi-notify"
 
-# 2026-10-07 增补 7 个（权限门/LSP/测试/预算/语义索引/OCR/跨会话记忆；PR 插件已卸，见 §7.7）
-for p in pi-ask-permission @narumitw/pi-lsp pi-test-runner pi-budget-guard pi-zvec pi-ocr @chendpoc/pi-memory; do
+# 2026-10-07 增补（语义索引/OCR/跨会话记忆等；PR 插件已卸，见 §7.7；pi-ask-permission 已卸，见 §7.8）
+for p in @narumitw/pi-lsp pi-test-runner pi-budget-guard pi-zvec pi-ocr @chendpoc/pi-memory; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 
@@ -403,8 +402,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | `pi-web-access` | `web_search` `source_check` `fetch_content` `get_search_content`（`eager` 模式**不注册** `web_enable`；四个都被 lazy-tools 藏起来，靠 `omnify` 捞，实测能搜，见 §3.7） |
 | `@bacnh85/pi-checkpoint` | 无工具（`/undo` `/redo` `/checkpoint` 命令） |
 | `pi-notify` | 无工具（`agent_end` 钩子 → Windows toast / OSC） |
-| `pi-ask-permission` | 批准对话框（无自定义工具名，拦截工具调用） |
-| `@narumitw/pi-lsp` | LSP 系列工具 |
+
 | `pi-test-runner` | 测试运行工具 |
 | `pi-budget-guard` | 预算守卫（钩子+命令） |
 | `pi-zvec` | `zg_search` 等（懒加载；`/zg:index` 手动启用会自加进 active 集，见 §1.1 该行） |
@@ -664,6 +662,10 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 
 - 自动模式：`<项目>/.pi/zvec.json` 写 `{"indexMode":"auto","disabled":false,"coach":true,"verify":true,"gitignore":true}`（本仓库已写，按设计随 repo 走）。默认 `ask` 每次开仓弹选择框，`auto` 后台建/更新不弹。
 - 该 warning = **良性竞态**：auto 后台建完 → 紧接着 `zg status --check-ready` 判 `stale`（构建期间文件被改，本机即 readme 刚编辑过）。非构建失败，下次 `/zg:index` 或下个会话 auto 追上。实录：`--check-ready` 报 `not ready (state: stale)` → 重跑 `zg index`（7s，1 modified）→ `--check-ready` exit 0。
+
+### 7.8 `pi-ask-permission` 卸载（2026-10-30 前后）
+
+`pi remove npm:pi-ask-permission`，并删 `~/.pi/agent/extensions/pi-ask-permission/` 残留目录。替代 gate 靠 `pi-cwd-guard` + no-find + secret-guard 等钩子组合。
 
 ## 8. 体检与排障
 
