@@ -38,6 +38,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:pi-mcp-adapter` | 一个 `mcp` 代理工具替代成百上千个 MCP 工具定义 | 装完重启自动读 `.mcp.json` |
 | `npm:pi-agent-browser-native` | 原生 `agent_browser*` 工具（8 个） | 0.9.1 起直接遍历宿主的 `sessionManager.buildSessionProjection()`，不再走 `getCurrentSystemMessage` 旧路径。Pi 1.0.0 宿主自带该 API，**不需要**兼容补丁。**但它声明 `node >=24.21.0`，本机 24.16.0 → 装卸时必有 `EBADENGINE` 警告（无害，见开头基线注）** |
 | `npm:@agenticup/pi-loop` | `loop` 递归深潜工具 | 入口是 `extensions/loop.ts`，不是 `dist/index.js` |
+| `npm:@arhen/pi-core-subagent` | 子代理（后台默认） | 2026-10-06 装；`subagent`/`subagent_status`/`await_subagent`/`steer_subagent` 等；模型继承 leader（`1/1`），不读旧 `~/.pi/subagent.json` |
 | `git:github.com/qq458249269/pi-lazy-tools` | 按需工具加载（`omnify` 一站式：搜索 / 补参 / 代理执行） | **fork，含 jiti 加载器补丁**；npm 版 `@wolido/pi-lazy-tools` 已下架。**0.4.0 是 breaking**：常驻名单从自建 `~/.pi/lazy-tools.json` 改读 pi 的 `defaultTools`（见 §3.4）。本地 clone 在 `D:\AI\pi-lazy-tools`，改完直接 commit + push，`pi update --extensions` 就能带上 |
 | ~~`npm:@zhushanwen/pi-smart-context`~~ | 智能压缩：注册 `compact_context` 交 agent 自决 | **已卸载**（`pi uninstall npm:@zhushanwen/pi-smart-context`）：阈值提醒实测触发过（`sessions/*-pi-dsh-pet-*/12-29-47` 落在 89.5K/128K 与 91.9K/128K 两档），但 `compact_context` 作为 toolCall 出现 **0 次**，压缩收益 0。理由与数据见 §3.2 |
 | `npm:pi-prefix-stabilizer` | 系统提示词前缀稳定 + 漂移检测 | 与 compaction-cache 有先后要求，见 §2.2 |
@@ -321,6 +322,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | `@henryqw/pi-ask-question` | `ask_question` |
 | `@ssk_dev/rpiv-todo-lean` | `todo` |
 | `@agenticup/pi-loop` | `loop` |
+| `@arhen/pi-core-subagent` | `subagent` 及 status/await/steer/reply/result |
 | `pi-mcp-adapter` | `mcp` |
 | `pi-agent-browser-native` | `agent_browser` 及 7 个配套 |
 | `pi-lazy-tools`（fork） | `omnify`（0.4.0 起四合一；`load_tools`/`call_tool` 已撤。只代理执行、**不切 active 集**） |
