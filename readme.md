@@ -64,7 +64,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:pi-mono-context-guard` | 上下文体积硬闸：自动截断 read/rg 超长输出 | 2026-10-07 装。cache-guardian 只告警，这是截断侧；懒加载 |
 | `npm:pi-meter` | 花费追踪 + 预算告警 + auto-downshift + 硬截断 | 2026-10-07 装。budget-guard 是拦截，这是降级到便宜模型侧；懒加载 |
 | `npm:@narumitw/pi-plan-mode` | `/plan` 只读规划模式（Codex 风格） | 2026-10-07 装；懒加载 |
-| `npm:pi-cwd-guard` | cwd/路径闸：保护 .env/密钥、拦常见破坏性路径 | 2026-10-07 装。与 no-find 同族（拦命令/路径，不注册工具） |
+| ~~`npm:pi-cwd-guard`~~ | cwd/路径闸：曾保护 .env/密钥、拦破坏性路径 | **已卸载**（2026-10-08，见 §7.10） |
 
 ### 1.2 本地扩展（不走 `pi install`，放 `~/.pi/agent/extensions/`）
 
@@ -75,7 +75,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `pi-lean-prompt.ts` | 裁 `payload.tools` 里 `edit`/`read` 的 description 与 schema 样板文字（**只改文字、不动字段结构**，故与 smart-edit / one-ui / undo-redo 兼容） |
 | `pi-lean-sections.ts` | 压 wire 上 system 的 `<docs>` / `<skills>` 两块（见 §6.2） |
 | `pi-fd.ts` | 注册 `fd` 工具（fd 原生接口），**取代 pi-find 那个只认 glob 的 `find`**（见 §4.1） |
-| `no-find.ts` | **不注册工具**，只挂 `tool_call` 钩子：命令行里出现 `find` 就 block，并提示改用 `fd`（见 §4.2） |
+| ~~`no-find.ts`~~ | 曾挂 `tool_call` 钩子把命令行里的 `find` block 掉并提示改用 `fd`；**已卸载**（2026-10-08，§7.9）：本机恢复 `find`，4 层封锁全撤 |
 | `pi-pet-autostart.ts` | 让 `pi-dsh-pet` **默认常驻且整机只留一只**：TUI 会话一开就派发 `/pet`，已有宠物窗就复用不新开，跨会话/多开 pi 也只一只。不注册工具，只挂 `session_start` + `/pet-auto` 开关。配置见 §3.6 |
 
 > 曾经的 `pi-shell.ts`（把 `bash`+`powershell` 合成 `shell`）**已删除**：它不是 pi 内置也不是 npm 包，纯本仓库自写；它带的 `-156B` 收益抵不上维护成本，改用内建 `bash`（见 §6.1）。注意它在 `session_start` 里会无条件隐藏 `bash`/`powershell`，所以 `shell` 与 `bash` 只能二选一。
@@ -119,7 +119,7 @@ pi install "npm:pi-web-access"
 pi install "npm:@bacnh85/pi-checkpoint"
 pi install "npm:pi-notify"
 
-# 2026-10-07 增补（语义索引/OCR/跨会话记忆等；PR 插件已卸，见 §7.7；pi-ask-permission 已卸，见 §7.8）
+# 2026-10-07 增补（语义索引/OCR/跨会话记忆等；PR 插件已卸，见 §7.7；pi-ask-permission 已卸，见 §7.8；no-find 已卸，见 §7.9；pi-cwd-guard 已卸，见 §7.10）
 for p in @narumitw/pi-lsp pi-test-runner pi-budget-guard pi-zvec pi-ocr @chendpoc/pi-memory; do
   pi install "npm:$p" || echo "[失败] $p"
 done
@@ -147,7 +147,7 @@ node install-local-extensions.mjs
 - `pi-compaction-cache` 必须在 `pi-prefix-stabilizer` **之后**：两者都抢 `session_before_compact` 的接管权，靠后装的赢；反过来压缩调用命中会退回 1.6%。~~原第一条写的是「compaction-cache 必须在 smart-context 之后」~~ —— smart-context 已卸载（§3.2），约束退化成这一条。
 - `pi-prefix-stabilizer` 必须在 `pi-compaction-cache` **之前**：先稳前缀再谈复用。
 - 其余顺序不限（`pi-warm-cache` / `pi-ask` / `rpiv-todo-lean` 都不抢 `session_before_compact`）。
-- `pi-dsh-pet` 放哪都行：纯 UI 扩展，只广播事件不改 prompt；它的 `tool_call` 钩子只 `broadcast` 不 block，与 `no-find.ts` 的拦截钩子可共存（实测 `extension_error` 0）。
+它的 `tool_call` 钩子只 `broadcast` 不 block（实测 `extension_error` 0）
 
 ### 2.3 升级
 
@@ -272,7 +272,7 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 - `window: false` → 拉宿主用 **`serve`**（只起服务不开窗，等价旧的 `start --no-window`）；`true` → `start`（前台带窗，服务端靠 `keepAlive()` 不退出）。
 - `port: 0` → 拉宿主**不传** `--port`，由服务端自己挑（默认 47653，被占退随机）。**别把旧版的 `port` 搬过来**：那版指的是扩展自己那个 HTTP 桥的端口，现在归服务端，写死平白多一种「端口被占 → 退出码 4」。
 - `startTimeoutMs`（默认 12s）/ `maxStartAttempts`（默认 3）/ `reapStrays`（整机野进程清理，默认开）/ `node`（跑服务端的运行时：config > `PI_PET_NODE` > PATH 上的 node > bun；**绝不是 pi 自己**）/ `home`（覆盖 `<home>`，默认 `%APPDATA%/pi-dsh-pet`）。
-- 文件缺失 / 读坏 = 按**启用**处理（读坏会 `notify` 一次），与 `no-find.json` 同一套约定。
+- 文件缺失 / 读坏 = 按**启用**处理（读坏会 `notify` 一次），与其他钩子扩展同一套约定。
 - 会话内随手切：`/pet-auto on|off|size <档位>|max <只数>|restart|status`，改动写回同一个 json（并同步 `ctrl.json`）。
 - 旧键 `delayMs` / `bridge` / `host` / `sweepMs` / `hostRuntime` 随旧架构作废（新扩展读都不读）；`/pet-auto cleanup|host|bridge` 同样作废 —— 单例与数量现在由服务端自己的锁 + `maxPets` 转发闸兜住（§3.6.1）。
 
@@ -408,7 +408,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | `pi-zvec` | `zg_search` 等（懒加载；`/zg:index` 手动启用会自加进 active 集，见 §1.1 该行） |
 | `pi-ocr` | OCR 工具 |
 | `@chendpoc/pi-memory` | 记忆工具 + 生命周期钩子 |
-| `pi-secret-guard` / `pi-cwd-guard` / `pi-mono-context-guard` | 无工具（拦截钩子 + 命令） |
+| `pi-secret-guard` / `pi-mono-context-guard` | 无工具（拦截钩子 + 命令） |
 | `pi-meter` | 1 个工具 + 预算命令 |
 | `@narumitw/pi-plan-mode` | 工具 + `/plan` 模式切换 |
 | `pi-agent-browser-native` | `agent_browser` 及 7 个配套 |
@@ -454,7 +454,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 
 ---
 
-### 4.2 全局禁用 `find`（本仓库 `extensions/no-find.ts` + 系统层 stub）
+### 4.2 ~~全局禁用 `find`~~（**已卸载 2026-10-08**：本机恢复 `find`，4 层封锁全撤；卸载记录见 §7.9，以下为历史留档，勿再照着启用）
 
 **为什么要禁**：本机 `find` 有两个不同的东西，症状都是「卡死」：
 - `C:\Windows\System32\find.exe`（cmd/PowerShell 里的 FIND.EXE）：语法与 GNU find 完全不同，`find . -name x` 被当成「pattern + 无文件名」→ **从 stdin 读**，表现就是永远不返回；
@@ -475,7 +475,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 
 **开关**：`~/.pi/agent/extensions/no-find.json` → `{"enabled": false}` 整体停用；`{"allow": ["find -name *.go"]}` 按「首词 + 第二个词」前缀放行个别命令。配置坏了按「启用」处理（宁可多拦，不静默失效）。
 
-**回退**：删 `extensions/no-find.ts` + `/reload` 关掉 pi 内那层；全局那层按 `~/.pi/agent/no-find-global.json` 里的备份手工还原 `PATH` / `BASH_ENV`。
+~~**回退**…~~（已于 2026-10-08 执行：pi 内那层删扩展文件；全局那层按备份还原 `PATH` / `BASH_ENV`，见 §7.9）
 
 ---
 
@@ -665,7 +665,24 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 
 ### 7.8 `pi-ask-permission` 卸载（2026-10-30 前后）
 
-`pi remove npm:pi-ask-permission`，并删 `~/.pi/agent/extensions/pi-ask-permission/` 残留目录。替代 gate 靠 `pi-cwd-guard` + no-find + secret-guard 等钩子组合。
+替代 gate 靠 secret-guard 等钩子组合。
+
+### 7.9 `no-find` 全局卸载（2026-10-08）
+
+本机恢复 `find`，撤掉「禁用 find」全部 4 层封锁（§4.2 留档为历史）：
+
+- 仓库：`git rm extensions/no-find.ts`；已装的 `~/.pi/agent/extensions/no-find.ts` 同步删除（同步脚本只拷不删，需手工）。
+- 系统层回退到 `~/.pi/agent/no-find-global.json` 备份的原值：
+  - 用户 `PATH` 去掉 `C:\Users\yinxuehao\bin`（该目录只剩 find 桩，已一并删除）；
+  - 用户 `BASH_ENV` 还原为未设置；
+  - `~/.bashrc` 里 `find()` 拒答函数与注释删除；`~/bin/no-find.sh` / `~/bin/find.cmd` 删除。
+- 备份 `~/.pi/agent/no-find-global.json` 已删（还原完即无用）。
+
+生效无需 `/reload`（没动 pi 的扩展加载）；`find` 回到系统原样（System32 FIND.EXE / GNU find 并存，按 PATH 顺序命中）。
+
+### 7.10 `pi-cwd-guard` 卸载（2026-10-08）
+
+`pi remove npm:pi-cwd-guard`（`~/.pi/agent/settings.json` 的 packages 同步移除，npm 目录副本删除）。随之消失：cwd/路径权限闸、破坏性命令与 cwd 外路径访问的批准提示、`.env`/密钥写保护。`.env` 防误写改回常规默契；提交侧凭据拦截由 `pi-secret-guard`（仍装）兜底。
 
 ## 8. 体检与排障
 
@@ -693,7 +710,7 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 | 路径 | 内容 |
 |---|---|
 | `~/.pi/agent/settings.json` | `packages` 注册表 + `defaultTools` |
-| `~/.pi/agent/extensions/` | 本地扩展副本 + 各扩展的全局配置（如 `edit-guard-config.json`、`no-find.json`、`pi-dsh-pet.json`，**只放这里，放 agent 根下不生效**） |
+| `~/.pi/agent/extensions/` | 本地扩展副本 + 各扩展的全局配置（如 `edit-guard-config.json`、`pi-dsh-pet.json`，**只放这里，放 agent 根下不生效**） |
 | `~/.pi/agent/web-search.json` | `pi-web-access` 的配置（`toolActivation`，见 §3.7）。注意它在 agent 根下，不在 `extensions/` 里 |
 | `~/.pi/agent/state/` | 跨会话记账（如 `pi-pet-autostart.json` 记「本 pid 已弹过窗 + 落在哪只宠物上」，`pi-pet-autostart.json.lock/` 是跨进程开窗锁） |
 | `~/.pi/agent/git/` | git 源扩展（lazy-tools fork） |
@@ -750,7 +767,7 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 
 | 项 | 动作 |
 |---|---|
-| 本地扩展 | 5 个全量重同步（`pi-lean-prompt` / `pi-lean-sections` / `pi-fd` / `no-find` / `pi-pet-autostart`），`--check` 复跑全 `[ok]` |
+| 本地扩展 | 4 个全量重同步（`pi-lean-prompt` / `pi-lean-sections` / `pi-fd` / `pi-pet-autostart`；`no-find.ts` 已卸，见 §7.9），`--check` 复跑全 `[ok]` |
 | `extensions/pi-shell.ts` | **删**。仓库已删；留在用户目录里会 `setActiveTools` 无条件隐藏 `bash`/`powershell`，与 §3.4 直接冲突 |
 | `~/.pi/lazy-tools.json` | **删**（0.4.0 死配置，只触发迁移告警） |
 | 用户级 `defaultTools` | 补 `bash`：`["read","edit","write"]` → `["read","edit","write","bash"]`，与项目级对齐（§3.5 两处必须一致） |
