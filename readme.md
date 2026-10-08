@@ -477,6 +477,8 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 
 ~~**回退**…~~（已于 2026-10-08 执行：pi 内那层删扩展文件；全局那层按备份还原 `PATH` / `BASH_ENV`，见 §7.9）
 
+**现状（2026-10-09，替代封锁的轻量做法）**：不再拦 `find`，改为 `~/.bashrc` 末尾一行 `alias find='fd'`——交互式 Git Bash 里 `find` 直接走 fd（尊重 `.gitignore`、默认排除 `.git`/`node_modules`，大目录树上快一个量级）。fd 用 pi 自带的 `C:\Users\yinxuehao\.pi\agent\bin\fd`（10.3.0），零安装。真 find 仍可 `/usr/bin/find` 调用；**脚本/CI 不受 alias 影响**（alias 只在交互 shell 展开），要快就在脚本里显式写 `fd`。非交互场景的慢 find 依旧存在——优化靠 `-maxdepth` / `-prune` / `-xdev`（见对话记录），不做全局封锁。
+
 ---
 
 ## 5. 使用纪律
