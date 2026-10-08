@@ -57,7 +57,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 
 | `npm:pi-test-runner` | 项目感知的测试运行工具 | 2026-10-07 装。结构化跑测试，替代手写 `bash npm test`；懒加载 |
 | `npm:pi-budget-guard` | 会话花费追踪 + 预算上限 | 2026-10-07 装。pi-tps 只显示不拦截，这是拦截侧；懒加载 |
-| `npm:pi-zvec` | 本地语义代码搜索（BM25 + embedding，每项目索引） | 2026-10-07 装。**自动模式**：`<项目>/.pi/zvec.json` 写 `indexMode: "auto"`（本仓库已写），会话启动后台建/更新索引，不弹窗（默认 `ask` 弹选择框）。⚠️ 唯一调 `setActiveTools` 的新包：仅在用户手动 `/zg:index` 成功后自加 `zg_search` 一次（turn 边界推迟，注释自认重建 system 使前缀缓存失效一次）。严守零掀缓存就不手动启用它，用 `omnify` 代理执行其工具 |
+| ~~`npm:pi-zvec`~~ | 本地语义代码搜索（BM25 + embedding，每项目索引） | **已卸载**（2026-10-08，见 §7.11）。原 2026-10-07 装。**自动模式**
 | `npm:pi-ocr` | 多后端 OCR（MinerU 免费云 / Ollama 本地 / Pix2Text），零配置 | 2026-10-07 装。截图/PDF 出文本；懒加载 |
 | `npm:@chendpoc/pi-memory` | 跨会话记忆（MEMORY.md ground truth + JSONL sidecar 检索） | 2026-10-07 装。备选 `pi-session-memory` 因 `node:sqlite` 在 Pi 内嵌运行时缺失（`ResolveMessage: No such built-in module: node:sqlite`）加载即败，已卸，见 §7.6 |
 | `npm:pi-secret-guard` | 拦截提交 API key / 凭据到 git | 2026-10-07 装。误提交 key 不可逆，故必装；懒加载 |
@@ -119,8 +119,8 @@ pi install "npm:pi-web-access"
 pi install "npm:@bacnh85/pi-checkpoint"
 pi install "npm:pi-notify"
 
-# 2026-10-07 增补（语义索引/OCR/跨会话记忆等；PR 插件已卸，见 §7.7；pi-ask-permission 已卸，见 §7.8；no-find 已卸，见 §7.9；pi-cwd-guard 已卸，见 §7.10）
-for p in @narumitw/pi-lsp pi-test-runner pi-budget-guard pi-zvec pi-ocr @chendpoc/pi-memory; do
+# 2026-10-07 增补（语义索引/OCR/跨会话记忆等；PR 插件已卸，见 §7.7；pi-ask-permission 已卸，见 §7.8；no-find 已卸，见 §7.9；pi-cwd-guard 已卸，见 §7.10；pi-zvec 已卸，见 §7.11 —— 勿再装 pi-zvec）
+for p in @narumitw/pi-lsp pi-test-runner pi-budget-guard pi-ocr @chendpoc/pi-memory; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 
@@ -405,7 +405,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 
 | `pi-test-runner` | 测试运行工具 |
 | `pi-budget-guard` | 预算守卫（钩子+命令） |
-| `pi-zvec` | `zg_search` 等（懒加载；`/zg:index` 手动启用会自加进 active 集，见 §1.1 该行） |
+| ~~`pi-zvec`~~ | `zg_search` 等（**已卸载** 2026-10-08，见 §7.11） |
 | `pi-ocr` | OCR 工具 |
 | `@chendpoc/pi-memory` | 记忆工具 + 生命周期钩子 |
 | `pi-secret-guard` / `pi-mono-context-guard` | 无工具（拦截钩子 + 命令） |
@@ -647,7 +647,7 @@ Pi 内嵌运行时缺 `node:sqlite` 内建模块。已 `pi remove`，跨会话�
 
 **pi-pr**：装后报 `Error: PR status refresh failed: status unavailable` —— 它依赖 `gh` CLI，本机未装。已 `pi remove npm:@henryqw/pi-pr`。备选 `@narumitw/pi-github-pr` 自述「Requires `gh`; there is no direct GitHub API or `GITHUB_TOKEN` fallback」。结论：**不装 gh CLI 就没有 PR 插件**，PR 需求用 `mcp`/`bash`+git 绕。要装 gh：`winget install GitHub.cli` + `gh auth login`，之后重新装 pi-pr。
 
-**pi-zvec**：两处需知。
+**pi-zvec**：两处需知（**已卸载 2026-10-08，见 §7.11**；下为历史留档）。
 
 1. `zg` 二进制：pi 内嵌 npm 装 `@zvec/zvec-grep` 时 install 脚本被 `allowScripts` 拦（`install failed`）；已手动 `npm i -g @zvec/zvec-grep`（§3.1 的 `allowScripts` 名单未加它，靠手动装）。`zg index` / `zg query` 实测通（本地 potion-code-16m-v2 embedding，256 维）。
 2. **Windows spawn 补丁**：上游 `env.ts` / `zg.ts` 裸 `spawn(ZG_BIN, ...)` 无 `shell:true`，Windows 上解析不到 `zg.cmd`（node 对 `.cmd` 裸 spawn 直接 `EINVAL`）。本机已 patch：两处 spawn 加 `shell: true`（env.ts 的 `--version` 探测、zg.ts 的执行入口）。**`pi update --extensions` 会冲掉此补丁**（同 fix-lazy-tools-notes.mjs），重装后重打：
@@ -685,6 +685,16 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 ### 7.10 `pi-cwd-guard` 卸载（2026-10-08）
 
 `pi remove npm:pi-cwd-guard`（`~/.pi/agent/settings.json` 的 packages 同步移除，npm 目录副本删除）。随之消失：cwd/路径权限闸、破坏性命令与 cwd 外路径访问的批准提示、`.env`/密钥写保护。`.env` 防误写改回常规默契；提交侧凭据拦截由 `pi-secret-guard`（仍装）兜底。
+
+### 7.11 `pi-zvec` 卸载（2026-10-08）
+
+卸载与残留清理（`zg`/索引数据可由重装重建）：
+
+- `npm uninstall pi-zvec --legacy-peer-deps`（在 `~/.pi/agent/npm/`；裸 `npm uninstall` 报 ERESOLVE）→ package.json/lock/node_modules 全清。
+- `~/.pi/agent/settings.json` packages 移除 `"npm:pi-zvec"`。
+- `npm uninstall -g @zvec/zvec-grep` → 全局 `zg` 二进制删（79 包）。
+- 项目索引与配置全删：`<项目>/.zvec-grep/` + `<项目>/.pi/zvec.json`（本仓库 6.1M、TUIProjectManager 12M、狗头军师 349K）。
+- Windows spawn 补丁（§7.7）随包删除作废。替代：`grep`/`fd`/`omnify`，需要语义搜索再重装（重装需重打 §7.7 补丁 + 重写 `zvec.json` auto 模式）。
 
 ## 8. 体检与排障
 
