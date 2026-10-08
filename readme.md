@@ -660,7 +660,7 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 
 **`indexMode: "auto"` 与 `index reported not ready after a successful build`**：
 
-- 自动模式：`<项目>/.pi/zvec.json` 写 `{"indexMode":"auto","disabled":false,"coach":true,"verify":true,"gitignore":true}`（本仓库已写，按设计随 repo 走）。默认 `ask` 每次开仓弹选择框，`auto` 后台建/更新不弹。
+- 自动模式：`<项目>/.pi/zvec.json` 写 `{"indexMode":"auto","disabled":false,"coach":true,"verify":true,"gitignore":true}`（本仓库已写；**`.pi/` 已 gitignore（2026-10-08），不再随 repo** —— fresh checkout 需手写该文件才有 auto 索引；本机副本保留）。默认 `ask` 每次开仓弹选择框，`auto` 后台建/更新不弹。
 - 该 warning = **良性竞态**：auto 后台建完 → 紧接着 `zg status --check-ready` 判 `stale`（构建期间文件被改，本机即 readme 刚编辑过）。非构建失败，下次 `/zg:index` 或下个会话 auto 追上。实录：`--check-ready` 报 `not ready (state: stale)` → 重跑 `zg index`（7s，1 modified）→ `--check-ready` exit 0。
 
 ### 7.8 `pi-ask-permission` 卸载（2026-10-30 前后）
