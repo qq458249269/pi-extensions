@@ -15,6 +15,14 @@
  *   - 结果上限 200 条、超限/超时都显式提示，不静默截断；
  *   - 路径不存在/不是目录 → 明确报错，不返回空结果。
  *
+ * 超时纪律（readme §5 铁律二「find/grep 一律带超时」）：
+ *   - 每次执行都有墙钟预算：默认 30s，`timeoutMs` 可调，硬上限 120s（防手滑传 600000）。
+ *   - 参数可选但**模型侧必须显式传**（写进 promptGuidelines + 参数描述），省了也有默认兜底，
+ *     不会出现「裸跑到底」的第三种状态。
+ *   - 超时按部分结果处理：kill → 已收到的行照常返回，并附 [Search timed out ...] 提示。
+ *   - 上游 `@tian.zuo/pi-find` 的 `find`/`grep` 走自己的 SEARCH_TIMEOUT_MS=30_000（不可调），
+ *     所以工具层三家口径一致：都是 30s 起、都会显式说超时。
+ *
  * 与 find 的关系：`@tian.zuo/pi-find` 仍会注册 `find`（扩展注册不过 defaultTools 闸），
  *   只是它不在 resident 里 → 被 pi-lazy-tools 隐藏，需要时 omnify 仍能按名捞回来兜底。
  *
@@ -30,8 +38,11 @@ import { Type } from "typebox";
 
 /** 单次结果上限，与被替掉的 find 一致；超限会显式提示。 */
 const RESULT_LIMIT = 200;
-/** 墙钟预算：fd 走 ignore 匹配，正常远快于此；超时按部分结果处理。 */
-const TIMEOUT_MS = 30_000;
+/** 默认墙钟预算，与 pi-find 的 SEARCH_TIMEOUT_MS 对齐；fd 走 ignore 匹配，正常远快于此。 */
+const DEFAULT_TIMEOUT_MS = 30_000;
+/** 硬上限：允许调大，不允许放到「等于没有」。 */
+const MAX_TIMEOUT_MS = 120_000;
+const MIN_TIMEOUT_MS = 1_000;
 const MAX_BUFFER = 4 * 1024 * 1024;
 
 const TYPE_FLAGS: Record<string, string> = {
@@ -53,6 +64,13 @@ interface FdParams {
 	changedWithin?: string;
 	maxDepth?: number;
 	hidden?: boolean;
+	timeoutMs?: number;
+}
+
+/** 把模型给的 timeoutMs 夹进 [1s, 120s]；缺失/非法/非有限数一律回落到默认 30s。 */
+function resolveTimeoutMs(value: number | undefined): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_TIMEOUT_MS;
+	return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, Math.trunc(value)));
 }
 
 /** fd 可执行文件候选：pi 自带副本优先，其次 PATH（Debian/Ubuntu 上叫 fdfind）。 */
@@ -90,12 +108,12 @@ interface RunResult {
 	timedOut: boolean;
 }
 
-function runFd(bin: string, args: string[], cwd: string, signal?: AbortSignal): Promise<RunResult> {
+function runFd(bin: string, args: string[], cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<RunResult> {
 	return new Promise((resolve) => {
 		execFile(
 			bin,
 			args,
-			{ cwd, encoding: "utf8", timeout: TIMEOUT_MS, maxBuffer: MAX_BUFFER, windowsHide: true, signal },
+			{ cwd, encoding: "utf8", timeout: timeoutMs, maxBuffer: MAX_BUFFER, windowsHide: true, signal },
 			(err, stdout, stderr) => {
 				const e = err as (Error & { code?: number | string; killed?: boolean; signal?: string }) | null;
 				resolve({
@@ -156,9 +174,14 @@ export default function piFd(pi: ExtensionAPI): void {
 		label: "fd",
 		description:
 			"Find files/directories by regex over the path (fd). Smart case; respects .gitignore, skips hidden. " +
-			"Optional: type/extension/changedWithin/maxDepth/hidden; glob replaces pattern. Omit pattern to list all. Up to 200 results.",
-		promptSnippet: "Find files/dirs by regex path match (type/extension/glob/age filters)",
-		promptGuidelines: ["查文件名/目录用 fd（可按 type/extension/glob/changedWithin 过滤），查文件内容用 grep。"],
+			"Optional: type/extension/changedWithin/maxDepth/hidden; glob replaces pattern. Omit pattern to list all. " +
+			"Always pass timeoutMs (wall-clock budget, default 30s, hard cap 120s) and narrow the path instead of searching wide. " +
+			"Up to 200 results.",
+		promptSnippet: "Find files/dirs by regex path match (type/extension/glob/age filters; pass timeoutMs)",
+		promptGuidelines: [
+			"查文件名/目录用 fd（可按 type/extension/glob/changedWithin 过滤），查文件内容用 grep。",
+			"每次 fd 必须显式传 timeoutMs（毫秒，1s–120s，默认 30s）：搜索只会在超时那一刻停下并返回部分结果，别让它裸跑。",
+		],
 		parameters: Type.Object({
 			pattern: Type.Optional(
 				Type.String({ description: "Regex on the whole path; omit to list all. Uppercase letter ⇒ case-sensitive." }),
@@ -176,6 +199,14 @@ export default function piFd(pi: ExtensionAPI): void {
 			changedWithin: Type.Optional(Type.String({ description: "Only entries changed within, e.g. '1d', '2weeks'." })),
 			maxDepth: Type.Optional(Type.Number({ description: "Descend at most N levels." })),
 			hidden: Type.Optional(Type.Boolean({ description: "Include dot entries (skipped by default)." })),
+			timeoutMs: Type.Optional(
+				Type.Number({
+					description:
+						"REQUIRED in practice: wall-clock budget in ms (1000–120000, default 30000). On expiry the call is killed and partial results are returned with a timeout note.",
+					minimum: MIN_TIMEOUT_MS,
+					maximum: MAX_TIMEOUT_MS,
+				}),
+			),
 		}),
 
 		async execute(_toolCallId, params: FdParams, signal, _onUpdate, ctx) {
@@ -195,9 +226,10 @@ export default function piFd(pi: ExtensionAPI): void {
 			const built = buildArgs(params, searchPath.startsWith("-") ? absolute : searchPath);
 			if ("error" in built) return text(built.error, { error: "bad_pattern" });
 
-			const run = await runFd(bin, built.args, ctx.cwd, signal);
+			const timeoutMs = resolveTimeoutMs(params.timeoutMs);
+			const run = await runFd(bin, built.args, ctx.cwd, timeoutMs, signal);
 			const notes: string[] = [];
-			if (run.timedOut) notes.push(`[Search timed out after ${TIMEOUT_MS / 1000}s; results are partial.]`);
+			if (run.timedOut) notes.push(`[Search timed out after ${timeoutMs / 1000}s; results are partial. Narrow path or raise timeoutMs (max ${MAX_TIMEOUT_MS / 1000}s).]`);
 			// 正则写错（最常见是把 glob 写进 pattern）时给一句能直接用的建议，并吞掉底层 rust 报错
 			const regexBroken = /regex parse error/i.test(run.stderr);
 			if (regexBroken) {
@@ -219,9 +251,13 @@ export default function piFd(pi: ExtensionAPI): void {
 			if (truncated) notes.push(`[Result limit reached at ${RESULT_LIMIT}; narrow pattern, path, or filters.]`);
 
 			// 命令失败时不要说「无匹配」——那是另一回事，会把模型引到错误的排查方向
-			const failed = run.code !== 0;
-			const header = failed
-				? `Search failed (fd exit ${run.code}${regexBroken ? ", invalid regex" : ""}).`
+			// 超时同理：被 kill 的 exit code 会被归一成 1，报「failed」是误导，要说超时
+			const timedOutEmpty = run.timedOut && shown.length === 0;
+			const failed = run.code !== 0 && !timedOutEmpty;
+			const header = timedOutEmpty
+				? `Search timed out after ${timeoutMs / 1000}s (no results gathered).`
+				: failed
+					? `Search failed (fd exit ${run.code}${regexBroken ? ", invalid regex" : ""}).`
 				: shown.length
 					? `${shown.length} ${plural(TYPE_LABEL[params.type ?? "file"], shown.length)}${truncated || run.timedOut ? " (partial results)" : ""}`
 					: "No matches found.";
@@ -236,6 +272,7 @@ export default function piFd(pi: ExtensionAPI): void {
 				truncated,
 				timedOut: run.timedOut,
 				exitCode: run.code,
+				timeoutMs,
 			});
 		},
 	});

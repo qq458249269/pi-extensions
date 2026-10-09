@@ -78,6 +78,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `pi-lean-prompt.ts` | 裁 `payload.tools` 里 `edit`/`read` 的 description 与 schema 样板文字（**只改文字、不动字段结构**，故与 smart-edit / one-ui / undo-redo 兼容） |
 | `pi-lean-sections.ts` | 压 wire 上 system 的 `<docs>` / `<skills>` 两块（见 §6.2） |
 | `pi-fd.ts` | 注册 `fd` 工具（fd 原生接口），**取代 pi-find 那个只认 glob 的 `find`**（见 §4.1） |
+| `pi-bash-guard.ts` | **不注册工具**，只挂 `tool_call`：**所有** bash 命令没传 `timeout` 就按档注入（搜索 30s / 构建 1800s / 其余 300s，硬的 1 小时上限）、永不返回的命令（编辑器/分页器/前台 dev server/常驻容器）与后台化的搜索直接 block、给 `fd` 工具补 `timeoutMs`（见 §5 铁律二） |
 | ~~`no-find.ts`~~ | 曾挂 `tool_call` 钩子把命令行里的 `find` block 掉并提示改用 `fd`；**已卸载**（2026-10-08，§7.9）：本机恢复 `find`，4 层封锁全撤 |
 | `pi-pet-autostart.ts` | 让 `pi-dsh-pet` **默认常驻且整机只留一只**：TUI 会话一开就派发 `/pet`，已有宠物窗就复用不新开，跨会话/多开 pi 也只一只。不注册工具，只挂 `session_start` + `/pet-auto` 开关。配置见 §3.6 |
 
@@ -455,6 +456,8 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 
 **接线**：`fd` 不写进 `defaultTools`（与 `grep` 一样走懒加载，需要时 `omnify` 一步激活）；项目级与用户级两处都只保留内建默认 4 个。`pi-find` 仍在装（提供 `grep`），它的 `find` 作为 `fd` 的 glob 版兜底。
 
+**超时参数（2026-10-09 加，§5 铁律二）**：`fd` 多一个 `timeoutMs`，默认 30s、硬上限 120s（`resolveTimeoutMs()` 夹取，非法值回落默认）；schema 的 `minimum`/`maximum`、参数描述、`promptGuidelines` 三处都写了「必须显式传」。超时按部分结果处理（kill + 附 `[Search timed out …]` 提示），不静默截断。上游 pi-find 的 `find`/`grep` 是写死 30s，所以三家口径一致。
+
 **常驻 vs 懒加载的代价（实测）**：`fd` 若常驻，单它就 1280B + system 多一行简介与 guideline；若懒加载，0 upfront。**本机选懒加载**（`fd` 与 `grep` 都不在名单里），见 §3.4 / §6.3。
 
 **fd 的两个反直觉点（已踩，代码里有注释）**：
@@ -498,6 +501,41 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 **铁律：装机前先审「它运行时会不会动 active 工具集」。** 只要扩展在会话中途调 `pi.setActiveTools`（典型是 `pi-web-access` 的 `web_enable` 这类空参激活器），工具集一变，请求前缀从第 0 个 token 起整段作废——本机实测 `cacheRead` 从 86016 掉到 1152，等于每次首次激活都吃一发全量 prefill（§7.4）。所以只接受两种接入方式：① 常驻进 `defaultTools`（前缀恒定）；② 懒加载由 `omnify` 代理执行（只在 `session_start` 隐藏一次，全程不切 active 集，§7.4 尾注）。
 - **凡「运行时增删工具」的扩展一律不装、不启用、不写进 `defaultTools`**——哪怕它的工具本身很有用（要联网搜就换 `agent_browser*` / `mcp` / `bash`，别为它掀缓存）。
 - 审法：`read` 扩展源码搜 `setActiveTools` / `activeTools`；装完对比首请求的工具字节（口径见 §6），不一致就是它在散缓存。
+
+**铁律二：所有命令都带超时**（2026-10-09 加，防止一条命令把会话卡几分钟）。
+
+pi 内建 `bash` 工具的 `timeout` 参数是**可选且无默认值**，不传就是永远跑。本机用 `extensions/pi-bash-guard.ts`（只挂 `tool_call`，不注册工具）把它变成强制：按命令分档注入上限。
+
+| 档 | 命中什么 | 默认 | 上限 |
+|---|---|---|---|
+| 搜索 | `find` `grep` `egrep` `fgrep` `rg` `ag` `ack` `fd` `fdfind`（按**流水线生产者**判，`find … \| head` 算搜索、`python x.py \| grep` 不算） | 30s | 120s |
+| 构建 | `npm` `pnpm` `yarn` `pip` `cargo` `go` `make` `cmake` `docker` `tsc` `pytest` `jest` … 共约 70 个首词 | 1800s | 3600s |
+| 其余 | 兜底一切（`ls` `cat` `git clone` `python x.py` …） | 300s | 3600s |
+
+- **注入的是上限不是等待时间**，所以给大不亏；混合命令取最宽松那档（`npm run build && find dist -type f` → 1800s）。
+- 模型自己显式传的 `timeout` 会被尊重，只夹到该档上限（`timeout: 600` 的 `find` → 120；`timeout: 7200` 的 `npm ci` → 3600）。**单位是秒**。
+- 整条都被 coreutils `timeout` 包住时守卫不插手（作者自己管了）。要包就写 `timeout -k 2s 30s …`：只 TERM 直接子进程，不 `-k` 可能被抗住，且绕开 pi 的 killProcessTree。
+- 搜索类被后台化（`&` / `nohup` / `setsid`）→ **block**：它本该秒回，却能活过超时（见下表最后一行）。
+
+**另一类不是「太久」而是「永远不返回」→ 直接 block**（给 timeout 也只是白等一个上限，期间零输出）：
+编辑器（`vim` `nano` `emacs`…）、分页器/监视器（`less` `top` `watch` `tail -f` `journalctl -f`…）、交互客户端（`ssh` `mysql` `psql` `sqlite3`…）、光杆 REPL（`python` / `node` 不带参数）、前台服务（`npm run dev|start|serve|preview`、`python -m http.server`、不带 `-d`/`--rm` 的 `docker run`）。
+替代写法：把有产出的部分放前台跑（先 build/test，再查结果）；真需要常驻进程就显式 `… &` 起来、之后用另一条命令轮询。
+
+**超时之后命令真的结束了吗（这一层的机制，2026-10-09 实测源码）**：
+
+| 问题 | 答案 |
+|---|---|
+| pi 超时后会不会 kill？ | 会。`dist/core/tools/bash.js` 在 `timeout` 到点 / `signal` abort 时都调 `killProcessTree(pid)` |
+| 杀的范围？ | Windows：`System32/taskkill.exe /F /T /PID`（整棵子进程树，强杀）；POSIX：`kill(-pid, "SIGKILL")`（bash 是 `detached` 的进程组，整组） |
+| 默认有超时吗？ | **没有**。`timeout: Type.Optional(... "optional, no default timeout")`——这就是守卫存在的全部理由 |
+| 什么会逃掉 kill？ | 只有 `cmd &` / `nohup` / `setsid`：shell 立即返回 → pi 清掉 timeout 计时器并注销 pid 追踪，命令在工具返回后继续跑，没人再管。故搜索类这么写直接 block |
+| `fd` 工具超时？ | 自己的 `execFile({timeout})`，无子进程所以 kill 即干净；漏传 `timeoutMs` 时守卫会补 30_000 |
+| `powershell` 工具超时？ | **无此参数**，注入不了。PowerShell/cmd 里的 `find`（System32 `find.exe` 读 stdin、永远不返回，§4.2）只能靠文字纪律：「别用」 |
+
+搜文件的其余三条路（与超时无关，但同一节纪律）：`fd` 工具每次显式传 `timeoutMs`（毫秒，1s–120s，默认 30s，见 §4.1）；`find`/`grep` 工具（pi-find）自带 30s 硬超时但**必须缩范围**（`path`/`glob`）；大目录树先 `-maxdepth`/`-prune`/`-xdev`，或直接换 `fd`（尊重 `.gitignore`，默认跳 `.git`/`node_modules`）。超时提示出现时不要重跑同一条命令：先缩范围，再谈调大预算。
+
+守卫的判定与口径写在 `extensions/pi-bash-guard.ts`（纯函数 `judgeBashCommand()` / `budgetFor()` / `resolveBashTimeout()`，判定只做字符串扫描，无 spawn/无 I/O），回归用例在 `.sc-test/probe-bash-guard.mjs`（54 例：三档默认值与上限、显式值夹取、管道生产者、`sudo`/`&&`/重定向、自带 timeout、永不返回的 block、`docker run --rm` 不误伤、`./find-helper.sh`/`findings.md`/`awk`/`git status` 不误伤）。**零 wire 成本**：不注册工具、不动 active 集，只挂 `tool_call`（§5 铁律允许的形态）。
+
 
 0. **新装扩展一律不进常驻集**（硬规则）
    - 理由：常驻集每轮都进 prompt（`grep`+`find` 就要 +1350B ≈ 350 tok），而多数扩展一天用不到几次。
