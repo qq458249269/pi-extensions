@@ -168,6 +168,8 @@ pi list                                # 升完核一遍实际版本
 > 首次安装（§2.1）同样不带版本号，npm 自动解析 latest；**本仓库任何位置都不写死扩展版本号**。
 > **两个 git 源走同一条命令**：`pi update --extensions` 对它们是 `git pull`（`pi-lazy-tools` 会 `reset --hard` + `clean -fdx`，**`fix-lazy-tools-notes.mjs` 的 `DOCS_NOTE` 路径补丁会被冲掉，重跑即恢复**——脚本靠 `where pi.exe` 定位 pi 根目录，pi 不在 PATH 时它直接跳过并报「未能定位」）。
 
+> **升 `pi` 本体（`pi update --all`）或重装依赖会覆盖 `~/.pi/agent/node_modules` 里的补丁**：`fix-proper-lockfile-proxy.mjs`（§7.14，防 jiti Proxy 崩 pi）会被冲掉，升完重跑一次即可（`node fix-proper-lockfile-proxy.mjs --check` 只体检）。
+
 > `pi-dsh-pet` 换成 git 源后**不再有「反复重下 48MB 动画」的问题**——clone 就带 `assets/thumb`（91 个 WebM，整仓 202M），`pi update` 只拉增量；只有第一次 `/pet` 要下 Electron ≈100MB。
 
 **处理办法见 §3.4；升完必跑一次 bench 确认 wire 工具集没变**（本次实测未变：升完是 8 个工具 / 8317B，`extension_error` 0；随后按「只保留默认工具」收敛为 6 个 / 6010B，2026-09-30 卸 `pi-web-access` 后为 **5 个 / 5664B**）。
@@ -774,6 +776,31 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 
 **验证方法可复现**（供以后复测）：临时把 `models.json` 的 `contextWindow` 压到 9000 制造真实压缩场景 → headless `pi --session <id> -p "…"` 连打两轮大文本焐热前缀 → 手动 `/compact`；想把“手动”与“自动”分开取证，就把窗口调回 128000 排除自动压缩干扰（此时只剩手动一条路径）→ 读 `cache-compact-debug.jsonl` 里 `"summary": true` 记录的 `cacheRead`。坑：headless `pi -p` 会因 pi-dsh-pet 的 `/feed` 重连循环不退出，必须用 `timeout` 包裹（exit=124 属预期噪音）；`-c` 会续上**别的**旧会话（测到过 89K 的），要精确定位就 `--session <id>`。
 
+### 7.14 subagent 把 pi 带崩：`proper-lockfile` 撞 jiti 的 interop Proxy（2026-10-09）
+
+**症状**：subagent 跑着跑着整个 pi 进程死掉，控制台只留一行（没有扩展名、没有 TUI 堆栈）：
+
+```
+TypeError: Proxy handler's 'get' result of a non-configurable and non-writable
+property should be the same value as the target's property
+    at probe (C:\Users\yinxuehao\.pi\agent\node_modules\proper-lockfile\lib\mtime-precision.js:6:29)
+```
+
+（`6:29` 正是 `const cachedPrecision = fs[cacheSymbol];` 里 `fs` 的位置。行尾那串 `[13;5u[57442;1:3u` 是崩前 TUI 刷屏留下的转义残渣，不是错误的一部分。）
+
+**根因（已本地复现，非猜测）**：`proper-lockfile@4.1.2` 的 `lib/mtime-precision.js` 把探测到的 mtime 精度用 `Object.defineProperty(fs, cacheSymbol, { value })` 挂在 **fs 模块对象**（= `graceful-fs` 的 exports）上，之后每次加锁都读 `fs[cacheSymbol]`。而 pi 用 **jiti 加载扩展**（`moduleCache:false` + `interopDefault:true`），jiti 的 interop 会把 CJS exports 包一层 **Proxy**：get 陷阱把每次取值缓存进 `Map`，对 target 上不存在的键（含 Symbol）返回并**缓存** `undefined`。于是：
+
+1. 第 1 次 probe：`fs[sym]` → `undefined`（顺带被 trap 缓存）→ 继续；`defineProperty` 落到 Proxy 的 **target** 上，该属性变成 non-writable + non-configurable；
+2. 第 2 次 probe：`fs[sym]` 命中 trap 缓存 → 仍返回 `undefined`，与 target 里的 `'ms'` 不等 → **JSC 抛 Proxy 不变量 TypeError** → 未捕获 → pi 死。
+
+**为什么「像 subagent 的锅」**：subagent 只是在运行期触发落盘（settings/auth/trust、子代理状态），真正的雷是**同进程内第二次及以后**的加锁。fs 是不是 Proxy 与锁本身无关，jiti 只是让 `proper-lockfile` 内部的 `require('graceful-fs')` 拿到了 interop Proxy。
+
+**处置**：缓存从 fs 对象挪进模块级 `WeakMap`（以 fs 对象为键），完全不再改写 fs——语义等价（仍是「每个 fs 对象只探测一次」），对 Proxy 免疫。`node fix-proper-lockfile-proxy.mjs`（幂等，`--check` 只体检）会把 `~/.pi/agent` 下**所有** proper-lockfile 副本一起改掉（本机 2 份：`agent/node_modules` + `agent/npm/node_modules`），写后回读校验。**pi 升本体/重装 node_modules 会冲掉补丁，重跑即恢复**（§2.3 已加提醒）。
+
+验证：补丁前用 jiti 复现脚本抛的是同一行 frame（`at probe (...mtime-precision.js:6:29)`）；补丁后同一脚本在 bun 与 node 下、两个副本共 4 组全部通过（两次 probe 正常回调，无不变量错误）。
+
+> 上游真修要看两处：jiti interop 的 get 陷阱（对非 own key 不该缓存 `undefined` / 该走 `Reflect.get`），或 proper-lockfile 别往外来对象上挂属性。本仓库只做后者，幂等且不动语义。
+
 ## 8. 体检与排障
 
 本机**没有自动体检脚本**（历史 `check-ext-errors.mjs` 随 `.sc-test/` 一起删除，不重写）。改完 `/reload`，看 TUI 有无 `extension_error`；本地扩展与仓库是否漂移跑 `node install-local-extensions.mjs --check`；readme 表格列数跑 `node check-readme-tables.mjs`（编辑手滑插/漏一个 `|` 时靠它兜住，不一致则 exit 1）。
@@ -796,6 +823,7 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 | 跑完没通知 | 终端不支持（Terminal.app / Alacritty） | `pi-notify` 只覆盖 OSC 777/9/99 与 Windows Terminal；换终端，或改用 §1.2 桌宠看状态 |
 | `/pet` 提示命令不存在 | 只 `npm i -g` 装过，pi 不扫全局 `node_modules` | `pi install git:github.com/qq458249269/pi-dsh-pet` → `/reload`（见 §3.6） |
 | 宠物窗口不弹 | 首次要下 Electron ≈100MB；或自动启动被关了 | 看启动提示；`/pet-auto status` 看当前开关；`/pet small` 换小号试；关掉了就写回 `{"autostart": true}` |
+| pi 整个进程崩，只留 `TypeError: Proxy handler's 'get' result … should be the same value as the target's property`（frame 指向 `proper-lockfile/lib/mtime-precision.js:6:29`） | proper-lockfile 把 mtime 精度缓存挂到 fs 对象上，而 jiti interop 把它包成了 Proxy；同进程第二次加锁即触发 JSC 不变量（多由 subagent 跑着跑着踩到） | 跑 `node fix-proper-lockfile-proxy.mjs`（幂等）；pi 升本体后若复发，重跑即可。根因与复现见 §7.14 |
 
 **磁盘布局速查**
 
