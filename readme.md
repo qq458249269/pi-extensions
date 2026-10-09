@@ -3,10 +3,11 @@
 本手册是一份**可直接照做的安装 + 配置清单**：装哪些、按什么顺序装、每个必做配置写什么、以及每条结论的实测依据。
 扩展统一装在 `~/.pi/agent`（Windows：`%USERPROFILE%\.pi\agent`），下文路径均以此计。
 
-**本机基线（所有实测都在这上面做的）**：Pi **0.87.1**、node **24.16.0**、npm 12、模型走本地代理 `http://localhost:20128/v1`（`openai-completions`，模型 id `1`，窗口 100K）。
-> 2026-10-02 起宿主已升到 **Pi 1.0.0**（自带 `buildSessionProjection()`）。§6 的字节数、§7 的版本结论都是 0.87.1 快照，未复测；§8 排障表与 §1 清单已对齐 1.0.0。
-> ⚠️ node 仍是 **24.16.0**，低于 `pi-agent-browser-native@0.9.1` 声明的 `>=24.21.0`。npm 每次装/卸都会打 `EBADENGINE Unsupported engine`，**只是警告**，8 个 `agent_browser*` 工具实测正常，不必为它升 node。
-换版本 / 换 provider 后，下面的数字要重新对账（§6 是 0.87.1 时期的 wire 实测，pi 1.0.0 下未复测，本机也不再复测——按结论用，别按字节抠）。
+**本机基线（所有实测都在这上面做的）**：Pi **1.1.0**（装在 `D:\Agent\pi`）、node **24.16.0**、npm 12、模型走本地代理 `http://localhost:20128/v1`（`openai-completions`，模型 id `1`，窗口 **128K** —— `models.json` 里 `contextWindow: 128000`）。
+> **升级沿革**：0.87.1 →（2026-10-02）**1.0.0** 宿主自带 `buildSessionProjection()` →（2026-10-09）**1.1.0**，安装目录从 `D:\agent\pi-windows-x64` 换成 `D:\Agent\pi`（`where pi.exe`）。§6 的字节数、§7 的旧版本结论都是 0.87.1 快照，未复测；§8 排障表与 §1 清单按 1.1.0 对齐。
+> ⚠️ node 仍是 **24.16.0**，低于 `pi-agent-browser-native@0.9.3` 声明的 `>=24.21.0`。npm 每次装/卸都会打 `EBADENGINE Unsupported engine`，**只是警告**，8 个 `agent_browser*` 工具实测正常，不必为它升 node。
+> **2026-10-09 体检改动**（根因与验证见 §7.15）：① 上游 `pi-dsh-pet` 扩展改用 `packages` 的 **object form** 屏蔽（此前是纯字符串，上游扩展一直在加载，与本地薄客户端**重复注册 `/pet` `/pet-stop` `/pet-say` `/pet-status`**，还多一条 `session_start` 拉宿主的路）；② `cache-compact.json` 转生产配置（`debug` 关，1.1MB 调试落盘已删）；③ 补记 `bash-prelude.sh`（`shellCommandPrefix`，原文档漏记，照 readme 重建必丢）；④ `allowScripts` 里 better-sqlite3 的版本纠正为树内实际版本（§3.1）。
+换版本 / 换 provider 后，下面的数字要重新对账（§6 是 0.87.1 时期的 wire 实测，pi 1.1.0 下未复测，本机也不再复测——按结论用，别按字节抠）。
 
 ---
 
@@ -38,7 +39,7 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | ~~`npm:pi-edit-guard`~~ | 覆盖内建 `edit` + 注册 `undo` | **已卸载**（见 §7.1），要装的话注意与 smart-edit 争 `edit` 槽。它空出来的「撤销」位：本机有 git + `edit` 精确替换（撤销走 git / 编辑历史），会话级撤销由 `@bacnh85/pi-checkpoint`（`/undo`）补上 |
 | `npm:@trycedar/pi-mdiff` | `md_inspect` / `md_diff` / `md_edit` | Markdown 结构化编辑，`.md` 改动优先用它 |
 | `npm:pi-mcp-adapter` | 一个 `mcp` 代理工具替代成百上千个 MCP 工具定义 | 装完重启自动读 `.mcp.json` |
-| `npm:pi-agent-browser-native` | 原生 `agent_browser*` 工具（8 个） | 0.9.1 起直接遍历宿主的 `sessionManager.buildSessionProjection()`，不再走 `getCurrentSystemMessage` 旧路径。Pi 1.0.0 宿主自带该 API，**不需要**兼容补丁。**但它声明 `node >=24.21.0`，本机 24.16.0 → 装卸时必有 `EBADENGINE` 警告（无害，见开头基线注）** |
+| `npm:pi-agent-browser-native` | 原生 `agent_browser*` 工具（8 个） | 0.9.3 起直接遍历宿主的 `sessionManager.buildSessionProjection()`，不再走 `getCurrentSystemMessage` 旧路径。Pi 1.0.0+ 宿主自带该 API，**不需要**兼容补丁。**但它声明 `node >=24.21.0`，本机 24.16.0 → 装卸时必有 `EBADENGINE` 警告（无害，见开头基线注）** |
 | `npm:@agenticup/pi-loop` | `loop` 递归深潜工具 | 入口是 `extensions/loop.ts`，不是 `dist/index.js` |
 | `npm:@arhen/pi-core-subagent` | 子代理（后台默认） | 2026-10-06 装；2026-10-08 发现清单漂移（列了但实际未装）后补装。`subagent`/`subagent_status`/`await_subagent`/`steer_subagent` 等；模型继承 leader（`1/1`），不读旧 `~/.pi/subagent.json` |
 | `git:github.com/qq458249269/pi-lazy-tools` | 按需工具加载（`omnify` 一站式：搜索 / 补参 / 代理执行） | **fork，含 jiti 加载器补丁**；npm 版 `@wolido/pi-lazy-tools` 已下架。**0.4.0 是 breaking**：常驻名单从自建 `~/.pi/lazy-tools.json` 改读 pi 的 `defaultTools`（见 §3.4）。本地 clone 在 `D:\AI\pi-lazy-tools`，改完直接 commit + push，`pi update --extensions` 就能带上 |
@@ -90,8 +91,9 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 |---|---|---|
 | `cangjie-skill`（仓颉） | `git clone github.com/kangarooking/cangjie-skill` | 把书 / 长视频 / 播客 / 课程蒸馏成可执行 skills |
 | `goutoujunshi`（狗头军师） | `git clone github.com/shengjidaguai-china/goutoujunshi` | 恋爱军师与情绪支持 |
+| `pimeter` | **不用装**：`npm:pi-meter` 自带（`~/.pi/agent/npm/node_modules/pi-meter/skills/pimeter/`） | 花费账单怎么看：本机走本地代理，内置价格表对不上，**数字仅供参考**（见 §1.1 pi-meter 行） |
 
-> skill 不再常驻注入系统提示词（见 §6.2），需要时用 `omnify` 检索。
+> skill 不再常驻注入系统提示词（见 §6.2），需要时用 `omnify` 检索。实测本机技能清单 = 上述 3 条（`pi list`/agent 技能面板可见）。
 
 ---
 
@@ -118,13 +120,19 @@ done
 # git 源单独装（两个都要串行；宠物从 npm 换 git 时先 remove，见 §3.6）
 pi install git:github.com/qq458249269/pi-lazy-tools
 pi install git:github.com/qq458249269/pi-dsh-pet
-
 pi install "npm:pi-web-access"
 pi install "npm:@bacnh85/pi-checkpoint"
 pi install "npm:pi-notify"
 
-# 2026-10-07 增补（语义索引/OCR/跨会话记忆等；PR 插件已卸，见 §7.7；pi-ask-permission 已卸，见 §7.8；no-find 已卸，见 §7.9；pi-cwd-guard 已卸，见 §7.10；pi-zvec 已卸，见 §7.11；budget-guard/warm-cache 已卸，见 §7.12；deepseek-cache/compaction-cache 已卸，见 §7.13 —— 均勿再装）
+# 2026-10-07 增补（OCR/跨会话记忆等；PR 插件已卸，见 §7.7；pi-ask-permission 已卸，见 §7.8；no-find 已卸，见 §7.9；pi-cwd-guard 已卸，见 §7.10；pi-zvec 已卸，见 §7.11；budget-guard/warm-cache 已卸，见 §7.12；deepseek-cache/compaction-cache 已卸，见 §7.13 —— 均勿再装）
+# ⚠ pi-lsp / test-runner / ocr / memory / core-subagent 与上一段（§3.1 起）里的 secret-guard / mono-context-guard / meter / plan-mode
+#   曾一度「表里列了但安装循环漏了 → 清单漂移」（§7.12 的教训：pi list 与 §1 逐行对）。26 个 npm 一个都不能漏。
 for p in @narumitw/pi-lsp pi-test-runner pi-ocr @chendpoc/pi-memory @arhen/pi-core-subagent; do
+  pi install "npm:$p" || echo "[失败] $p"
+done
+
+# 钩子层（不注册常驻工具：凭据拦截 / 截超长 read+rg 输出 / 预算与花费 / 只读规划模式）
+for p in pi-secret-guard pi-mono-context-guard pi-meter @narumitw/pi-plan-mode; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 
@@ -186,13 +194,31 @@ pi remove npm:<包名>
 
 ## 3. 必做配置
 
-### 3.1 批准 install 脚本（仅 2 个包）
+### 3.1 批准 install 脚本（本机只有 2 条，且**版本必须随树走**）
 
 ```bash
+cd ~/.pi/agent/npm          # 必须在含 package.json 的目录里跑
 npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
+npm rebuild better-sqlite3  # 批完必须重编，批准本身不建原生 binding
 ```
 
-`allowScripts` 里只有这两个。其余包实测均无 install 脚本。
+当下 `~/.pi/agent/npm/package.json` 的 `allowScripts`：
+
+```json
+{
+  "@injaneity/pi-computer-use@0.5.1": true,
+  "better-sqlite3@12.11.1": true
+}
+```
+
+- **`better-sqlite3` 是 `@chendpoc/pi-memory` 带来的**（`dependencies: {"better-sqlite3": "^12.10.0"}` → 树内 **12.11.1**；`@injaneity/pi-computer-use` 现在**不**依赖它，它的 postinstall 只是 `scripts/setup-helper.mjs` 装原生辅助程序）。用途是 pi-memory 的向量索引：`dist/sidecar/server/vec/store.js:11` 的 `require("better-sqlite3")`。
+- ⚠️ **版本号会随依赖重解析漂移**（本机就踩过：`allowScripts` 里写的是 `better-sqlite3@13.0.3`，树里实际是 12.11.1 → npm 视为「未覆盖」→ binding 不建 → 加载 pi-memory 报 `Could not locate the bindings file. Tried:`）。所以：
+  1. 批准时**写不带版本号的包名**，让 npm 自己把树内版本写进 `allowScripts`（输出会打 `removed-stale ...@13.0.3` / `added ...@12.11.1`）；
+  2. 安装/卸载**任何一个**扩展后（npm 会重解析整棵树）都复验一次：`node -e "console.log(require('better-sqlite3')(':memory:').prepare('select 1 as x').get())"` 应打印 `{ x: 1 }`；报 `Could not locate the bindings file` 就重跑上面两条。
+  3. 重编需要 MSVC：本机 `cl.exe` 不在 PATH，但 `C:\Program Files (x86)\Microsoft Visual Studio\2022` 在位，node-gyp 经 vswhere 能找到 → `rebuilt dependencies successfully`。
+- `~/.pi/agent/npm/package-lock.json` 会被 npm 重写（本机 68KB → 222KB，npm 12 的 v3 格式更啰嗦），**属正常，不必回滚**。
+- **`@chendpoc/pi-memory@0.3.2` 的 postinstall 是有意不批的**（`npm install-scripts ls` 会一直报它 `blocked`）：该脚本只跑 `pi-memory init` + `scheduler sync`，**best-effort、不是加载必需**（实测不批照样加载，`~/.pi/pi-memory-data/` 下有 `MEMORY.md` + `logs`），符合「只批必需」的纪律。要批就 `npm install-scripts approve @chendpoc/pi-memory`（会写 `~/.pi/pi-memory-data` 与调度任务，自行取舍）。
+- 其余包实测均无 install 脚本。
 
 ### 3.2 ~~smart-context~~（已卸载 2026-10-02，配置一并作废）
 
@@ -220,9 +246,16 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 > §2.2 原本那条「compaction-cache 必须在 smart-context 之后」的硬顺序随之作废；2026-10-09 后压缩侧只剩 prefix-stabilizer → cache-compact 一条（§7.13）。
 
-### 3.3 pi-cache-compact：`~/.pi/agent/cache-compact.json`（**零配置可用**）
+### 3.3 pi-cache-compact：`~/.pi/agent/cache-compact.json`（**零配置可用，但本机写了模型白名单**）
 
-**本机生产配置：没有这个文件**。扩展默认对所有模型生效，装上即工作（§7.13 实测命中 68.6%）。下面只在**取证/排障**时临时写：
+**本机生产配置（2026-10-09 定稿）**：`~/.pi/agent/cache-compact.json` = `{"models": ["1/1"]}`
+
+```json
+{ "models": ["1/1"] }
+```
+
+- 写白名单而不是不写文件，是为了让**「只对当前 provider/model 生效」这件事显式可见**（本机只有一个 provider「1」、模型 `1`，`1/1` 即命中），避免以后换 provider 后默默全量生效。
+- ⚠️ **千万别开 `debug`/`debugPayloads`**：`cache-compact-debug.jsonl` 会 dump 全量 payload（**含完整对话内容**），本机已开过又删（1.1MB）。取证写法见下方「临时取证」，**测完即删**：
 
 ```json
 { "debug": true, "debugFile": "C:/Users/yinxuehao/.pi/agent/cache-compact-debug.jsonl" }
@@ -303,7 +336,14 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 **安装路径的坑**：上游 README 写 `npm install -g pi-dsh-pet`，但 **pi 不扫全局 `node_modules`** —— 只全局装的话 `/pet` 根本不存在。必须在 pi 里注册一次。本机 2026-09-30 换成 git 源：`pi remove npm:pi-dsh-pet` + `pi install git:github.com/qq458249269/pi-dsh-pet`（两份同时声明会被当两个包各加载一次，必须先 remove；`pi remove` 报 `EBUSY` 说明还有 Electron 窗占着旧目录 —— 先 `/pet-auto off` 或 `taskkill` 掉它）。装完落在 `~/.pi/agent/git/github.com/qq458249269/pi-dsh-pet`。
 
-> **上游自带的扩展已禁用**（`settings.json` 里把 `pi-dsh-pet` 写成对象形式 `"extensions": []`）：它就是铁律 1 的受害者 —— 自己的 `session_start` 会反复起宿主，且用的是 `state.json` 单一来源、`port` 文件都不认。上游 `pi/extensions/index.ts` 仍留着做参考，本机跑的是本地薄客户端。
+> **上游自带的扩展已禁用** —— 但**写法很关键**：必须在 `settings.json` 的 `packages` 里把 `pi-dsh-pet` 写成 **object form**（`{"source": "git:github.com/qq458249269/pi-dsh-pet", "extensions": []}`），**光写纯字符串 `git:github.com/...` 屏不掉上游扩展**（`extensions: []` 只筛 npm 包内的子扩展，对仓库顶层 `pi/extensions/index.ts` 无效 —— docs/packages.md「Select package resources」确认 1.1.0 支持 object form 的 `extensions` 选择）。
+>
+> | 写法 | 上游扩展 | 症状 |
+> |---|---|---|
+> | `"git:github.com/qq458249269/pi-dsh-pet"` | **照旧加载**（本机踩了一个月才发现） | 重复注册 `/pet` `/pet-stop` `/pet-say` `/pet-status`（本地薄客户端也注册同名 + `/pet-auto`）；多一条 `session_start → ensureHost()` 走 `state.json` 单一来源；终端刷 `[pi-dsh-pet] /feed 连接断开，2s 后重连`，headless 跑不完（§7.13 的 exit 124 噪音一半来自它） |
+> | `{"source": "git:...", "extensions": []}` | **不加载** ✅ | 干净：`pi list` 该行显示 `git:github.com/qq458249269/pi-dsh-pet (filtered)`，终端只剩本地客户端的 `[pi-pet-autostart]` |
+>
+> 验证法（改完 `/reload` 后跑）：`timeout 70 pi --no-session -p "reply with: ok"` → 输出里应**不出现** `[pi-dsh-pet]` 前缀的行；`pi list` 应出现 `(filtered)` 且条目数不变（28）。上游源码留着做参考（`~/.pi/agent/git/github.com/qq458249269/pi-dsh-pet/pi/extensions/index.ts`），本机跑的是本地薄客户端。
 
 **首次开窗要下 Electron ≈100MB**（上游在 Windows 自动设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`）；包里 91 个透明 WebM，`assets/thumb` 解包 48MB。
 
@@ -392,6 +432,72 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | ref 按 commit date 剪 | 超过 **30 天**的快照被永久删 | 跨月的事别指望 `/undo` |
 
 非 git 仓库里三个命令静默 no-op + 一条通知。另外它会写 `refs/pi-checkpoints/*`，不碰你的分支、tag、stash —— `git for-each-ref refs/pi-checkpoints` 可见。
+
+### 3.9 `bash-prelude.sh`：每条 bash 命令前的兼容层（**必做，原文档漏记**）
+
+`~/.pi/agent/settings.json` 里：
+
+```json
+"shellCommandPrefix": "source ~/.pi/agent/bash-prelude.sh"
+```
+
+`~/.pi/agent/bash-prelude.sh`（710B全文）：
+
+```bash
+# pi 的 Bash 工具用 `bash -c` 跑，不加载任何交互式启动文件；cmd.exe 习惯写的
+# `cd /d D:/path` 到 bash 里是「内建 cd 收到两个参数」→ bash: cd: too many arguments。
+# MSYS/MINGW64 下那个 /d 是 drive-D 挂载点而非 /d 开关，所以丢掉它永远是对的意图。
+cd() {
+	if [ "$#" -gt 1 ] && [ "$1" = "/d" ]; then
+		shift
+	fi
+	builtin cd "$@"
+}
+```
+
+- 只处理**独立**的 `/d` token：`cd /d/AI`（真路径）原样不动。
+- **双向兼容 cmd 习惯**：既让 `cd /d D:/path` 能用，也不碰 bash 自己的 `cd` 语义（`builtin cd` 转发）。
+- **别删**。删了以后每次 bash 里手写 `cd /d ...` 就报 `too many arguments`；而这个函数还会覆盖 bash 函数定义，必须跟本机 bash-guard 扩展的路径约定（正斜杠）配套。
+- 写新前缀时的纪律：**保持快、无交互、不输出**（它在**每一条**命令前执行；`cd` 别加 echo）。
+
+### 3.10 关闭内建 MCP：`"extensions": ["-builtin:mcp"]`（**必做**）
+
+```json
+"extensions": ["-builtin:mcp"]
+```
+
+- 本机**没有** `.mcp.json`（也没有任何 MCP server 配置），但内建 `mcp` 工具默认注册；`pi-mcp-adapter`（5.1.0）会接管它并接管 MCP 生命周期，**不需要**内建那份，两份共存会重复注册。
+- 删掉这一行 → `mcp` 工具由 `pi-mcp-adapter` 正常提供，只是当前 0 个 server（`/mcp` 可查）。
+- 留档：`~/.pi/agent/mcp-onboarding.json` = `{"version": 1, "sharedConfigHintShown": false, "setupCompleted": false, "piBuiltinMcpHandledVersion": "5.1.0"}` —— 内建 MCP 引导向导的完成标记；`setupCompleted: false` + `sharedConfigHintShown: false` 是**刻意保持**（不弹共享配置提示）。**不要手写这个文件**，它是向导自己维护的。
+
+### 3.11 用户级 `settings.json` 备忘（非默认项，2026-10-09 实况）
+
+以下都是本机**有意设的非默认值**，重建环境时漏写就会掉行为（已逐项实测生效）：
+
+| 键 | 值 | 作用 / 备注 |
+|---|---|---|
+| `defaultThinkingLevel` | `"high"` | 默认思考强度 |
+| `shellCommandPrefix` | `"source ~/.pi/agent/bash-prelude.sh"` | §3.9 |
+| `extensions` | `["-builtin:mcp"]` | §3.10 |
+| `defaultTools` | `["read","edit","write","bash"]` | §3.4 / §3.5（项目级同值） |
+| `cacheWarming` | `"streaming"` | 流式 warmup |
+| `compaction` | `{"enabled": true, "reserveTokens": 32768, "keepRecentTokens": 8000}` | 自动压缩开；预留 32K + 保留最近 8K（128K 窗下偏保守，且让 `pi-cache-compact` 有足够摘要空间） |
+| `markdown.mermaid` | `"streaming"` | mermaid 流式渲染 |
+| `whimsical` | `{"enabled": true, "weights": {A:15,B:10,C:10,D:15,E:0,F:25,G:25}, "spinnerPreset": "sleekOrbit"}` | 思考动画权重（`E:0` 是故意关掉某个效果） |
+| `tuiMode` | `"fullscreen"` | 全屏 TUI |
+| `doubleEscapeAction` | `"tree"` | 双击 ESC 打开文件树 |
+| `httpIdleTimeoutMs` | `0` | 关闭 HTTP 空闲超时（长请求不被砍） |
+| `images.blockImages` | `true` | 模型侧不传图 |
+| `showHardwareCursor` | `true` / `fullscreenCopyOnSelect` | 光标形状 / 选中即复制 |
+| `hideThinkingBlock` | `true` / `quietStartup` | 隐藏思考块 / 安静启动 |
+| `showCacheMissNotices` | `true` | 缓存未命中提示 |
+| `terminal` | `{"showTerminalProgress": true, "clearOnShrink": true}` | 终端区域进度条 |
+| `defaultProjectTrust` | `"always"` | 不逐项目确认信任 |
+| `theme` | `"light/dark"` | 跟随系统 |
+| `defaultModel` / `defaultProvider` | `"1"` / `"1"` | 本地代理（模型名就是 `1`） |
+
+> `lastChangelogVersion: "1.1.0"`、`collapseChangelog: true`、`treeFilterMode: "default"` 是宿主自维护的，不要手改。
+> 改完 `settings.json` 一律 **`/reload`**（本会话不重启）——但注意：**会话中途改 `packages`/`extensions` 会改变已开扩展的加载面**，顺序是先改配置再开新会话（§9.6 教训）。
 
 ---
 
@@ -642,9 +748,23 @@ Tool "edit" conflicts with ".../pi-edit-guard/dist/index.js"
 
 **已清理的死配置/死数据**（细节都在 git 历史里）：`~/.pi/lazy-tools.json`（含 `.bak`/`.bak2`，常驻名单已进 `settings.json` 的 `defaultTools`）、`settings.json` 里的 `alps-pi` 块、`~/.pi/agent/pi-hermes-memory/`（19MB）、`.backup-20250915/`（105 个文件，要找回：`git checkout bb9a6ae -- .backup-20250915`）、`settings.json.bak-*`、`state/pi-undo-redo/`（52MB）、`pi-better-toolcalls-undo-store.jsonl`（4MB）。共约 76MB。
 
+**2026-10-09 本轮体检又清一批**（`config/` 已清空、`state/` 只剩 `pi-pet-autostart.json`）：
+
+| 死物 | 为什么是死的 |
+|---|---|
+| `config/smart-context-ext-config.json` | 包已于 2026-10-02 卸载（§3.2），文件没人再读 |
+| `settings.json.bak-160608` | 手写备份 |
+| `pi-tidy-tools.pi-fff.json` | fff / pi-fff 卸载后的残留 |
+| `fff/`、`pi-fff/`（缓存） | 同上 |
+| `state/pi-undo-redo/` | pi-checkpoint 接手 undo/redo 后残留 |
+| `state/pi-pet-host.cjs`(+`.lock/`) / `state/pi-pet-host.exe`（**89MB**） / `pi-pet-ctrl.json` / `pi-pet-global.json.electron.json` | 旧架构（0.0.1 内嵌宿主）的宿主脚本/镜像 exe/控制与全局状态文件，现由上游 `bin/pi-pet.cjs` + `<home>/ctrl.json` 接管（§3.6.2）；其中 `pi-pet-global.json.electron.json` 正是铁律 3 警告的「写它会让两个宿主互相认定对方活着」的那类文件 |
+| `.pi-hermes-locks.sqlite{,-shm,-wal}`（4.1MB） | `pi-hermes-memory` 卸载后的 WAL 残留 |
+
+> 删前建议先 `node -e` 列出路径确认（删除不可逆）。`config/` 空了不是异常：**只有某些包会往 `~/.pi/agent/config/` 写 `startupConfig`**（本机清空后仍只服务上述几个已卸包）。
+
 **故意保留**：
 
-- `~/node_modules/@earendil-works*@0.85.1`：一棵自洽的 0.85.1 生态，`@wolido/pi-lazy-tools` 依赖它，删了会连带坏掉。pi 自身的扩展从 `~/.pi/agent/npm/node_modules`（Pi 1.0.0）解析，**不会走到家目录那份**。
+- `~/node_modules/@earendil-works*@0.85.1`：一棵自洽的 0.85.1 生态，`@wolido/pi-lazy-tools` 依赖它，删了会连带坏掉。pi 自身的扩展从 `~/.pi/agent/npm/node_modules`（Pi 1.1.0）解析，**不会走到家目录那份**。
 
 ### 7.3 `omnify` 的两个 fork 修复（2026-09-29，`e972047`，已 push）
 
@@ -801,9 +921,41 @@ property should be the same value as the target's property
 
 > 上游真修要看两处：jiti interop 的 get 陷阱（对非 own key 不该缓存 `undefined` / 该走 `Reflect.get`），或 proper-lockfile 别往外来对象上挂属性。本仓库只做后者，幂等且不动语义。
 
+### 7.15 全机体检实录（2026-10-09）：清单没漂，漂的是「必做配置层」
+
+对照 readme 与本机逐项过了一遍，**28 个扩展本身零漂移**（`pi list` = `settings.json` 的 `packages` = §1 表，26 npm + 2 git；本地扩展与仓库逐字节一致）。问题全在清单之外的层：
+
+| # | 发现 | 根因 | 修法 | 验证 |
+|---|---|---|---|---|
+| 1 | **上游 `pi-dsh-pet` 扩展一直在加载**，与本地薄客户端重复注册 `/pet` `/pet-stop` `/pet-say` `/pet-status`（铁律 1 的事故源） | `extensions: []` 只筛 **npm 包内的子扩展**，对 git 仓库顶层 `pi/extensions/index.ts` 无效；以前一直以为「写了 extensions:[] 就算屏蔽」 | `packages` 里改成 object form：`{"source": "git:github.com/qq458249269/pi-dsh-pet", "extensions": []}`（§3.6） | `pi list` 该行显示 `(filtered)`；headless `pi --no-session -p "reply with: ok"` 里**再没有** `[pi-dsh-pet] /feed 连接断开，2s 后重连`，只剩本地客户端的 notify OSC 777 + `ok`；条目数仍 28 |
+| 2 | `cache-compact.json` 是 debug 配置，会 dump 全量 payload（1.1MB） | 当初为取证开后忘关 | 改生产白名单 `{"models": ["1/1"]}`，删 `cache-compact-debug.jsonl`（§3.3） | 文件 23B，`debug` 键没了 |
+| 3 | 一批死数据/死配置 | 旧架构 + 已卸包的遗留 | 列在 §7.2 表格，一律删 | `config/` 空、`state/` 只剩 `pi-pet-autostart.json` |
+| 4 | **better-sqlite3 binding 丢了**（pi-memory 的 vec 索引用不了，报 `Could not locate the bindings file. Tried:`） | `npm uninstall` 触发整棵树重解析：`allowScripts` 里钉的 `better-sqlite3@13.0.3` 与树内实际的 `12.11.1`（pi-memory 的 `^12.10.0`）对不上 → npm 当「未覆盖」→ `node-gyp rebuild` 被挡 | `npm install-scripts approve better-sqlite3`（**不带版本号**）+ `npm rebuild better-sqlite3`（§3.1） | `node -e "require('better-sqlite3')(':memory:')"` OK；`npm install-scripts ls` 只剩 pi-memory 的 postinstall（有意不批） |
+| 5 | `fix-lazy-tools-notes.mjs` 补的 DOCS_NOTE 路径**大小写错了半角** | 脚本做**精确字符串替换**，`D:\agent\pi\docs` 与实机 `D:\Agent\pi` 不符就不匹配 | 重跑脚本（幂等），并同步到已装副本 | `--check` exit 0；已装副本 `git status` 显示 ` M lazy-tools.ts` |
+| 6 | readme 的必做配置层漏了 3 样东西 | 一边改一边没补文档 | §3.9 `bash-prelude.sh`（`shellCommandPrefix`）、§3.10 `-builtin:mcp`、§3.11 用户级 settings 备忘 | 照这三条即可从零复现 |
+| 7 | readme 安装循环漏了 4 个包 | 清单加了但循环没加（§7.12 同一类错） | §2.1 补 `pi-secret-guard` / `pi-mono-context-guard` / `pi-meter` / `@narumitw/pi-plan-mode` | 循环数 = 26 npm + 2 git |
+
+**顺序纪律（本次最贵的经验）**：先备份 → 改 `settings.json` → 验证 → 清死数据 → 补文档，**不要**在会话开着的时候边走边改（§9.6）。本轮全程用 headless `pi -p` 做验证，不碰自己这条交互会话。
+
+**留个教训**：`extensions: []` 是「只筛 npm 包内子扩展」的语义，不看文档只信直觉，会让上游扩展在机器上多跑一个月都没人发现。**凡是屏蔽类配置，改完必须用 headless 实测**（只看 `pi list` 有 `(filtered)` 才行——那才是真屏蔽）。
+
+---
+
 ## 8. 体检与排障
 
-本机**没有自动体检脚本**（历史 `check-ext-errors.mjs` 随 `.sc-test/` 一起删除，不重写）。改完 `/reload`，看 TUI 有无 `extension_error`；本地扩展与仓库是否漂移跑 `node install-local-extensions.mjs --check`；readme 表格列数跑 `node check-readme-tables.mjs`（编辑手滑插/漏一个 `|` 时靠它兜住，不一致则 exit 1）。
+本机的体检脚本**没有自动化的**，但有几个手跑的（都在仓库根或 `.sc-test/`，`.sc-test/` 属 gitignore、不入库）：
+
+| 脚本 | 干什么 | 结果 |
+|---|---|---|
+| `node check-readme-tables.mjs` | 体检 readme 表格列数 | 一致 exit 0、不一致 exit 1 |
+| `node install-local-extensions.mjs --check` | 本地扩展副本与仓库是否逐字节一致 | 不一致会提示重拷 |
+| `node fix-lazy-tools-notes.mjs --check` | DOCS_NOTE 路径补丁是否需要重打 | 基线已修好 exit 0 |
+| `node fix-proper-lockfile-proxy.mjs --check` | proper-lockfile 补丁在位 | 一致 exit 0 |
+| `node fix-browser-native-compat.mjs` | 双路回退兼容（新形态报 `[skip]`） | `[skip]` |
+| `.sc-test/check-ext-errors.mjs` | 扫会话里的 `extension_error` | **还在**（gitignore，未入库）；§8 说「已删」是旧记录，现可手动跑 |
+| `.sc-test/probe-bash-guard.mjs` | 验证 bash-guard 的路径修复（§5） | 见 §5「零报障」 |
+
+改完 `/reload`，看 TUI 有无 `extension_error`；本地扩展与仓库是否漂移跑 `node install-local-extensions.mjs --check`；readme 表格列数跑 `node check-readme-tables.mjs`（编辑手滑插/漏一个 `|` 时靠它兜住）。
 
 | 症状 | 原因 | 处置 |
 |---|---|---|
@@ -817,25 +969,32 @@ property should be the same value as the target's property
 | 终端打 `[cache-compact] summary rejected …` | 摘要空 / 被 `length` 截断 / 夹带工具调用 | 设计内行为：已回落 Pi 默认压缩，摘要不会变坏。`stopReason:"length"` 多半是 `summaryMaxTokens` 卡住（或测试时误压小了 `maxTokens`） |
 | 压缩请求 `cacheRead: 0` | 前缀太老，上游缓存已过期（mimo 免费端点只活几分钟） | 正常现象；`deferAfterCacheMiss` 会让位 15 分钟。想看命中就在**刚聊完的会话里立刻** `/compact`（§3.3） |
 | ~~`pi-warm-cache` 没反应~~ | 本地代理属未注册路由 | **已卸载**（2026-10-08 死安装，见 §7.12），此行留档 |
-| 装/卸任何包时 npm 打 `EBADENGINE ... pi-agent-browser-native@0.9.1 ... node >=24.21.0` | 本机 node 24.16.0 低于该包声明的 engine | **可忽略**，纯警告；工具实测正常。要消掉就把 node 升到 24.21+，或接受每次都打一遍 |
-| pi-agent-browser-native 报 `buildSessionProjection is not a function` | 扩展版本太老（<0.9.x，宿主 1.0.0 才自带该 API） | 本机 pi 1.0.0 + 扩展 0.9.1 不会发生。真发生先 `pi update pi-agent-browser-native`；仍不行跑 `node fix-browser-native-compat.mjs`（新形态下它报 `[skip]` 而非 `[fail]`） |
+| 装/卸任何包时 npm 打 `EBADENGINE ... pi-agent-browser-native@0.9.3 ... node >=24.21.0` | 本机 node 24.16.0 低于该包声明的 engine | **可忽略**，纯警告；工具实测正常。要消掉就把 node 升到 24.21+，或接受每次都打一遍 |
+| pi-agent-browser-native 报 `buildSessionProjection is not a function` | 扩展版本太老（<0.9.x，宿主 1.0.0 才自带该 API） | 本机 pi 1.1.0 + 扩展 0.9.3 不会发生。真发生先 `pi update pi-agent-browser-native`；仍不行跑 `node fix-browser-native-compat.mjs`（新形态下它报 `[skip]` 而非 `[fail]`） |
 | `omnify` 搜不到 `web_search` / 每轮前缀突然被掀 | `web-search.json` 缺 `toolActivation: "eager"`，退回了 `web_enable` 加载器 | 写上该键 `/reload`（§3.7）；掀缓存的现场见 §7.4 表 |
 | 跑完没通知 | 终端不支持（Terminal.app / Alacritty） | `pi-notify` 只覆盖 OSC 777/9/99 与 Windows Terminal；换终端，或改用 §1.2 桌宠看状态 |
 | `/pet` 提示命令不存在 | 只 `npm i -g` 装过，pi 不扫全局 `node_modules` | `pi install git:github.com/qq458249269/pi-dsh-pet` → `/reload`（见 §3.6） |
 | 宠物窗口不弹 | 首次要下 Electron ≈100MB；或自动启动被关了 | 看启动提示；`/pet-auto status` 看当前开关；`/pet small` 换小号试；关掉了就写回 `{"autostart": true}` |
 | pi 整个进程崩，只留 `TypeError: Proxy handler's 'get' result … should be the same value as the target's property`（frame 指向 `proper-lockfile/lib/mtime-precision.js:6:29`） | proper-lockfile 把 mtime 精度缓存挂到 fs 对象上，而 jiti interop 把它包成了 Proxy；同进程第二次加锁即触发 JSC 不变量（多由 subagent 跑着跑着踩到） | 跑 `node fix-proper-lockfile-proxy.mjs`（幂等）；pi 升本体后若复发，重跑即可。根因与复现见 §7.14 |
+| `pi list` 里某行带 `(filtered)` | 该包在 `packages` 里写成 object form 且注明了要屏蔽的部分 | **预期**（本机只有 `git:github.com/qq458249269/pi-dsh-pet (filtered)`，见 §3.6） |
+| `pi --no-session -p ...` 不退出（shell 报 exit 124） | 桌宠的 `/feed` 长连接或宿主进程挂着父会话；headless 永远不会自己走完 | 用 `timeout 70 pi ...` 包一层（§7.13 已记录）；屏蔽上游扩展后刷屏的重连日志也会消失（§7.15） |
+| 装东西后 pi-memory 报 `Could not locate the bindings file. Tried:` | 树被重解析，better-sqlite3 换了版本 → `allowScripts` 对不上 → 原生 binding 没编 | `npm install-scripts approve better-sqlite3 && npm rebuild better-sqlite3`（详见 §3.1） |
 
 **磁盘布局速查**
 
 | 路径 | 内容 |
 |---|---|
-| `~/.pi/agent/settings.json` | `packages` 注册表 + `defaultTools` |
+| `~/.pi/agent/settings.json` | `packages` 注册表 + `defaultTools`（含 dsh-pet 的 object form 屏蔽，见 §3.6） |
+| `~/.pi/agent/bash-prelude.sh` | 每条 bash 命令前的 `cd /d` 兼容层（`shellCommandPrefix`，见 §3.9） |
 | `~/.pi/agent/extensions/` | 本地扩展副本 + 各扩展的全局配置（如 `edit-guard-config.json`、`pi-dsh-pet.json`，**只放这里，放 agent 根下不生效**） |
 | `~/.pi/agent/web-search.json` | `pi-web-access` 的配置（`toolActivation`，见 §3.7）。注意它在 agent 根下，不在 `extensions/` 里 |
-| `~/.pi/agent/state/` | 跨会话记账（如 `pi-pet-autostart.json` 记「本 pid 已弹过窗 + 落在哪只宠物上」，`pi-pet-autostart.json.lock/` 是跨进程开窗锁） |
-| `~/.pi/agent/git/` | git 源扩展（lazy-tools fork） |
+| `~/.pi/agent/cache-compact.json` | `pi-cache-compact` 的模型白名单（见 §3.3） |
+| `~/.pi/agent/mcp-onboarding.json` | 内建 MCP 引导向导的状态（见 §3.10），**勿手改** |
+| `~/.pi/agent/state/` | 跨会话记账，**2026-10-09 清理后只剩 `pi-pet-autostart.json`**（记「本 pid 已弹过窗 + 落在哪只宠物上」） |
+| `~/.pi/agent/git/` | git 源扩展（lazy-tools fork + dsh-pet，后者扩展被屏蔽，见 §3.6） |
 | `~/.pi/agent/npm/node_modules/` | npm 源扩展 |
-| `~/.pi/agent/config/` | ~~smart-context 配置~~ → **已空**（包已卸载，该文件一并删了）；新装带 `startupConfig` 的包会往这里写 |
+| `~/.pi/agent/npm/package.json` | 26 个 dep + `allowScripts`（见 §3.1） |
+| `~/.pi/agent/config/` | **已空**（smart-context 包卸载后配置已删，新装带 `startupConfig` 的包才会写） |
 | `<项目>/.pi/settings.json` | 项目级 `defaultTools`，**整体覆盖**用户级（且需项目被信任） |
 | `~/.pi/agent/sessions/**/*.jsonl` | 会话历史，算命中率的原始数据 |
 
