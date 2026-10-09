@@ -10,11 +10,12 @@
 
 ---
 
-## 1. 清单（在用 32 个扩展 = 30 npm + 2 git）
+## 1. 清单（在用 28 个扩展 = 26 npm + 2 git）
 
-**实际在用 32 个**。
-> 2026-10-06 增补 3 个：联网（`pi-web-access`）、会话级撤销（`@bacnh85/pi-checkpoint`）、完成通知（`pi-notify`）。
-> 2026-10-07 增补 7 个：权限门、LSP、测试、预算、语义索引、OCR、跨会话记忆（见新增行）。当日又装 5 个：secrets 防截、上下文体积闸、预算降级、只读规划、路径闸；PR 插件（`@henryqw/pi-pr`）装后即卸，见 §7.7。
+**实际在用 28 个**。
+> 2026-10-06 增补 3 个：联网（`pi-web-access`）、会话级撤销（`@bacnh85/pi-checkpoint`）、完成通知（`pi-notify`）。PR 插件（`@henryqw/pi-pr`）装后即卸，见 §7.7。
+> 2026-10-08 精简：卸 `pi-budget-guard`（与 `pi-meter` 功能三层全重叠，见 §7.12）与 `pi-warm-cache`（本机不生效的死安装，见 §7.12）；补装 `@arhen/pi-core-subagent`、`pi-ocr`（此前清单漂移：列了但实际未装）；新增 `pi-deepseek-cache`（DeepSeek 后端专用，与 §5.5 原判相悳 —— **2026-10-09 已验实并卸载，见 §7.13**）。
+> 2026-10-09 压缩侧换血（见 §7.13）：装 `pi-cache-compact`（provider 无关的压缩调用缓存，本机实测命中 68.6%）；卸 `pi-deepseek-cache`（绑定 DeepSeek）与 `pi-compaction-cache`（被 cache-compact 取代，且同抢 `session_before_compact`）。29 → 28。
 
 **不锁版本**：安装命令一律不带 `@版本号`（取 npm 最新），本清单不维护版本矩阵。要查本机实际装的版本：
 
@@ -34,36 +35,38 @@ execSync("pi list",{encoding:"utf8"}).split("\n").filter(l=>/^\s+(npm|git):/.tes
 | `npm:pi-one-ui` | TUI 统一美化（Header/Context/WorkingLine/Editor/Footer） | 取代旧 `alps-pi`；要求 Node ≥22.19、Pi ≥0.84 |
 | `npm:pi-cache-guardian` | 缓存命中巡检 + 前缀漂移告警 | 与 §6 的 prefix-stabilizer 是同一根因的两端，一并用 |
 | `npm:@tian.zuo/pi-find` | `grep` / `find` 工具 | **覆盖内建同名工具**（替换，不是并列）。本机只用它的 `grep`；`find` 已降为懒加载兜底（见 §4.1） |
-| `npm:pi-edit-guard` | 覆盖内建 `edit` + 注册 `undo` | **已卸载**，见 §7.1（要装的话注意与 smart-edit 争 `edit` 槽） |
+| ~~`npm:pi-edit-guard`~~ | 覆盖内建 `edit` + 注册 `undo` | **已卸载**（见 §7.1），要装的话注意与 smart-edit 争 `edit` 槽。它空出来的「撤销」位：本机有 git + `edit` 精确替换（撤销走 git / 编辑历史），会话级撤销由 `@bacnh85/pi-checkpoint`（`/undo`）补上 |
 | `npm:@trycedar/pi-mdiff` | `md_inspect` / `md_diff` / `md_edit` | Markdown 结构化编辑，`.md` 改动优先用它 |
-本机有 git + `edit` 精确替换，撤销走 git / 编辑历史；它空出来的「会话级撤销」已由 `@bacnh85/pi-checkpoint`（`/undo`）补上 |
 | `npm:pi-mcp-adapter` | 一个 `mcp` 代理工具替代成百上千个 MCP 工具定义 | 装完重启自动读 `.mcp.json` |
 | `npm:pi-agent-browser-native` | 原生 `agent_browser*` 工具（8 个） | 0.9.1 起直接遍历宿主的 `sessionManager.buildSessionProjection()`，不再走 `getCurrentSystemMessage` 旧路径。Pi 1.0.0 宿主自带该 API，**不需要**兼容补丁。**但它声明 `node >=24.21.0`，本机 24.16.0 → 装卸时必有 `EBADENGINE` 警告（无害，见开头基线注）** |
 | `npm:@agenticup/pi-loop` | `loop` 递归深潜工具 | 入口是 `extensions/loop.ts`，不是 `dist/index.js` |
-| `npm:@arhen/pi-core-subagent` | 子代理（后台默认） | 2026-10-06 装；`subagent`/`subagent_status`/`await_subagent`/`steer_subagent` 等；模型继承 leader（`1/1`），不读旧 `~/.pi/subagent.json` |
+| `npm:@arhen/pi-core-subagent` | 子代理（后台默认） | 2026-10-06 装；2026-10-08 发现清单漂移（列了但实际未装）后补装。`subagent`/`subagent_status`/`await_subagent`/`steer_subagent` 等；模型继承 leader（`1/1`），不读旧 `~/.pi/subagent.json` |
 | `git:github.com/qq458249269/pi-lazy-tools` | 按需工具加载（`omnify` 一站式：搜索 / 补参 / 代理执行） | **fork，含 jiti 加载器补丁**；npm 版 `@wolido/pi-lazy-tools` 已下架。**0.4.0 是 breaking**：常驻名单从自建 `~/.pi/lazy-tools.json` 改读 pi 的 `defaultTools`（见 §3.4）。本地 clone 在 `D:\AI\pi-lazy-tools`，改完直接 commit + push，`pi update --extensions` 就能带上 |
 | ~~`npm:@zhushanwen/pi-smart-context`~~ | 智能压缩：注册 `compact_context` 交 agent 自决 | **已卸载**（`pi uninstall npm:@zhushanwen/pi-smart-context`）：阈值提醒实测触发过（`sessions/*-pi-dsh-pet-*/12-29-47` 落在 89.5K/128K 与 91.9K/128K 两档），但 `compact_context` 作为 toolCall 出现 **0 次**，压缩收益 0。理由与数据见 §3.2 |
-| `npm:pi-prefix-stabilizer` | 系统提示词前缀稳定 + 漂移检测 | 与 compaction-cache 有先后要求，见 §2.2 |
-| `npm:pi-compaction-cache` | 摘要调用复用已缓存前缀 | **必做配置**见 §3.3；实测把压缩调用自身命中从 1.6% 拉到 98.8% |
-| `npm:pi-warm-cache` | 空闲期按厂商 TTL 续前缀缓存 | **本机不生效**（本地代理属未注册路由），纯静默待命 |
+| `npm:pi-prefix-stabilizer` | 系统提示词前缀稳定 + 漂移检测 | 与 cache-compact 有先后要求，见 §2.2 |
+| ~~`npm:pi-compaction-cache`~~ | 摘要调用复用已缓存前缀 | **已卸载**（2026-10-09，见 §7.13）：被 `pi-cache-compact` 取代，两者抢同一个 `session_before_compact`，只能留一个。旧必做配置在 §3.3 留档 |
+| ~~`npm:pi-warm-cache`~~ | 空闲期按厂商 TTL 续前缀缓存 | **已卸载**（2026-10-08，死安装，见 §7.12）；本机代理属未注册路由，当时纯静默待命 |
 | `npm:@henryqw/pi-ask-question` | `ask_question` 交互式提问（单题，1–3 选项 + 自定义答案，首项为推荐） | 歧义时问用户，比猜省事 |
 | `npm:@ssk_dev/rpiv-todo-lean` | `todo` 任务清单工具 + TUI overlay | `ctrl+shift+t` 折叠；`/todos` 看全量 |
 | `npm:@aboutlo/pi-smart-edit` | 覆盖内建 `edit`，容忍引号/空白不匹配 | **已生效**；`edit` 归它，匹配走「精确 → NFKC 归一化行」 |
 | `git:github.com/qq458249269/pi-dsh-pet` | 桌面宠物：Electron 透明浮窗 + 91 个 WebM 动画，随 agent 状态（思考/写代码/空闲）切换 | **纯命令扩展**（`/pet` `/pet-stop`），零工具、零 wire 开销。**必须 `pi install`**，光 `npm i -g` pi 不加载（见 §3.6）。**2026-09-30 从 `npm:pi-dsh-pet` 换成 git 源**（自己 fork 的仓库，改完 `git pull` 就生效；`pi update --extensions` 也认它）。常驻与「整机只留一只」由本仓库的 `pi-pet-autostart.ts` 接管 |
 
 | `npm:pi-web-access` | `web_search` / `source_check` / `fetch_content` / `get_search_content` + `/websearch` `/search` `/curator` | 2026-10-06 **复装**（曾于 2026-09-30 卸载，§7.4）。**必做配置** `~/.pi/agent/web-search.json` 写 `toolActivation: "eager"`，见 §3.7 —— 不写就用 `web_enable` 加载器中途改 active 集，会把前缀缓存掀掉（正是当年卸掉它的原因）。26 个搜索源，duckduckgo 无需 key。**实测对 wire 与缓存零影响**（§3.7），要时 `omnify` 捞 |
-不碰工作分支/stash。**必须在 git 仓库内**，否则静默 no-op。坑：**只还原已跟踪文件**，该轮新增的未跟踪文件会留在原地（见 §3.8）。装后只在无交互 `pi -p` 下验证过不报错，`/undo` 本身未实测 |
 | `npm:pi-notify` | `agent_end` → Windows toast | 2026-10-06 装，零配置零依赖。Windows Terminal 走 PowerShell toast（`WT_SESSION` 判定），其他终端 OSC 777/9/99。subagent / `loop` 后台跑完靠它收通知。实测：headless 也发（OSC 777 直接打在 stdout） |
 
 | `npm:pi-test-runner` | 项目感知的测试运行工具 | 2026-10-07 装。结构化跑测试，替代手写 `bash npm test`；懒加载 |
-| `npm:pi-budget-guard` | 会话花费追踪 + 预算上限 | 2026-10-07 装。pi-tps 只显示不拦截，这是拦截侧；懒加载 |
-| ~~`npm:pi-zvec`~~ | 本地语义代码搜索（BM25 + embedding，每项目索引） | **已卸载**（2026-10-08，见 §7.11）。原 2026-10-07 装。**自动模式**
-| `npm:pi-ocr` | 多后端 OCR（MinerU 免费云 / Ollama 本地 / Pix2Text），零配置 | 2026-10-07 装。截图/PDF 出文本；懒加载 |
+| ~~`npm:pi-budget-guard`~~ | 会话花费追踪 + 预算上限 | **已卸载**（2026-10-08，见 §7.12）。与 `pi-meter` 在追踪/告警/拦截三层全重叠，meter 是超集；原 2026-10-07 装 |
+| ~~`npm:pi-zvec`~~ | 本地语义代码搜索（BM25 + embedding，每项目索引） | **已卸载**（2026-10-08，见 §7.11）。原 2026-10-07 装（**自动模式**索引，卸载时连项目索引目录一并删除） |
+| `npm:pi-ocr` | 多后端 OCR（MinerU 免费云 / Ollama 本地 / Pix2Text），零配置 | 2026-10-07 列装但实际漂移未装，2026-10-08 补装。截图/PDF 出文本；懒加载 |
 | `npm:@chendpoc/pi-memory` | 跨会话记忆（MEMORY.md ground truth + JSONL sidecar 检索） | 2026-10-07 装。备选 `pi-session-memory` 因 `node:sqlite` 在 Pi 内嵌运行时缺失（`ResolveMessage: No such built-in module: node:sqlite`）加载即败，已卸，见 §7.6 |
 | `npm:pi-secret-guard` | 拦截提交 API key / 凭据到 git | 2026-10-07 装。误提交 key 不可逆，故必装；懒加载 |
 | `npm:pi-mono-context-guard` | 上下文体积硬闸：自动截断 read/rg 超长输出 | 2026-10-07 装。cache-guardian 只告警，这是截断侧；懒加载 |
-| `npm:pi-meter` | 花费追踪 + 预算告警 + auto-downshift + 硬截断 | 2026-10-07 装。budget-guard 是拦截，这是降级到便宜模型侧；懒加载 |
+| `npm:pi-meter` | 花费追踪 + 预算告警 + auto-downshift + 硬截断 | 2026-10-07 装。**唯一预算侧**（budget-guard 2026-10-08 已卸，追踪/告警/拦截/降级全并于此）；本机走本地代理，auto-downshift 与内置价格表可能对不上，费用数字仅供参考；懒加载 |
 | `npm:@narumitw/pi-plan-mode` | `/plan` 只读规划模式（Codex 风格） | 2026-10-07 装；懒加载 |
+| `npm:@narumitw/pi-lsp` | LSP 工具（语言无关，共享 runner，可配置） | 2026-10-07 装（此前只在增补注里提过，本行 2026-10-08 补录）；懒加载 |
+| ~~`npm:pi-deepseek-cache`~~ | DeepSeek 前缀缓存：命中率遥测 + 前缀守卫 + 缓存友好压缩 | **已卸载**（2026-10-09，见 §7.13）：全部功能绑定 DeepSeek 后端（DeepSeek 价格表换算 + `deepseek-flash` 压缩调用 + 注册表查 deepseek provider），本机代理（localhost:20128 的「GPT-6 Astra」）三条全失效。2026-10-08 装 |
+| `npm:pi-cache-compact` | 压缩调用复用前缀缓存：把摘要请求拼成活会话的**严格续写**（同 system + tools + messages + 追加一问） | **2026-10-09 装，provider 无关**（源码 0 处 "deepseek"）。实测压缩调用 `cacheRead: 81920`（本机代理命中 68.6%），Pi 默认压缩同一前缀必为 0。**零配置可用**，取证配置见 §3.3；必须装在 `pi-prefix-stabilizer` 之后，见 §2.2 |
+| `npm:@bacnh85/pi-checkpoint` | 会话级撤销：`/undo` `/redo` `/checkpoint` | 2026-10-06 装。**必须在 git 仓库内**，否则三个命令静默 no-op；写 `refs/pi-checkpoints/*`，不碰分支/tag/stash；坑：只还原已跟踪文件，本轮新增的未跟踪文件留在原地（见 §3.8）。只在无交互 `pi -p` 下验证过不报错，`/undo` 本身未实测 |
 | ~~`npm:pi-cwd-guard`~~ | cwd/路径闸：曾保护 .env/密钥、拦破坏性路径 | **已卸载**（2026-10-08，见 §7.10） |
 
 ### 1.2 本地扩展（不走 `pi install`，放 `~/.pi/agent/extensions/`）
@@ -104,8 +107,8 @@ for p in pi-tps @injaneity/pi-computer-use pi-one-ui pi-cache-guardian \
   pi install "npm:$p" || echo "[失败] $p"
 done
 
-# 有硬顺序的后续
-for p in pi-prefix-stabilizer pi-compaction-cache pi-warm-cache \
+# 有硬顺序的后续（cache-compact 必须在 prefix-stabilizer 之后，见 §2.2）
+for p in pi-prefix-stabilizer pi-cache-compact \
          @henryqw/pi-ask-question @ssk_dev/rpiv-todo-lean \
          @aboutlo/pi-smart-edit; do
   pi install "npm:$p" || echo "[失败] $p"
@@ -119,8 +122,8 @@ pi install "npm:pi-web-access"
 pi install "npm:@bacnh85/pi-checkpoint"
 pi install "npm:pi-notify"
 
-# 2026-10-07 增补（语义索引/OCR/跨会话记忆等；PR 插件已卸，见 §7.7；pi-ask-permission 已卸，见 §7.8；no-find 已卸，见 §7.9；pi-cwd-guard 已卸，见 §7.10；pi-zvec 已卸，见 §7.11 —— 勿再装 pi-zvec）
-for p in @narumitw/pi-lsp pi-test-runner pi-budget-guard pi-ocr @chendpoc/pi-memory; do
+# 2026-10-07 增补（语义索引/OCR/跨会话记忆等；PR 插件已卸，见 §7.7；pi-ask-permission 已卸，见 §7.8；no-find 已卸，见 §7.9；pi-cwd-guard 已卸，见 §7.10；pi-zvec 已卸，见 §7.11；budget-guard/warm-cache 已卸，见 §7.12；deepseek-cache/compaction-cache 已卸，见 §7.13 —— 均勿再装）
+for p in @narumitw/pi-lsp pi-test-runner pi-ocr @chendpoc/pi-memory @arhen/pi-core-subagent; do
   pi install "npm:$p" || echo "[失败] $p"
 done
 
@@ -140,13 +143,14 @@ node install-local-extensions.mjs
 >
 > 若 `pi update --extensions` 也超时，同一改写继续生效（git 源的 update 就是 git pull）；装完即可 `/reload`。
 
-装完自查：`pi list` 应见 **29 个扩展**（27 npm + 2 git）
+装完自查：`pi list` 应见 **28 个扩展**（26 npm + 2 git）
 
 ### 2.2 硬顺序约束
 
-- `pi-compaction-cache` 必须在 `pi-prefix-stabilizer` **之后**：两者都抢 `session_before_compact` 的接管权，靠后装的赢；反过来压缩调用命中会退回 1.6%。~~原第一条写的是「compaction-cache 必须在 smart-context 之后」~~ —— smart-context 已卸载（§3.2），约束退化成这一条。
-- `pi-prefix-stabilizer` 必须在 `pi-compaction-cache` **之前**：先稳前缀再谈复用。
-- 其余顺序不限（`pi-warm-cache` / `pi-ask` / `rpiv-todo-lean` 都不抢 `session_before_compact`）。
+- `pi-cache-compact` 必须在 `pi-prefix-stabilizer` **之后**：两者都抢 `session_before_compact` 的接管权，靠后装的赢；反过来压缩调用命中会退化。~~原第一条写的是「compaction-cache 必须在 smart-context 之后」~~ —— smart-context 已卸载（§3.2），2026-10-09 compaction-cache 也被 cache-compact 取代（§7.13），约束收敛成这一条。
+- `pi-prefix-stabilizer` 必须在 `pi-cache-compact` **之前**：先稳前缀再谈复用。
+- **历史教训**：`pi-deepseek-cache` / `pi-compaction-cache` / `pi-warm-cache` 都抢过（或试图抢）同一个压缩钩子，三者同场时接管权按装卸顺序互相覆盖 —— 压缩侧**只留 `pi-cache-compact` 一个**（§7.13）。
+- 其余顺序不限（`pi-ask` / `rpiv-todo-lean` 都不抢 `session_before_compact`；`pi-warm-cache` 已卸，§7.12）。
 它的 `tool_call` 钩子只 `broadcast` 不 block（实测 `extension_error` 0）
 
 ### 2.3 升级
@@ -211,17 +215,22 @@ npm install-scripts approve @injaneity/pi-computer-use better-sqlite3
 
 **留个教训**：阈值类扩展的价值全在「agent 真的执行」上。提醒送到 ≠ 模型动手。要这类功能，先 grep session 确认 toolCall 真发生过，再决定留不留。
 
-> §2.2 原本那条「compaction-cache 必须在 smart-context 之后」的硬顺序随之作废，压缩侧现在只剩 prefix-stabilizer → compaction-cache 一条。
+> §2.2 原本那条「compaction-cache 必须在 smart-context 之后」的硬顺序随之作废；2026-10-09 后压缩侧只剩 prefix-stabilizer → cache-compact 一条（§7.13）。
 
-### 3.3 compaction-cache：`~/.pi/agent/compaction-cache.json`
+### 3.3 pi-cache-compact：`~/.pi/agent/cache-compact.json`（**零配置可用**）
+
+**本机生产配置：没有这个文件**。扩展默认对所有模型生效，装上即工作（§7.13 实测命中 68.6%）。下面只在**取证/排障**时临时写：
 
 ```json
-{ "models": ["1", "1/1"], "scope": "boundary", "logPath": "C:/Users/yinxuehao/.pi/agent/logs/compaction-cache.log", "debug": false }
+{ "debug": true, "debugFile": "C:/Users/yinxuehao/.pi/agent/cache-compact-debug.jsonl" }
 ```
 
-- `models` 是 matcher，**漏了会直接 decline**（本机模型无 cost 元数据，走 zero-cost heuristic 拒绝接管）。
-- `scope: "boundary"` 让压缩请求锚在对话边界，前缀最齐。
-- `/compaction-cache-status` 看逐次判定，日志落 `logPath`。
+- **机制**：拦截 `session_before_compact`，把摘要请求拼成活会话的**严格续写**（同 system prompt + tools + 全部 messages + 追加一问 "The messages above are a conversation to summarize. Create a structured context checkpoint summary…"），因此任意支持前缀缓存的服务端都能命中。**手动 `/compact` 与自动压缩同钩子，都走这条路径。**
+- **fail-safe 是它最大的优点**：摘要为空 / 被 `length` 截断 / 夹带工具调用 → 返回 nothing，回落 Pi 默认压缩，绝不给出坏摘要。
+- 常用选项：`models`（限定 provider/model，默认全放行）、`continuation: true`（前向续写；append-only 缓存会把短前缀当全量重预填，故别关）、`deferAfterCacheMiss: true`（冷 miss 后 15 分钟内把压缩让回 Pi，不烧第二次冷 prefill）、`summaryMaxTokens`（默认取 Pi 自身上限）、`debugPayloads`（dump 全量 payload，**含完整对话，测完即关**）。
+- **取证读法**：debug JSONL 里 `"summary": true` 的 `provider_request` / `provider_response` 是扩展的续写请求；命中数看 `summary_result` / `wrote cache-friendly summary` 记录的 `cacheRead`；摘要不可用时终端直接打 `[cache-compact] summary rejected … usage:{…}`。
+- ⚠️ **热前缀才可能命中**：上游（mimo 免费端点）缓存几分钟就过期，隔夜压缩必 `cacheRead: 0`（此时 `deferAfterCacheMiss` 自动让位，属正常）。
+- ~~原 `pi-compaction-cache` 的必做配置（已随卸载删除，留档）~~：`~/.pi/agent/compaction-cache.json` = `{"models": ["1", "1/1"], "scope": "boundary", "logPath": "C:/Users/yinxuehao/.pi/agent/logs/compaction-cache.log", "debug": false}`，配 `/compaction-cache-status` 与该日志。**勿再写回**（§7.13）。
 
 ### 3.4 懒加载常驻集 = `settings.json` 的 `defaultTools`
 
@@ -404,16 +413,19 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 | `pi-notify` | 无工具（`agent_end` 钩子 → Windows toast / OSC） |
 
 | `pi-test-runner` | 测试运行工具 |
-| `pi-budget-guard` | 预算守卫（钩子+命令） |
+| ~~`pi-budget-guard`~~ | **已卸载** 2026-10-08（与 pi-meter 重叠），见 §7.12 |
 | ~~`pi-zvec`~~ | `zg_search` 等（**已卸载** 2026-10-08，见 §7.11） |
 | `pi-ocr` | OCR 工具 |
 | `@chendpoc/pi-memory` | 记忆工具 + 生命周期钩子 |
 | `pi-secret-guard` / `pi-mono-context-guard` | 无工具（拦截钩子 + 命令） |
 | `pi-meter` | 1 个工具 + 预算命令 |
+| ~~`pi-deepseek-cache`~~ | **已卸载** 2026-10-09（全部功能绑定 DeepSeek 后端），见 §7.13 |
+| `pi-cache-compact` | 无工具（纯 `session_before_compact` 钩子；拒绝接管时打一行终端通知） |
 | `@narumitw/pi-plan-mode` | 工具 + `/plan` 模式切换 |
 | `pi-agent-browser-native` | `agent_browser` 及 7 个配套 |
 | `pi-lazy-tools`（fork） | `omnify`（0.4.0 起四合一；`load_tools`/`call_tool` 已撤。只代理执行、**不切 active 集**） |
-| `pi-warm-cache` / `pi-prefix-stabilizer` / `pi-compaction-cache` / `pi-cache-guardian` | 无工具（纯事件钩子） |
+| ~~`pi-warm-cache`~~ | **已卸载** 2026-10-08（本机不生效的死安装），见 §7.12 |
+| `pi-prefix-stabilizer` / `pi-cache-compact` / `pi-cache-guardian` | 无工具（纯事件钩子） |
 
 **一道闸：`defaultTools`**（0.4.0 前是「`defaultTools` 管注册 + `resident` 管常驻」两道，0.4.0 起合并）：
 
@@ -496,7 +508,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 2. **激活往返**：0.86+ 流程是 `omnify`/`load_tools` → `call_tool` → 执行，多 1–2 个模型轮次。搜索类工具建议常驻（见 §6.3）。
 3. **大输出工具**（`agent_browser*` / `mcp`，或 bash 直接抓页面）原始 HTML/JSON 全量进历史，会把前缀命中率打崩；用前先想清楚要不要落历史。
 4. **改 `.md` 优先 `md_edit`**：散文/列表用 `md_edit`（锚定标题+块序号，不受换行重排影响），代码块用 `edit`，`.mdx` 一律用 `edit`。
-5. **不装的东西**：`pi-observational-memory`（治压缩后记忆断层，方向不同）、`pi-deepseek-cache`（绑定 DeepSeek）、`pi-cache-optimizer`（与 guardian 重叠）——都不解决本机的主要成本（system 字节），装了只是多一份常驻负担。
+~~`pi-deepseek-cache`（绑定 DeepSeek）~~ **2026-10-09 已卸**（§7.13）：实测遥测半边可用、压缩半边必败（接管条件 `ctx.modelRegistry.find("deepseek", …)` 在本机注册表里根本没有 deepseek provider，代理也拒 `deepseek-flash` 这个模型 ID），按 DeepSeek 价格表换算的「省钱估算」属虚构。**要压缩缓存就装 `pi-cache-compact`**（provider 无关，§7.13 实测命中 68.6%）。
 6. **纯 UI 类扩展可以放心装**：`pi-tps` / `pi-one-ui` / `pi-dsh-pet` / `pi-pet-autostart` 这类只挂事件钩子、只注册命令的扩展，**不注册任何工具**，不进 `defaultTools`，wire 字节不变（§3.6 有 bench 实测：装宠物前后都是 5664B）。反过来，任何**注册工具**的扩展都要重新算 §6.3 那笔账。
 
 ---
@@ -696,6 +708,34 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 - 项目索引与配置全删：`<项目>/.zvec-grep/` + `<项目>/.pi/zvec.json`（本仓库 6.1M、TUIProjectManager 12M、狗头军师 349K）。
 - Windows spawn 补丁（§7.7）随包删除作废。替代：`grep`/`fd`/`omnify`，需要语义搜索再重装（重装需重打 §7.7 补丁 + 重写 `zvec.json` auto 模式）。
 
+### 7.12 预算/缓存去重 + 清单漂移补装（2026-10-08）
+
+装 `@xynogen/pix-optimizer` 前做全量重叠排查的副产物，一并处理：
+
+- **卸 `pi-budget-guard`**：与 `pi-meter` 在「花费追踪 → 预算告警 → 超限拦截」三层完全重叠，meter 另有 auto-downshift、跨会话 JSONL 账本、CLI 报表，是超集。原 §1 里「budget-guard 拦截、meter 降级」的分工说法不成立——meter 自带硬拦截。留 meter 卸 guard。
+- **卸 `pi-warm-cache`**：§1 自己标注「本机不生效（本地代理属未注册路由），纯静默待命」。按本仓库 0 触发即卸的判据（同 zvec/smart-context）早就该卸。`pi remove npm:pi-warm-cache` 一条即净。
+- **补装 `@arhen/pi-core-subagent`、`pi-ocr`**：清单/安装循环里都列了、实际 `pi list` 里没有（清单漂移）。2026-10-08 重装，并把 subagent 补进 §2.1 安装循环（此前循环里就没有它，重装复现不了）。
+后端不是 DeepSeek 时三重叠全是白挂的钩子。**→ 2026-10-09 实测结论已出（已卸），见 §7.13**。
+
+### 7.13 压缩侧换血：`pi-deepseek-cache` / `pi-compaction-cache` → `pi-cache-compact`（2026-10-09）
+
+**先验 `pi-deepseek-cache`（装一天，判死）**：DeepSeek 绑定三处——① 省钱估算读 DeepSeek 官方价格表（本机全是虚构）② 压缩调用打 `deepseek-flash`（本机代理对它返回 400 "not a valid model ID"）③ 接管条件 `ctx.modelRegistry.find("deepseek", …)` 在本机注册表里根本没有 deepseek provider → 必失败。只剩遥测半边真实：headless 会话落盘 `~/.pi/agent/extensions/deepseek-cache/stats.json`，实测 `cacheRead:1664 / input:3856 / turns:1` ≈ 30.1% 命中——这同时证明**代理确实返回 `prompt_tokens_details.cached_tokens`，pi-ai 会归一化**。按本仓库 0 触发即卸的判据 → `pi remove npm:pi-deepseek-cache`。
+
+**换 `pi-cache-compact` 0.2.0**（源码 0 处 "deepseek"，provider 无关）。fork 排查留档：上游 `ruanbw/pi-deepseek-cache` 只有 2 个 0-star 陈旧 fork（zzddk / fchaix），不值得。**同时卸 `pi-compaction-cache`**：两者抢同一个 `session_before_compact`，只能留一个。
+
+**端到端实测（本机代理，provider `1` / 模型 `1`，非 DeepSeek）**：
+
+| 场景 | 结果 |
+|---|---|
+| 自动压缩（89K 陈旧会话，冷前缀） | 扩展发出 128 条消息的续写请求 → `cacheRead: 0` → **拒绝接管**，让位 Pi 默认压缩（`deferAfterCacheMiss` 随后 15 分钟内继续让位），不烧第二次冷 prefill ✅ fail-safe 生效 |
+| **手动 `/compact`（本会话，前缀热）** | `summary_start` → `provider_request msgs:162` → `200` → **`wrote cache-friendly summary`，`cacheRead: 81920`** → 压缩落地，会话缩到 54 条消息 ✅ |
+
+命中账：`{cacheRead: 81920, cacheWrite: 0, input: 37576, output: 10084}` → 总 prompt ≈ 119.5K，命中 **68.6%**。对照 Pi 默认压缩：它发的是截断改写后的全新 prompt，同一 119.5K 前缀**必然 0 命中、全量重算**。（`81920` 恰好是 80×1024，说明上游按块记账、只读不写。）
+
+**取舍结论（留 `pi-cache-compact`，不留 `pi-compaction-cache`）**：cache-compact 是唯一在**本机后端**跑完「命中 → 压缩落地 → 会话继续」全闭环的（compaction-cache 的 98.8% 是更早、不同后端的旧数据，恢复它要重走一遍今天的取证流程）；且它有 `deferAfterCacheMiss` 这个别的扩展没有的止损设计。代价：全文续写的摘要很重（本次 output 10084 tok、耗时 **227s**）——长会话压缩本来就慢，可接受。
+
+**验证方法可复现**（供以后复测）：临时把 `models.json` 的 `contextWindow` 压到 9000 制造真实压缩场景 → headless `pi --session <id> -p "…"` 连打两轮大文本焐热前缀 → 手动 `/compact`；想把“手动”与“自动”分开取证，就把窗口调回 128000 排除自动压缩干扰（此时只剩手动一条路径）→ 读 `cache-compact-debug.jsonl` 里 `"summary": true` 记录的 `cacheRead`。坑：headless `pi -p` 会因 pi-dsh-pet 的 `/feed` 重连循环不退出，必须用 `timeout` 包裹（exit=124 属预期噪音）；`-c` 会续上**别的**旧会话（测到过 89K 的），要精确定位就 `--session <id>`。
+
 ## 8. 体检与排障
 
 本机**没有自动体检脚本**（历史 `check-ext-errors.mjs` 随 `.sc-test/` 一起删除，不重写）。改完 `/reload`，看 TUI 有无 `extension_error`；本地扩展与仓库是否漂移跑 `node install-local-extensions.mjs --check`；readme 表格列数跑 `node check-readme-tables.mjs`（编辑手滑插/漏一个 `|` 时靠它兜住，不一致则 exit 1）。
@@ -708,8 +748,10 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 | `fd` 报 “fd executable not found” | pi 自带副本与 PATH 都没有 fd | 跑 `/fd-check` 看解析结果；或 `npm i -g fd-find` |
 | 会话/文件撤销 | `pi-edit-guard` 已卸载，其 `undo` 工具随之消失 | 文件级靠 git 或改前先 `read`；**会话级 `/undo` 现由 `@bacnh85/pi-checkpoint` 提供**（见 §3.8；不在 git 仓库里则静默 no-op） |
 | agent 没有 shell | `defaultTools` 里没有 `bash` | 写 `bash` 进两处 `defaultTools`（§3.4）；若 `extensions/pi-shell.ts` 被装回来，它会在 `session_start` 无条件隐藏 `bash` |
-| 压缩后首轮命中低 | 正常现象 | 只有「命中 0」才是故障；压缩调用自身用 `pi-compaction-cache` 兜（1.6%→98.8%） |
-| `pi-warm-cache` 没反应 | 本地代理属未注册路由 | 不是故障，`/warm status` 里 `automaticWarm:false` 即预期 |
+| 压缩后首轮命中低 | 正常现象 | 只有「命中 0」才是故障；压缩调用自身由 `pi-cache-compact` 兜（本机实测命中 68.6%，§7.13） |
+| 终端打 `[cache-compact] summary rejected …` | 摘要空 / 被 `length` 截断 / 夹带工具调用 | 设计内行为：已回落 Pi 默认压缩，摘要不会变坏。`stopReason:"length"` 多半是 `summaryMaxTokens` 卡住（或测试时误压小了 `maxTokens`） |
+| 压缩请求 `cacheRead: 0` | 前缀太老，上游缓存已过期（mimo 免费端点只活几分钟） | 正常现象；`deferAfterCacheMiss` 会让位 15 分钟。想看命中就在**刚聊完的会话里立刻** `/compact`（§3.3） |
+| ~~`pi-warm-cache` 没反应~~ | 本地代理属未注册路由 | **已卸载**（2026-10-08 死安装，见 §7.12），此行留档 |
 | 装/卸任何包时 npm 打 `EBADENGINE ... pi-agent-browser-native@0.9.1 ... node >=24.21.0` | 本机 node 24.16.0 低于该包声明的 engine | **可忽略**，纯警告；工具实测正常。要消掉就把 node 升到 24.21+，或接受每次都打一遍 |
 | pi-agent-browser-native 报 `buildSessionProjection is not a function` | 扩展版本太老（<0.9.x，宿主 1.0.0 才自带该 API） | 本机 pi 1.0.0 + 扩展 0.9.1 不会发生。真发生先 `pi update pi-agent-browser-native`；仍不行跑 `node fix-browser-native-compat.mjs`（新形态下它报 `[skip]` 而非 `[fail]`） |
 | `omnify` 搜不到 `web_search` / 每轮前缀突然被掀 | `web-search.json` 缺 `toolActivation: "eager"`，退回了 `web_enable` 加载器 | 写上该键 `/reload`（§3.7）；掀缓存的现场见 §7.4 表 |
@@ -740,7 +782,7 @@ sed -i 's/spawn(ZG_BIN, args, { cwd: opts.cwd, stdio: \["ignore", "pipe", "pipe"
 
 在另一台机器上照本清单完整走一遍。**配置值与 §1–§7 全部一致，唯一差异是路径前缀**（本机 `yxh`，原记录机 `yinxuehao`；`compaction-cache.json` 的 `logPath` 已是本机路径）。
 
-> **后注（2026-09-30）**：本节（§9）是 2026-09-29 那次实录的**快照**——本节内的 `pi list` 19 项、§9.6 的 wire 字节 6010B / 6 个工具都是**当时值，保留不改**。2026-09-30 卸载 `pi-web-access` 后为 **18 项 / 5664B / 5 个工具**（详见 §1 与 §7.4）。
+2026-09-30 卸载 `pi-web-access` 后为 **18 项 / 5664B / 5 个工具**（详见 §1 与 §7.4）；2026-10-09 压缩侧换血（compaction-cache → cache-compact）后为 **28 项**（§7.13）。本节 §9.4 表里那行「`smart-context` / `compaction-cache` 已合规，未动」是快照原文，**勿照抄**。
 
 ### 9.1 拉代码：未提交改动先备份再 fast-forward
 
