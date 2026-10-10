@@ -573,15 +573,33 @@ cd() {
 1. **省略 pattern 时必须显式传空串**。否则唯一的 position 会被 fd 当成 pattern（`fd -t d .git` 返回空，`fd -t d "" .git` 才出结果）——「列出全部」是这个工具的主卖点。
 2. **`--glob` 是「把 pattern 换成 glob」，不是额外过滤器**。glob 模式下再传位置 pattern 会被 fd 当成第二个搜索路径（报 `Search path 'capture' is not a directory`）。故工具里 `glob` 与 `pattern` 互斥。
 
-验证：`/fd-check`（fd 可执行文件解析）。回退：删 `extensions/pi-fd.ts` 再 `/reload`（`fd` 懒加载与否都不影响其余工具）。
+**默认排除编译目录（2026-10-10 加）**：`node_modules dist build out target coverage __pycache__ vendor venv Pods DerivedData bower_components cmake-build-debug cmake-build-release`。
+起因：fd 默认只做两件事（尊重 `.gitignore`、跳 hidden），而这两条**盖不住编译目录**——它们既不是 hidden，也常常不在 `.gitignore` 里（本仓库的 `.gitignore` 就只写了 `.sc-test/` `.zvec-grep/` `.pi/`），于是照样一层层往下爬。
+**实测 28 → 12 条**。新增 `exclude`（追加）与 `noDefaultExcludes`（整体关闭）。
+> **正确性保证（已实测）**：`--exclude` **只剪枝遍历、不剪搜索根**——`{path:"dist"}` 仍能搜出 `dist/static/s.css`。所以「进 dist 里找文件」这种正当需求不会被误伤；真要按名字找编译目录本身、或彻底关掉，用 `noDefaultExcludes`。
+> **只列非 hidden**：`.next/.nuxt/.venv/.turbo` 这些 fd 本就跳（除非 `hidden:true`），列进来是冗余。
+
+**另建 fd 全局 ignore 文件 `%APPDATA%\fd\ignore`**（`~/.config/fd/ignore` 是 POSIX 写法），内容与上表一致。好处：手工敲的 `fd`、以及 `~/.bashrc` 里 `alias find='fd'` 的交互式 shell 都自动生效，不依赖本扩展。
+> ⚠️ 但它**只在 fd 被调用时生效**，且同样**只在 git 仓库内认 `.gitignore`**——家目录 / `C:\Windows` 下依旧无效（见 §5 规则 E）。
+
+**验证**：`/fd-check`（fd 可执行文件解析）。回归：`.sc-test/probe-fd.mjs`。回退：删 `extensions/pi-fd.ts` 再 `/reload`（`fd` 懒加载与否都不影响其余工具）。
 
 ---
 
 ### 4.2 ~~全局禁用 `find`~~（**已卸载 2026-10-08**：本机恢复 `find`，4 层封锁全撤；卸载记录见 §7.9，以下为历史留档，勿再照着启用）
 
-**为什么要禁**：本机 `find` 有两个不同的东西，症状都是「卡死」：
-- `C:\Windows\System32\find.exe`（cmd/PowerShell 里的 FIND.EXE）：语法与 GNU find 完全不同，`find . -name x` 被当成「pattern + 无文件名」→ **从 stdin 读**，表现就是永远不返回；
+**为什么要禁**（⚠️ 下方第一条已被 2026-10-10 实测推翻，保留原文以备查）：本机 `find` 有两个不同的东西，症状都是「卡死」：
+- ~~`C:\Windows\System32\find.exe`（cmd/PowerShell 里的 FIND.EXE）：语法与 GNU find 完全不同，`find . -name x` 被当成「pattern + 无文件名」→ **从 stdin 读**，表现就是永远不返回；~~
+  > **2026-10-10 实测纠正：本机这条不成立。** PowerShell 的 PATH 顺序是 `C:\Program Files\Git\usr\bin` **排在** `C:\Windows\system32` **前面**，
+  > 所以 `powershell` 里的 `find` 解析到的是 **Git 的 GNU find**（`Get-Command find` 实测 `Source = C:\Program Files\Git\usr\bin\find.exe`）。
+  > 裸 `find` 实测立即返回（打印 490 行），**不挂 stdin**。真正的真凶是另一个东西——见下方「几小时的真凶」。
 - Git Bash 的 `/usr/bin/find`：语法对，但没有 ignore/类型/深度过滤，在大目录树上能跑几分钟（`find .` 从家目录起步就够呛）。
+
+**⚠️ 几小时的真凶（2026-10-10 定位，与上面的猜测不同）**：不是「System32 find 读 stdin」，而是
+**`powershell` 工具没有 `timeout` 参数**（§5 表里已记「注入不了」）。裸 `find` = `find .` = 从当前目录
+**递归打印整棵树**，无任何剪枝；放到大仓 / 家目录 / 系统盘就是几小时。bash 侧没这问题——守卫会把
+`find`/`find.exe` 归入搜索档、30s 默认超时（实测 `judgeBashCommand("find.exe . -maxdepth 6") → 30`）。
+**换 fd 也不会自动好**：见 §4.1 尾注——fd 的 ignore 规则在非 git 目录同样失效，真正要治的是**搜索根**，已由 §5 规则 E 拦。
 
 **四层封锁**（前两层管模型，后两层管你自己）：
 
@@ -629,6 +647,20 @@ pi 内建 `bash` 工具的 `timeout` 参数是**可选且无默认值**，不传
 编辑器（`vim` `nano` `emacs`…）、分页器/监视器（`less` `top` `watch` `tail -f` `journalctl -f`…）、交互客户端（`ssh` `mysql` `psql` `sqlite3`…）、光杆 REPL（`python` / `node` 不带参数）、前台服务（`npm run dev|start|serve|preview`、`python -m http.server`、不带 `-d`/`--rm` 的 `docker run`）。
 替代写法：把有产出的部分放前台跑（先 build/test，再查结果）；真需要常驻进程就显式 `… &` 起来、之后用另一条命令轮询。
 
+**第三类：搜索根选错 → block（2026-10-10 加，`OVERSIZED_ROOTS`）**。比「命令慢」更隐蔽：它不报错、不超时，
+就是不报错地返回一堆无关结果。本机实测量级：
+
+| 目录 | 文件数 | fd 实测 |
+|---|---|---|
+| `AppData/Local` | 194,968 | — |
+| `AppData/Roaming` | 137,869 | 2.6s |
+| `C:\Windows` | 345,409 | 16.2s |
+| `find ~ -maxdepth 6` | — | **60s 封顶都跑不完** |
+
+> **关键：fd 的 ignore 规则在这些目录里同样不生效**——`.gitignore` 只在 git 仓库内认，而家目录 / 系统盘不是仓库（实测用户目录下无任何 `.gitignore`）。所以「换 fd 就快」这个前提在这些目录**不成立**；fd 只是快到能在超时内返回，结果仍是噪声。故此规则拦的是**搜索根**（`~` / `~/AppData` / `C:\Users\me` / `/c/Users/me` / `/home/me` / `C:\Windows` / `Program Files` / 盘根 `/` `/c/`），**不是命令名**。
+
+配套实验（§4.1 尾注）证明了另一件事：**`-maxdepth` 不但没加速，还会让 find 答错**。node_modules 嵌 12 层的树上，`find . -maxdepth 6 -name '*.ts'` 返回 **0 条**（深度全花在爬 node_modules），`fd -t f -e ts .` 返回 **50 条**——所以「用 maxdepth 治慢」是饮鸩止渴。
+
 **超时之后命令真的结束了吗（这一层的机制，2026-10-09 实测源码）**：
 
 | 问题 | 答案 |
@@ -638,7 +670,7 @@ pi 内建 `bash` 工具的 `timeout` 参数是**可选且无默认值**，不传
 | 默认有超时吗？ | **没有**。`timeout: Type.Optional(... "optional, no default timeout")`——这就是守卫存在的全部理由 |
 | 什么会逃掉 kill？ | 只有 `cmd &` / `nohup` / `setsid`：shell 立即返回 → pi 清掉 timeout 计时器并注销 pid 追踪，命令在工具返回后继续跑，没人再管。故搜索类这么写直接 block |
 | `fd` 工具超时？ | 自己的 `execFile({timeout})`，无子进程所以 kill 即干净；漏传 `timeoutMs` 时守卫会补 30_000 |
-| `powershell` 工具超时？ | **无此参数**，注入不了。PowerShell/cmd 里的 `find`（System32 `find.exe` 读 stdin、永远不返回，§4.2）只能靠文字纪律：「别用」 |
+| `powershell` 工具超时？ | **无此参数**，注入不了。里面的 `find` 实测是 Git 的 GNU find（§4.2 纠正），不是 System32 那个读 stdin 的 → **唯一的治法是别裸跑 `find`**，硬约束只能靠文字纪律 |
 
 搜文件的其余三条路（与超时无关，但同一节纪律）：`fd` 工具每次显式传 `timeoutMs`（毫秒，1s–120s，默认 30s，见 §4.1）；`find`/`grep` 工具（pi-find）自带 30s 硬超时但**必须缩范围**（`path`/`glob`）；大目录树先 `-maxdepth`/`-prune`/`-xdev`，或直接换 `fd`（尊重 `.gitignore`，默认跳 `.git`/`node_modules`）。超时提示出现时不要重跑同一条命令：先缩范围，再谈调大预算。
 
@@ -941,6 +973,48 @@ property should be the same value as the target's property
 
 ---
 
+### 7.16 子代理调不起来：不是插件坏了，是**一个 agent 定义都没有**（2026-10-10）
+
+**症状**：子代理坏掉时**不报错、不崩、不进 `crashes.json`**，只是安静地调用失败或什么都不返回。表面看像插件坏了，实际是**配置文件一个都没装**。
+
+**根因**：`@arhen/pi-core-subagent` 的 `src/agentfile.ts:20` 写死了发现目录：
+
+```ts
+const AGENT_DIRS = [".agents/agents", ".claude/agents", ".pi/agents"] as const;
+```
+
+它只从这三个目录读 `.md`（frontmatter 的 `description` 参与按描述匹配）。本机实测**三个全不存在**，`~/.pi/agents` 也没有 → 没有 agent → `agent` 参数无值可填。
+
+**复现链（每一步的报错都指向同一处，很有迷惑性）**：
+
+| 尝试的 args | 实际报错 |
+|---|---|
+| `{task}` | `Provide one subagent mode: agent+task (single), tasks: [...]…` |
+| `{agent:"default", task}` | `2 model(s) available — this session has no model scoping…`（要求先定 model） |
+| `{task, autoAwait}`（漏 goal） | `Validation failed for tool "omnify": goal: must have required properties` |
+| `autoAwait: "true"`（字符串） | `参数不符（autoAwait: expected boolean, got "true"）` |
+
+**修法**：建 `~/.pi/agents/default.md`（带 `description` frontmatter）。装完实测 `1/1 succeeded`，子代理正常返回。已固化为 `node fix-subagent-check.mjs`（幂等 + `--check`）。
+
+> 冒烟测试默认**不跑**：rpc 没有「直接调工具」的命令，只能让模型发一次 tool call，受模型行为影响（会漏 `goal`、会把布尔值写成字符串）。故默认只做确定性静态检查（0.2s、不花 token）；需要确认「此刻真能调」时显式加 `--smoke`。
+
+#### ⚠️ 一条已被实测推翻的诊断（勿再照抄）
+
+当时另有诊断称：
+> `pi.exe` 是 `bun build --compile` 单文件可执行；子代理从 `~/.pi/agent/node_modules` 动态加载 `pi-ai` **0.87.1**；该文件 `dist/utils/json-parse.js` 首行是 bare specifier `import … from "partial-json"`；而 Bun 编译版解析外部 bare specifier 时只看自身 bundle、不回落到 importer 的 `node_modules` → 即使磁盘上有 `partial-json` 也报找不到。
+
+**三条前提实测全部不成立**：
+
+| 诊断前提 | 实测 |
+|---|---|
+| exe 动态加载 `~/.pi/agent/node_modules` 的 0.87.1 | ❌ `pi.exe --version` = **1.1.0**，而 `~/.pi/agent/node_modules` 里是 0.87.1；且 `D:\Agent\pi\dist\` **不存在** → exe 是自包含 bundle，根本不读磁盘那份 |
+| `json-parse.js` 首行是 bare specifier | ❌ 磁盘 0.87.1 那份首行是**相对路径** `"../../../../partial-json/dist/index.js"`；且 `fd -t f json-parse D:\Agent\pi` **零结果**——该文件不在 1.1.0 里 |
+| Bun 不回落 `node_modules` 所以报找不到 | ❌ 实测在 `pi.exe` 下跑 subagent **1/1 succeeded**，无任何 `partial-json` 报错 |
+
+**教训**：诊断里出现具体版本号与文件路径时，先跑 `pi.exe --version` 和 `fd` 确认它们对当前 exe 成立，再动手改代码。跨版本的旧结论会被当成现状（那个 `json-parse.js` 是 0.87.1 的，exe 早已是 1.1.0）。
+
+---
+
 ## 8. 体检与排障
 
 本机的体检脚本**没有自动化的**，但有几个手跑的（都在仓库根或 `.sc-test/`，`.sc-test/` 属 gitignore、不入库）：
@@ -951,6 +1025,7 @@ property should be the same value as the target's property
 | `node install-local-extensions.mjs --check` | 本地扩展副本与仓库是否逐字节一致 | 不一致会提示重拷 |
 | `node fix-lazy-tools-notes.mjs --check` | DOCS_NOTE 路径补丁是否需要重打 | 基线已修好 exit 0 |
 | `node fix-proper-lockfile-proxy.mjs --check` | proper-lockfile 补丁在位 | 一致 exit 0 |
+| `node fix-subagent-check.mjs --check` | 子代理可用（agent 定义目录 / modelPolicy / 插件在位） | 全绿 exit 0；缺 agent 定义 exit 1 |
 | `node fix-browser-native-compat.mjs` | 双路回退兼容（新形态报 `[skip]`） | `[skip]` |
 | `.sc-test/check-ext-errors.mjs` | 扫会话里的 `extension_error` | **还在**（gitignore，未入库）；§8 说「已删」是旧记录，现可手动跑 |
 | `.sc-test/probe-bash-guard.mjs` | 验证 bash-guard 的路径修复（§5） | 见 §5「零报障」 |
@@ -977,6 +1052,8 @@ property should be the same value as the target's property
 | 宠物窗口不弹 | 首次要下 Electron ≈100MB；或自动启动被关了 | 看启动提示；`/pet-auto status` 看当前开关；`/pet small` 换小号试；关掉了就写回 `{"autostart": true}` |
 | pi 整个进程崩，只留 `TypeError: Proxy handler's 'get' result … should be the same value as the target's property`（frame 指向 `proper-lockfile/lib/mtime-precision.js:6:29`） | proper-lockfile 把 mtime 精度缓存挂到 fs 对象上，而 jiti interop 把它包成了 Proxy；同进程第二次加锁即触发 JSC 不变量（多由 subagent 跑着跑着踩到） | 跑 `node fix-proper-lockfile-proxy.mjs`（幂等）；pi 升本体后若复发，重跑即可。根因与复现见 §7.14 |
 | `pi list` 里某行带 `(filtered)` | 该包在 `packages` 里写成 object form 且注明了要屏蔽的部分 | **预期**（本机只有 `git:github.com/qq458249269/pi-dsh-pet (filtered)`，见 §3.6） |
+| subagent 调不起来 / 报 `Provide one subagent mode: agent+task (single)…` | **不是插件坏了**，是 `agentfile.ts` 的三个发现目录（`.agents/agents`、`.claude/agents`、`.pi/agents`）一个都不存在 → 没有 agent 可填。详见 §7.16 | `node fix-subagent-check.mjs`（幂等，缺就补一个最小 `default.md`） |
+| subagent 报 `2 model(s) available …` 后卡住 | `~/.pi/subagent.json` 的 `modelPolicy` 没锁 `default.model` | 写 `{"modelPolicy":{"default":{"model":"<provider>/<id>"}}}`（本机 `1/1`） |
 | `pi --no-session -p ...` 不退出（shell 报 exit 124） | 桌宠的 `/feed` 长连接或宿主进程挂着父会话；headless 永远不会自己走完 | 用 `timeout 70 pi ...` 包一层（§7.13 已记录）；屏蔽上游扩展后刷屏的重连日志也会消失（§7.15） |
 | 装东西后 pi-memory 报 `Could not locate the bindings file. Tried:` | 树被重解析，better-sqlite3 换了版本 → `allowScripts` 对不上 → 原生 binding 没编 | `npm install-scripts approve better-sqlite3 && npm rebuild better-sqlite3`（详见 §3.1） |
 

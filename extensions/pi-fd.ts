@@ -45,6 +45,41 @@ const MAX_TIMEOUT_MS = 120_000;
 const MIN_TIMEOUT_MS = 1_000;
 const MAX_BUFFER = 4 * 1024 * 1024;
 
+/**
+ * 默认跳过的「编译产物 / 依赖 / 缓存」目录名（fd 的 `-E/--exclude`）。
+ *
+ * 为什么必须自带：fd 默认只做两件事——尊重 `.gitignore`、跳过 hidden。
+ * 这两条**盖不住编译目录**：`node_modules` / `dist` / `target` / `coverage` /
+ * `__pycache__` 既不是 hidden，也常常不在 `.gitignore` 里（本仓库的
+ * `.gitignore` 就只写了 `.sc-test/`、`.zvec-grep/`、`.pi/`）。于是 `maxDepth:6`
+ * 照样一层层钻进这些目录爬——限深度只压**深度**，压不了一层的宽度，
+ * 一层就可能几万文件，这正是「有 maxdepth 6 还是找很久」的成因。
+ *
+ * 只列非 hidden 的：`.next`/`.nuxt`/`.cache`/`.venv`/`.turbo` 这些点开头的
+ * fd 本来就跳（除非 `hidden:true`），列进来是冗余。
+ *
+ * 附带的正确性保证（已实测，`.sc-test/probe-fd.mjs` 有回归）：
+ *   `-E dist` 配 `path:"dist"` 仍能搜到 `dist/` 里的内容——`--exclude` 只剪枝遍历，
+ *   不剪搜索根本身。所以「查 dist 里有什么文件」这种正当需求不会被这层排除误伤；
+ *   真要按名字找编译目录本身（`{pattern:"dist"}`）或彻底关掉，用 `noDefaultExcludes`。
+ */
+const DEFAULT_EXCLUDE_DIRS = [
+	"node_modules",
+	"dist",
+	"build",
+	"out",
+	"target",
+	"coverage",
+	"__pycache__",
+	"vendor",
+	"venv",
+	"Pods",
+	"DerivedData",
+	"bower_components",
+	"cmake-build-debug",
+	"cmake-build-release",
+];
+
 const TYPE_FLAGS: Record<string, string> = {
 	file: "f",
 	directory: "d",
@@ -64,7 +99,25 @@ interface FdParams {
 	changedWithin?: string;
 	maxDepth?: number;
 	hidden?: boolean;
+	exclude?: string;
+	noDefaultExcludes?: boolean;
 	timeoutMs?: number;
+}
+
+/**
+ * 组装 `--exclude` 列表：先默认排除编译目录（可关），再拼模型给的 `exclude`。
+ *
+ * fd 的 `--exclude` 用 glob 匹配路径任意一段（写裸名字即可，不用写成递归 glob），
+ * 已实测：`-E node_modules` 能同时排掉顶层和 `src/foo/node_modules`。
+ */
+function buildExcludes(p: FdParams): string[] {
+	const list = p.noDefaultExcludes ? [] : DEFAULT_EXCLUDE_DIRS;
+	const extra = (p.exclude ?? "")
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	// 去重但保序：额外项放后面，模型指定的同名项不会重复传
+	return [...new Set([...list, ...extra])];
 }
 
 /** 把模型给的 timeoutMs 夹进 [1s, 120s]；缺失/非法/非有限数一律回落到默认 30s。 */
@@ -138,6 +191,8 @@ function runFd(bin: string, args: string[], cwd: string, timeoutMs: number, sign
  *   3. 不用 `--` 分隔：`-e md -- "" .` 能过，但 `pattern -- "" path` 会让空串占掉 path 位、
  *      报 `a value is required for '[path]...'`。位置参数直接跟在 flag 后面即可（clap 允许穿插）。
  *   4. path 以 `-` 开头会被当 flag → 那种情况改传绝对路径。
+ *   5. `--exclude` 只剪枝遍历、不剪搜索根：`--exclude dist . dist` 仍能搜到 `dist/` 里的
+ *      内容，所以默认排除不会误伤「进 dist 里找文件」这种正当请求。
  */
 function buildArgs(p: FdParams, searchPath: string): { args: string[] } | { error: string } {
 	const args: string[] = [];
@@ -149,6 +204,7 @@ function buildArgs(p: FdParams, searchPath: string): { args: string[] } | { erro
 	}
 	if (p.changedWithin) args.push("--changed-within", p.changedWithin);
 	if (typeof p.maxDepth === "number" && Number.isFinite(p.maxDepth)) args.push("--max-depth", String(Math.max(0, Math.trunc(p.maxDepth))));
+	for (const dir of buildExcludes(p)) args.push("--exclude", dir);
 	if (p.glob) {
 		args.push("--glob", p.glob);
 	} else if (p.pattern) {
@@ -174,12 +230,14 @@ export default function piFd(pi: ExtensionAPI): void {
 		label: "fd",
 		description:
 			"Find files/directories by regex over the path (fd). Smart case; respects .gitignore, skips hidden. " +
-			"Optional: type/extension/changedWithin/maxDepth/hidden; glob replaces pattern. Omit pattern to list all. " +
+			"Auto-skips build/dependency dirs (node_modules, dist, target, __pycache__, …) — pass noDefaultExcludes to disable. " +
+			"Optional: type/extension/changedWithin/maxDepth/hidden/exclude; glob replaces pattern. Omit pattern to list all. " +
 			"Always pass timeoutMs (wall-clock budget, default 30s, hard cap 120s) and narrow the path instead of searching wide. " +
 			"Up to 200 results.",
 		promptSnippet: "Find files/dirs by regex path match (type/extension/glob/age filters; pass timeoutMs)",
 		promptGuidelines: [
-			"查文件名/目录用 fd（可按 type/extension/glob/changedWithin 过滤），查文件内容用 grep。",
+			"查文件名/目录用 fd（可按 type/extension/glob/changedWithin 过滤），查文件内容用 grep。别用 bash 的 find：它不读 .gitignore、也不跳编译目录，慢一个量级。",
+			"fd 已默认跳过 node_modules/dist/target 等编译目录，maxDepth 只是再压一层深度，不能替代这个——深层大目录照样慢，先缩 path。",
 			"每次 fd 必须显式传 timeoutMs（毫秒，1s–120s，默认 30s）：搜索只会在超时那一刻停下并返回部分结果，别让它裸跑。",
 		],
 		parameters: Type.Object({
@@ -199,6 +257,12 @@ export default function piFd(pi: ExtensionAPI): void {
 			changedWithin: Type.Optional(Type.String({ description: "Only entries changed within, e.g. '1d', '2weeks'." })),
 			maxDepth: Type.Optional(Type.Number({ description: "Descend at most N levels." })),
 			hidden: Type.Optional(Type.Boolean({ description: "Include dot entries (skipped by default)." })),
+			exclude: Type.Optional(
+				Type.String({ description: "Extra glob dir names to skip, comma-separated, e.g. 'fixtures,snapshots'." }),
+			),
+			noDefaultExcludes: Type.Optional(
+				Type.Boolean({ description: "Search build/dependency dirs too (node_modules, dist, target, …). Off by default." }),
+			),
 			timeoutMs: Type.Optional(
 				Type.Number({
 					description:

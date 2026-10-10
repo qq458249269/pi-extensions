@@ -25,6 +25,15 @@
  * 另一类不是「太久」而是「永远不返回」：编辑器、分页器、监视器、前台 dev server、
  * 前台常驻容器。它们会烧掉整个上限才被杀掉，期间一个字符也回不来 → 直接 block 并给替代写法。
  *
+ * 第三类（2026-10-10 加）：**搜索根选错**——比「命令慢」更隐蔽，因为它不报错、不超时，
+ * 就是安静地返回一堆无关结果（或什么都不返回）。实测本机量级：
+ *   AppData/Local   194,968 个文件      C:\Windows      345,409 个文件
+ *   AppData/Roaming 137,869 个文件      find ~ -maxdepth 6 封顶 60s 跑不完
+ * 关键：**fd 的 ignore 规则在这些目录里同样不生效**——.gitignore 只在 git 仓库内认，
+ * 用户目录 / 系统盘根本不是仓库，于是「换 fd 就快」这个前提不成立。
+ *   C:\Windows 16.2s / AppData\Roaming 2.6s（fd 实测）→ 能跑完，但结果全是噪声。
+ * 所以这里拦的是**搜索根**，不是命令名：禁 find 换不来速度，换 fd 也一样。
+ *
  * 零 wire 成本：**不注册任何工具、不动 active 集**，只挂一个 `tool_call` 事件（§5 铁律允许的形态）。
  * 判定只做字符串扫描，没有 spawn、没有 I/O；非 bash 工具与非目标命令在第一层就 return。
  *
@@ -286,6 +295,64 @@ export interface GuardVerdict {
 	block?: string;
 }
 
+/**
+ * 「不该作为搜索根」的目录名——海量、非仓库、且不可能是要找的代码。
+ * 命中就拦，改成让模型先缩到项目目录。
+ *
+ * 形如 `~/AppData`、`C:\Windows`、`~`（家目录本身）都在此列。
+ * 刻意**不拦** `.git` / `node_modules` 这类：它们只是编译/元数据目录，
+ * 模型有时确实要往里钻（查依赖版本号、看 object 存的blob），拦了就是误伤。
+ */
+const OVERSIZED_ROOTS: { pattern: RegExp; label: string; why: string }[] = [
+	{ pattern: /^~$|^~[\\/]$/, label: "the user home (tilde)", why: "the home tree is not a git repository, so fd's .gitignore rules do not apply there (measured: AppData alone holds >330k files)." },
+	// 同一目录的两种写法都要认：Windows `C:\Users\me` / MSYS `/c/Users/me` / POSIX `/home/me`
+	{ pattern: /^(?:[A-Za-z]:[\\/]|[\\/][A-Za-z][\\/])?(?:Users)[\\/][^\\/]+(?:[\\/]AppData)?[\\/]?$|^~[\\/]AppData[\\/]?$|^[\\/]home[\\/][^\\/]+[\\/]?$/i,
+	  label: "the user home / AppData", why: "~ and AppData are not git repos, so fd's .gitignore rules do not apply there either (measured: AppData alone holds >330k files)." },
+	// 同理：`C:\Windows` / `/c/Windows` / `/c/Program Files`
+	{ pattern: /^(?:[A-Za-z]:[\\/]|[\\/][A-Za-z][\\/])?(?:Windows|System Volume Information|Recovery)[\\/]?$|^(?:[A-Za-z]:[\\/]|[\\/][A-Za-z][\\/])?Program Files(?: \(x86\))?[\\/]?$/i,
+	  label: "a Windows system directory", why: "C:\\Windows alone holds >345k files (measured: 16.2s for a single fd scan)." },
+	// 盘根：`C:\` / `/c/` / `/` / `C:`
+	{ pattern: /^(?:[A-Za-z]:[\\/]|[\\/][A-Za-z][\\/]|[\\/])$/, label: "a drive/ filesystem root", why: "a bare root scans every file on the volume." },
+];
+
+/**
+ * 从一段命令里找“可能作为搜索根的路径实参”。
+ *
+ * 只取**首个非 flag 实参**（find/rg 的惯例就是 `find <path> …`），
+ * 避免把 `-name '*.ts'` 里的pattern 或后缀参数误当成搜索根。
+ * 多个搜索根时取最差的一个——任一个超限就足以拖垮整条命令。
+ */
+function candidateSearchRoots(segment: string, skip = 1): string[] {
+	const roots: string[] = [];
+	const list = tokens(segment);
+	for (let i = list[0] !== undefined && !list[0].startsWith("-") ? skip : 0; i < list.length; i++) {
+		const token = list[i];
+		if (token.startsWith("-")) {
+			continue;
+		}
+		roots.push(token);
+		if (roots.length >= 2) break;
+	}
+	return roots;
+}
+
+/** 命中任意一条超限搜索根则返回原因，否则 null。 */
+function oversizedRootReason(segment: string): string | null {
+	const head = firstWord(segment);
+	// rg/ag/ack 的第一个位置参数是**正则**不是路径，真正作为搜索根的是第二个
+	// （`rg foo .` vs `rg foo /c/Windows`）；find/fd 则从第一个实参开始。
+	const skipFirst = head === "rg" || head === "ag" || head === "ack" ? 2 : 1;
+	const roots = candidateSearchRoots(segment, skipFirst);
+	for (const root of roots) {
+		// 相对路径 / `.` 不可能是超限根
+		if (root === "." || root === ".." || root === "./") continue;
+		for (const rule of OVERSIZED_ROOTS) {
+			if (rule.pattern.test(root)) return `${root} → ${rule.label}`;
+		}
+	}
+	return null;
+}
+
 /** 纯函数，便于 .sc-test 单测（不挂 pi 也能跑）。 */
 export function judgeBashCommand(command: string): GuardVerdict {
 	const groups = pipelineGroups(command);
@@ -328,6 +395,24 @@ export function judgeBashCommand(command: string): GuardVerdict {
 				`afterwards. Run it in the foreground and let pi's \`timeout\` kill the whole process tree (taskkill /F /T on Windows, ` +
 				`kill(-pid) elsewhere). If you really need it in the background, wrap it yourself: \`timeout -k 2s 120s <cmd> &\``,
 		};
+	}
+
+// 规则 E：搜索根选到海量非仓库目录（~ / AppData / 系统盘）→ 换命令名也没用，拦。
+	if (classes(groups).includes("search")) {
+		for (const stage of stages) {
+			const reason = oversizedRootReason(stage.segment);
+			if (reason) {
+				const searchHeads = stages.map((s) => s.head).filter((h): h is string => h !== undefined && SEARCH_BINARIES.has(h));
+				return {
+					block:
+						`Blocked: the search command (${searchHeads.join(", ")}) targets ${reason}. ` +
+						`That tree holds hundreds of thousands of files and is not a git repository, so fd's .gitignore rules ` +
+						`don't apply either — switching to fd would not help. Anchor the search at the project directory ` +
+						`(e.g. \`fd -t f -e ts <pattern> .\` from the repo root, or pass a subdir) and scope it; ` +
+						`only search these trees deliberately with a narrow path/glob and an explicit timeout.`,
+				};
+			}
+		}
 	}
 
 	// 规则 C：每条流水线都被 coreutils timeout 包住 → 作者自己管了，不插手。
