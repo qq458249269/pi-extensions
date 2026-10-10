@@ -1,0 +1,9 @@
+{
+  "defaultTools": [
+    "read",
+    "edit",
+    "write",
+    "bash"
+  ],
+  "hideThinkingBlock": true
+}

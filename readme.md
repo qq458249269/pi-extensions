@@ -138,6 +138,8 @@ done
 
 # 本地扩展（含 pi-pet-autostart.ts，宠物默认启用就靠它）
 node install-local-extensions.mjs
+# 项目级/用户级配置：把仓库 config/ 拷进 pi 真正读取的位置（`.pi/` 是运行时目录，仓库里整体忽略）
+node install-project-config.mjs
 ```
 
 > **GitHub 直连不通（国内出口 443 超时）时走加速源**：先把 git 的 https 改写到可达镜像，再照上面装。实测 `gh-proxy.com` 可用，`ghproxy.com`/`gitclone.com`/`ghproxy.cc` 本机 2026-10-02 均不可达或证书过期。全局设置一次即生效（含 `pi install` 内部的 git clone）：
@@ -274,6 +276,8 @@ npm rebuild better-sqlite3  # 批完必须重编，批准本身不建原生 bind
 
 ```jsonc
 // ~/.pi/agent/settings.json 与 <项目>/.pi/settings.json
+// 本仓库的项目级 canonical 源 = config/pi-project/settings.json（`.pi/` 整体 gitignore）
+// 拷进去：node install-project-config.mjs ｜ 体检：node install-project-config.mjs --check
 { "defaultTools": ["read", "edit", "write", "bash"] }
 ```
 
@@ -441,7 +445,7 @@ pi-pet stop → 宿主自己退出，state.json 清掉；整机无 pi.exe 野进
 "shellCommandPrefix": "source ~/.pi/agent/bash-prelude.sh"
 ```
 
-`~/.pi/agent/bash-prelude.sh`（710B全文）：
+`~/.pi/agent/bash-prelude.sh`（canonical 在仓库 `config/agent/bash-prelude.sh`，393B，由 `node install-project-config.mjs` 拷入；下为全文）：
 
 ```bash
 # pi 的 Bash 工具用 `bash -c` 跑，不加载任何交互式启动文件；cmd.exe 习惯写的
@@ -674,7 +678,7 @@ pi 内建 `bash` 工具的 `timeout` 参数是**可选且无默认值**，不传
 
 搜文件的其余三条路（与超时无关，但同一节纪律）：`fd` 工具每次显式传 `timeoutMs`（毫秒，1s–120s，默认 30s，见 §4.1）；`find`/`grep` 工具（pi-find）自带 30s 硬超时但**必须缩范围**（`path`/`glob`）；大目录树先 `-maxdepth`/`-prune`/`-xdev`，或直接换 `fd`（尊重 `.gitignore`，默认跳 `.git`/`node_modules`）。超时提示出现时不要重跑同一条命令：先缩范围，再谈调大预算。
 
-守卫的判定与口径写在 `extensions/pi-bash-guard.ts`（纯函数 `judgeBashCommand()` / `budgetFor()` / `resolveBashTimeout()`，判定只做字符串扫描，无 spawn/无 I/O），回归用例在 `.sc-test/probe-bash-guard.mjs`（54 例：三档默认值与上限、显式值夹取、管道生产者、`sudo`/`&&`/重定向、自带 timeout、永不返回的 block、`docker run --rm` 不误伤、`./find-helper.sh`/`findings.md`/`awk`/`git status` 不误伤）。**零 wire 成本**：不注册工具、不动 active 集，只挂 `tool_call`（§5 铁律允许的形态）。
+回归用例（54 例：三档默认值与上限、显式值夹取、管道生产者、`sudo`/`&&`/重定向、自带 timeout、永不返回的 block、`docker run --rm` 不误伤、`./find-helper.sh`/`findings.md`/`awk`/`git status` 不误伤）原先在 `.sc-test/probe-bash-guard.mjs`，**该文件已不存在**（`.sc-test/` 不入库，随清理丢了）——改 bash-guard 时按这份清单重写用例。
 
 
 0. **新装扩展一律不进常驻集**（硬规则）
@@ -1015,6 +1019,29 @@ const AGENT_DIRS = [".agents/agents", ".claude/agents", ".pi/agents"] as const;
 
 ---
 
+### 7.17 配置源外迁 `config/`：`.pi/` 回到「纯运行时目录」（2026-10-10）
+
+**起因**：`~/.pi/agent/settings.json` 在 2026-10-10 20:38 被写回旧快照——`packages` 退回 10-08 之前的 30 条（多出 `pi-compaction-cache`/`pi-warm-cache`/`pi-budget-guard`/`pi-zvec`/`pi-cwd-guard`，少了 `pi-cache-compact`/`@tian.zuo/pi-find`/`@narumitw/pi-lsp`），§3.11 的 13 个非默认键整段消失。机器侧按 readme 校正后（卸 5 装 3 + 补键），顺手把**配置与仓库的关系**改成不会丢的形态。
+
+**问题**：pi 的项目级配置只认 `<cwd>/.pi/settings.json`（`docs/configuration.md`，目录名写死 `dist/config.js:403`），而 `.pi/` 是运行时目录（索引/阶段数据会 churn），在仓库里被整体 `.gitignore` → 配置无处可存，只能靠「单独放行一个文件」这种脆做法。
+
+**改法**：配置的 canonical 源放仓库 `config/`（不被忽略、可 review、可 diff），由 `node install-project-config.mjs`（幂等 + `--check`）拷进 pi 实际读取的位置。
+
+| 层 | canonical 源（入库） | 落到哪 | 怎么装 |
+|---|---|---|---|
+| 项目级 | `config/pi-project/settings.json` | `<仓库>/.pi/settings.json` | `node install-project-config.mjs` |
+| 项目级留档 | `config/pi-project/zvec.json` | 不落（`pi-zvec` 已卸，§7.11） | 手动（重装 zvec 时） |
+| 用户级脚本 | `config/agent/bash-prelude.sh` | `~/.pi/agent/bash-prelude.sh`（§3.9 的 `shellCommandPrefix` 指它） | 同上 |
+| 用户级快照 | `config/agent/settings.snapshot-2025-09-15.json` | 不落（脚本对 `settings.snapshot-*` 一律跳过） | — |
+
+- **恢复来源**：`.pi/settings.json`、`.pi/zvec.json` 取自 git 历史（`15c714b` 删除前）；`bash-prelude.sh` 取自 §3.9 全文；用户级快照取自 `.backup-20250915/settings.json`（`51e457d` 删除前，含 §3.11 多个键的取值）。
+- `.pi/` 重新**整体忽略**（不再放行 `settings.json`）：配置是生成物，clone 后跑一次同步脚本即可；索引/churn 照样不入仓。
+- **根目录放 `settings.json` 无效**（pi 不读它）→ 是「源放 `config/` + 脚本拷进 `.pi/`」，不是「把文件挪到仓库根」。
+- 机器侧同时补回：`~/.pi/agent/settings.json` 的 §3.11 十三键（备份留 `settings.json.bak.2026-10-10-pre-config-restore`）、`bash-prelude.sh`、`~/.pi/agents/default.md`（§7.16）与 proper-lockfile 补丁 ×2（§7.14）。两个 fix 脚本 `--check` 全绿。
+- 顺手修的两处 readme 失真：§5 与 §8 表引用的 `.sc-test/probe-bash-guard.mjs`（从未入库、现不存在）。
+
+---
+
 ## 8. 体检与排障
 
 本机的体检脚本**没有自动化的**，但有几个手跑的（都在仓库根或 `.sc-test/`，`.sc-test/` 属 gitignore、不入库）：
@@ -1027,8 +1054,9 @@ const AGENT_DIRS = [".agents/agents", ".claude/agents", ".pi/agents"] as const;
 | `node fix-proper-lockfile-proxy.mjs --check` | proper-lockfile 补丁在位 | 一致 exit 0 |
 | `node fix-subagent-check.mjs --check` | 子代理可用（agent 定义目录 / modelPolicy / 插件在位） | 全绿 exit 0；缺 agent 定义 exit 1 |
 | `node fix-browser-native-compat.mjs` | 双路回退兼容（新形态报 `[skip]`） | `[skip]` |
-| `.sc-test/check-ext-errors.mjs` | 扫会话里的 `extension_error` | **还在**（gitignore，未入库）；§8 说「已删」是旧记录，现可手动跑 |
-| `.sc-test/probe-bash-guard.mjs` | 验证 bash-guard 的路径修复（§5） | 见 §5「零报障」 |
+| `node install-project-config.mjs --check` | `config/` 里的配置/小脚本与 pi 实际读取位置是否一致 | 一致 exit 0 |
+| `.sc-test/check-ext-errors.mjs` | 扫会话里的 `extension_error` | 盘上还在，但 `.sc-test/` 是 gitignore、**不入库** → 当一次性探针用，别当长期工具（升级/清理会丢） |
+| ~~`.sc-test/probe-bash-guard.mjs`~~ | bash-guard 回归用例（54 例） | **已不存在**（未入库，随清理丢了）——要回归按 §5 那份清单重写 |
 
 改完 `/reload`，看 TUI 有无 `extension_error`；本地扩展与仓库是否漂移跑 `node install-local-extensions.mjs --check`；readme 表格列数跑 `node check-readme-tables.mjs`（编辑手滑插/漏一个 `|` 时靠它兜住）。
 
@@ -1062,7 +1090,7 @@ const AGENT_DIRS = [".agents/agents", ".claude/agents", ".pi/agents"] as const;
 | 路径 | 内容 |
 |---|---|
 | `~/.pi/agent/settings.json` | `packages` 注册表 + `defaultTools`（含 dsh-pet 的 object form 屏蔽，见 §3.6） |
-| `~/.pi/agent/bash-prelude.sh` | 每条 bash 命令前的 `cd /d` 兼容层（`shellCommandPrefix`，见 §3.9） |
+| `~/.pi/agent/bash-prelude.sh` | 每条 bash 命令前的 `cd /d` 兼容层（`shellCommandPrefix`，见 §3.9）。**canonical 在仓库 `config/agent/bash-prelude.sh`** |
 | `~/.pi/agent/extensions/` | 本地扩展副本 + 各扩展的全局配置（如 `edit-guard-config.json`、`pi-dsh-pet.json`，**只放这里，放 agent 根下不生效**） |
 | `~/.pi/agent/web-search.json` | `pi-web-access` 的配置（`toolActivation`，见 §3.7）。注意它在 agent 根下，不在 `extensions/` 里 |
 | `~/.pi/agent/cache-compact.json` | `pi-cache-compact` 的模型白名单（见 §3.3） |
@@ -1072,7 +1100,9 @@ const AGENT_DIRS = [".agents/agents", ".claude/agents", ".pi/agents"] as const;
 | `~/.pi/agent/npm/node_modules/` | npm 源扩展 |
 | `~/.pi/agent/npm/package.json` | 26 个 dep + `allowScripts`（见 §3.1） |
 | `~/.pi/agent/config/` | **已空**（smart-context 包卸载后配置已删，新装带 `startupConfig` 的包才会写） |
-| `<项目>/.pi/settings.json` | 项目级 `defaultTools`，**整体覆盖**用户级（且需项目被信任） |
+本目录名写死在 `dist/config.js:403`。本仓库这份是**生成物**：canonical 在 `config/pi-project/settings.json`，跑 `node install-project-config.mjs` 拷入 |
+| `<仓库>/config/pi-project/*` | **项目级配置的 canonical 源**：`settings.json`（→ 拷进 `<仓库>/.pi/`）、`zvec.json`（留档件，不参与同步，见 §7.11） |
+| `<仓库>/config/agent/*` | **用户级配置的 canonical 源**：`bash-prelude.sh`（→ 拷进 `~/.pi/agent/`）、`settings.snapshot-2025-09-15.json`（历史快照，只留档不拷） |
 | `~/.pi/agent/sessions/**/*.jsonl` | 会话历史，算命中率的原始数据 |
 
 **生效方式**：改配置或扩展后 `/reload`（不重启会话、不丢历史）。

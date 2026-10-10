@@ -1,6 +1,8 @@
 .sc-test/
 .zvec-grep/
 
-# 本机 auto 生成/环境相关：.pi/zvec.json 的 lastIndexed 每次索引都变，settings.json 是本机 defaultTools
+# 本机 auto 生成/环境相关：.pi/zvec.json 的 lastIndexed 每次索引都变
 # （2026-10-08 起忽略；本地文件保留，fresh checkout 需手写 .pi/zvec.json 才有 auto 索引）
+# 2026-10-10：配置源外迁 config/（canonical、可 review），.pi/ 整体回到「纯运行时目录」
+# → 项目级 settings.json 由 `node install-project-config.mjs` 从 config/pi-project/ 拷入
 .pi/
